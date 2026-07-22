@@ -1,0 +1,6 @@
+[submodule "libs/libneurosdk"]
+	path = libs/libneurosdk
+	url = https://github.com/slendidev/libneurosdk
+[submodule "libs/xnvse"]
+	path = libs/xnvse
+	url = https://github.com/xNVSE/NVSE.git

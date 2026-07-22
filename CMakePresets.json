@@ -1,0 +1,41 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-i686-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/windows-i686-mingw.cmake",
+      "binaryDir": "${sourceDir}/build/windows-i686/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "windows-i686-debug",
+      "inherits": "windows-i686-base",
+      "displayName": "Windows i686 Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-i686-release",
+      "inherits": "windows-i686-base",
+      "displayName": "Windows i686 Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-i686-debug",
+      "configurePreset": "windows-i686-debug"
+    },
+    {
+      "name": "windows-i686-release",
+      "configurePreset": "windows-i686-release"
+    }
+  ]
+}
