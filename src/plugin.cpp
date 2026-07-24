@@ -15,6 +15,7 @@ NVSEMessagingInterface *g_messagingInterface{};
 NVSEInterface *g_nvseInterface{};
 NVSECommandTableInterface *g_commandTableInterface{};
 
+#if RUNTIME
 NVSEScriptInterface *g_script{};
 NVSEStringVarInterface *g_stringInterface{};
 NVSEArrayVarInterface *g_arrayInterface{};
@@ -23,6 +24,7 @@ NVSESerializationInterface *g_serializationInterface{};
 NVSEConsoleInterface *g_consoleInterface{};
 NVSEEventManagerInterface *g_eventInterface{};
 bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
+#endif
 
 neurosdk_context_t g_neuroContext;
 
@@ -83,11 +85,15 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   }
 }
 
-extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Query(const NVSEInterface *, PluginInfo *info) {
+extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info) {
   _MESSAGE("neuro-fnv plugin query successful.");
   info->infoVersion = PluginInfo::kInfoVersion;
   info->name = "neuro-fnv";
   info->version = 1;
+  if (nvse->isEditor) {
+    _MESSAGE("Loaded in editor, marking as incompatible.");
+    return false;
+  }
   return true;
 }
 
@@ -97,6 +103,10 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
   g_nvseInterface = nvse;
   g_messagingInterface = (NVSEMessagingInterface *)nvse->QueryInterface(kInterface_Messaging);
   g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
+  if (nvse->isEditor) {
+    _MESSAGE("Loaded in editor, marking as incompatible.");
+    return false;
+  }
 
   // script and function-related interfaces
   g_script = static_cast<NVSEScriptInterface *>(nvse->QueryInterface(kInterface_Script));

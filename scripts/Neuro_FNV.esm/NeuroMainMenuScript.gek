@@ -1,0 +1,34 @@
+scn NeuroMainMenuScript
+
+int continue_button_status
+;string_var uifullname
+float timer
+
+begin MenuMode 1004
+    printc "[Neuro] In Main Menu"
+    ;let uifullname := GetActiveUIComponentFullName
+    ;Print "[Neuro] Active UI Component: " + $uifullname
+    if IsComponentLoaded "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" == 1
+        MenuTapKey 200 ; Up Arrow
+        ClickMenuButton "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" 1
+    endif
+    let continue_button_status := IsComponentLoaded "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" ; Continue Game Button
+    MenuTapKey 200 ; Up Arrow
+    if continue_button_status == 1
+        set timer to timer + GetSecondsPassed
+    endif
+    if continue_button_status == 1 && (timer > 5)
+        let continue_button_status := ClickMenuButton "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" 1 ; Continue Game Button
+        if continue_button_status == 1
+            Print "[Neuro] Continue Game Button Clicked"
+        else
+            Print "[Neuro] Continue Game Button Not Clicked"
+        endif
+    endif
+end
+
+begin GameMode
+    printc "[Neuro] MyMessageadsds"
+    ShowMessage NeuroStartMessage
+    StopQuest NeuroMainQuest
+end
