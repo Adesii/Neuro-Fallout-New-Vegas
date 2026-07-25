@@ -1,34 +1,62 @@
 scn NeuroMainMenuScript
 
 int continue_button_status
-;string_var uifullname
+int nosaves_to_continue_status
+string_var uifullname
 float timer
 
 begin MenuMode 1004
     printc "[Neuro] In Main Menu"
-    ;let uifullname := GetActiveUIComponentFullName
-    ;Print "[Neuro] Active UI Component: " + $uifullname
-    if IsComponentLoaded "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" == 1
-        MenuTapKey 200 ; Up Arrow
+    let uifullname := GetActiveUIComponentFullName
+    Print "[Neuro] Active UI Component: " + $uifullname
+    if IsComponentLoaded "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" == 1 && eval GetUIString ($uifullname + "\string") == "Yes"
+        MenuTapKey 200
         ClickMenuButton "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" 1
+        return
     endif
-    let continue_button_status := IsComponentLoaded "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" ; Continue Game Button
-    MenuTapKey 200 ; Up Arrow
-    if continue_button_status == 1
-        set timer to timer + GetSecondsPassed
+
+    if IsComponentLoaded "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" == 1 && eval GetUIString ($uifullname + "\string") == "OK"
+        MenuTapKey 200
+        Print "Trying to press button: " + $(ClickMenuButton "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" 2)
+        set nosaves_to_continue_status to 1
+        return
     endif
-    if continue_button_status == 1 && (timer > 5)
-        let continue_button_status := ClickMenuButton "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" 1 ; Continue Game Button
+    if nosaves_to_continue_status == 0
+        let continue_button_status := IsComponentLoaded "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" ; Continue Game Button
         if continue_button_status == 1
-            Print "[Neuro] Continue Game Button Clicked"
+            set timer to timer + GetSecondsPassed
+            MenuTapKey 200 ;
         else
-            Print "[Neuro] Continue Game Button Not Clicked"
+            set nosaves_to_continue_status to 1 ; there is no continue button, so we can assume there are no saves to continue
+        endif
+        Print " active element vs continue button: " + GetUIString ($uifullname + "\string")
+        if continue_button_status == 1 && (timer > 5) && eval GetUIString ($uifullname + "\string") == "Continue"
+            let continue_button_status := ClickMenuButton "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" 1 ; Continue Game Button
+            if continue_button_status == 1
+                Print "[Neuro] Continue Game Button Clicked"
+            else
+                Print "[Neuro] Continue Game Button Not Clicked"
+            endif
+        endif
+    else
+        Print "[Neuro] No Saves to Continue Button Clicked, Starting New Game instead"
+        if eval GetUIString ($uifullname + "\string") != "New"
+            MenuTapKey 208 ; 
+        endif
+        let continue_button_status := IsComponentLoaded "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:5" ; New Game Button
+        if continue_button_status == 1 && eval (GetUIString ($uifullname + "\string")) == "New"
+            let continue_button_status := ClickMenuButton "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:5" 1 ; New Game Button
+            if continue_button_status == 1
+                Print "[Neuro] New Game Button Clicked"
+            else
+                Print "[Neuro] New Game Button Not Clicked"
+            endif
         endif
     endif
 end
 
 begin GameMode
-    printc "[Neuro] MyMessageadsds"
+    printc "[Neuro] Game Mode Started"
     ShowMessage NeuroStartMessage
     StopQuest NeuroMainQuest
 end
