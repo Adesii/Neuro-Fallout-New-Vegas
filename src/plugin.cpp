@@ -1,8 +1,9 @@
 #pragma once
 #include "NeuroSDK.hpp"
+#include "common.hpp"
 #include "common/IDebugLog.h"
 #include "common/ITypes.h"
-#include "util.hpp"
+#include "nvse/GameObjects.h"
 #include <neurosdk.h>
 #include <nvse/PluginAPI.h>
 
@@ -18,6 +19,11 @@ NeuroSDK *g_neuroSDK = nullptr;
 NVSEMessagingInterface *g_messagingInterface{};
 NVSEInterface *g_nvseInterface{};
 NVSECommandTableInterface *g_commandTableInterface{};
+const _FormHeap_Free FormHeap_Free = reinterpret_cast<_FormHeap_Free>(0x00401030);
+
+PlayerCharacter *PlayerCharacter::GetSingleton() {
+  return *reinterpret_cast<PlayerCharacter **>(0x011DEA3C);
+}
 
 #if RUNTIME
 NVSEScriptInterface *g_script{};
@@ -75,6 +81,10 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_ClearScriptDataCache:
     break;
   case NVSEMessagingInterface::kMessage_MainGameLoop:
+    _MESSAGE("Main Game Loop message received. Calling NeuroSDK MainLoop.");
+    if (g_neuroSDK) {
+      g_neuroSDK->MainLoop();
+    }
     break;
   case NVSEMessagingInterface::kMessage_ScriptCompile:
     break;
@@ -100,6 +110,7 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
   g_pluginHandle = nvse->GetPluginHandle();
   g_nvseInterface = nvse;
   g_messagingInterface = (NVSEMessagingInterface *)nvse->QueryInterface(kInterface_Messaging);
+  g_commandTableInterface = static_cast<NVSECommandTableInterface *>(nvse->QueryInterface(kInterface_CommandTable));
   g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
 
   if (!nvse->isEditor) {

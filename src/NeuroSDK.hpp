@@ -5,10 +5,11 @@
 #include "nvse/ParamInfos.h"
 #include "nvse/PluginAPI.h"
 
-#include "util.hpp"
+#include "common.hpp"
 class NeuroSDK : public ISingleton<NeuroSDK> {
 public:
   bool Initialize();
+  void MainLoop();
   void SendContext(char *message, bool silent = false);
   void RegisterCommands(NVSEInterface *nvse);
 

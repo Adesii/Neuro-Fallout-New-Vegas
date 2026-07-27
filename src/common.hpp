@@ -1,5 +1,6 @@
 #pragma once
 #include "nvse/CommandTable.h"
+#include "nvse/PluginAPI.h"
 // Shortcut macro to register a script command (assigning it an Opcode).
 #define RegisterScriptCommand(nvse, name) nvse->RegisterCommand(&kCommandInfo_##name)
 
@@ -10,7 +11,20 @@
 // Credits: taken from JohnnyGuitarNVSE.
 #define REG_TYPED_CMD(nvse, name, type) nvse->RegisterTypedCommand(&kCommandInfo_N##name, kRetnType_##type)
 
+extern NVSEMessagingInterface *g_messagingInterface;
+extern NVSEInterface *g_nvseInterface;
+extern NVSECommandTableInterface *g_commandTableInterface;
+
+#if RUNTIME
+extern NVSEScriptInterface *g_script;
+extern NVSEStringVarInterface *g_stringInterface;
+extern NVSEArrayVarInterface *g_arrayInterface;
+extern NVSEDataInterface *g_dataInterface;
+extern NVSESerializationInterface *g_serializationInterface;
+extern NVSEConsoleInterface *g_consoleInterface;
+extern NVSEEventManagerInterface *g_eventInterface;
 extern bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
+#endif
 
 #define DEFINE_NEURO_COMMAND_PLUGIN(name, description, isConsoleCommand, params)                                       \
   DEFINE_COMMAND_PLUGIN(N##name, description, isConsoleCommand, params)
