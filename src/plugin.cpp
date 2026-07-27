@@ -1,5 +1,8 @@
+#pragma once
+#include "NeuroSDK.hpp"
 #include "common/IDebugLog.h"
-#include <cstddef>
+#include "common/ITypes.h"
+#include "util.hpp"
 #include <neurosdk.h>
 #include <nvse/PluginAPI.h>
 
@@ -11,6 +14,7 @@
 
 IDebugLog gLog("neuro-fnv.log");
 PluginHandle g_pluginHandle = kPluginHandle_Invalid;
+NeuroSDK *g_neuroSDK = nullptr;
 NVSEMessagingInterface *g_messagingInterface{};
 NVSEInterface *g_nvseInterface{};
 NVSECommandTableInterface *g_commandTableInterface{};
@@ -25,8 +29,6 @@ NVSEConsoleInterface *g_consoleInterface{};
 NVSEEventManagerInterface *g_eventInterface{};
 bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 #endif
-
-neurosdk_context_t g_neuroContext;
 
 void MessageHandler(NVSEMessagingInterface::Message *msg) {
   switch (msg->type) {
@@ -90,10 +92,6 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Query(const NVSEInterface *nvse, Plu
   info->infoVersion = PluginInfo::kInfoVersion;
   info->name = "neuro-fnv";
   info->version = 1;
-  if (nvse->isEditor) {
-    _MESSAGE("Loaded in editor, marking as incompatible.");
-    return false;
-  }
   return true;
 }
 
@@ -103,55 +101,40 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
   g_nvseInterface = nvse;
   g_messagingInterface = (NVSEMessagingInterface *)nvse->QueryInterface(kInterface_Messaging);
   g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
-  if (nvse->isEditor) {
-    _MESSAGE("Loaded in editor, marking as incompatible.");
-    return false;
-  }
 
-  // script and function-related interfaces
-  g_script = static_cast<NVSEScriptInterface *>(nvse->QueryInterface(kInterface_Script));
-  g_stringInterface = static_cast<NVSEStringVarInterface *>(nvse->QueryInterface(kInterface_StringVar));
-  g_arrayInterface = static_cast<NVSEArrayVarInterface *>(nvse->QueryInterface(kInterface_ArrayVar));
-  g_dataInterface = static_cast<NVSEDataInterface *>(nvse->QueryInterface(kInterface_Data));
-  g_eventInterface = static_cast<NVSEEventManagerInterface *>(nvse->QueryInterface(kInterface_EventManager));
-  g_serializationInterface = static_cast<NVSESerializationInterface *>(nvse->QueryInterface(kInterface_Serialization));
-  g_consoleInterface = static_cast<NVSEConsoleInterface *>(nvse->QueryInterface(kInterface_Console));
-  ExtractArgsEx = g_script->ExtractArgsEx;
-
-  // Initialize the NeuroSDK context
-  neurosdk_context_create_desc desc = {
-      .url = NULL,
-      .game_name = "Fallout: New Vegas",
-      .poll_ms = 1000,
-      .callback_log = [](neurosdk_severity_e severity, char *message,
-                         void *user_data) { _MESSAGE("[NeuroSDK] %s", message); },
-#ifdef DEBUG
-      .flags = NEUROSDK_CONTEXT_CREATE_FLAGS_DEBUG,
+  if (!nvse->isEditor) {
+#if RUNTIME
+    // script and function-related interfaces
+    g_script = static_cast<NVSEScriptInterface *>(nvse->QueryInterface(kInterface_Script));
+    g_stringInterface = static_cast<NVSEStringVarInterface *>(nvse->QueryInterface(kInterface_StringVar));
+    g_arrayInterface = static_cast<NVSEArrayVarInterface *>(nvse->QueryInterface(kInterface_ArrayVar));
+    g_dataInterface = static_cast<NVSEDataInterface *>(nvse->QueryInterface(kInterface_Data));
+    g_eventInterface = static_cast<NVSEEventManagerInterface *>(nvse->QueryInterface(kInterface_EventManager));
+    g_serializationInterface =
+        static_cast<NVSESerializationInterface *>(nvse->QueryInterface(kInterface_Serialization));
+    g_consoleInterface = static_cast<NVSEConsoleInterface *>(nvse->QueryInterface(kInterface_Console));
+    ExtractArgsEx = g_script->ExtractArgsEx;
 #endif
-  };
-  neurosdk_error_e err;
-  if ((err = neurosdk_context_create(&g_neuroContext, &desc)) != NeuroSDK_None) {
-    _MESSAGE("Failed to create NeuroSDK context: %d", err);
-    return false;
   }
 
-  neurosdk_message_t startup_message;
-  startup_message.kind = NeuroSDK_MessageKind_Startup;
-  if ((err = neurosdk_context_send(&g_neuroContext, &startup_message)) != NeuroSDK_None) {
-    _MESSAGE("Failed to send startup message to NeuroSDK: %d", err);
-    return false;
-  }
+  g_neuroSDK = new NeuroSDK();
 
-  neurosdk_message_t random_context_message;
-  random_context_message.kind = NeuroSDK_MessageKind_Context;
-  random_context_message.value.context = {
-      .message = (char *)"Hello From Fallout: New Vegas, Evil!",
-      .silent = false,
-  };
-  if ((err = neurosdk_context_send(&g_neuroContext, &random_context_message)) != NeuroSDK_None) {
-    _MESSAGE("Failed to send random context message to NeuroSDK: %d", err);
-    return false;
-  }
+  UInt32 const neuroOpcodeBase = 0x4297;
 
+  nvse->SetOpcodeBase(neuroOpcodeBase);
+
+#if RUNTIME
+  if (!nvse->isEditor) {
+    bool initialized = NeuroSDK::GetSingleton().Initialize();
+    if (!initialized) {
+      _MESSAGE("Failed to Connect. Ignoring for now.");
+    } else {
+      _MESSAGE("NeuroSDK Connected to FNVSE");
+      NeuroSDK::GetSingleton().SendContext((char *)"NeuroSDK Connected to FNVSE", true);
+    }
+  }
+#endif
+  // Register commands
+  NeuroSDK::GetSingleton().RegisterCommands(nvse);
   return true;
 }

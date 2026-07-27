@@ -4,11 +4,14 @@ int continue_button_status
 int nosaves_to_continue_status
 string_var uifullname
 float timer
+int menuid
 
-begin MenuMode 1004
+begin MenuMode 4
     printc "[Neuro] In Main Menu"
+
     let uifullname := GetActiveUIComponentFullName
-    Print "[Neuro] Active UI Component: " + $uifullname
+
+    ;Print "[Neuro] Active UI Component: " + $uifullname
     if IsComponentLoaded "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" == 1 && eval GetUIString ($uifullname + "\string") == "Yes"
         MenuTapKey 200
         ClickMenuButton "StartMenu\NOGLOW_BRANCH\confirm_container\Yes" 1
@@ -17,7 +20,7 @@ begin MenuMode 1004
 
     if IsComponentLoaded "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" == 1 && eval GetUIString ($uifullname + "\string") == "OK"
         MenuTapKey 200
-        Print "Trying to press button: " + $(ClickMenuButton "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" 2)
+        Print "Trying to press button: " + $(ClickMenuButton "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" 1)
         set nosaves_to_continue_status to 1
         return
     endif
@@ -32,6 +35,13 @@ begin MenuMode 1004
         Print " active element vs continue button: " + GetUIString ($uifullname + "\string")
         if continue_button_status == 1 && (timer > 5) && eval GetUIString ($uifullname + "\string") == "Continue"
             let continue_button_status := ClickMenuButton "StartMenu\NOGLOW_BRANCH\main_container\lb_item_hotrect:6" 1 ; Continue Game Button
+            SetEventHandler "ShowOff:OnMenuCreate" (begin function {menuid}
+                if MenuMode 4
+                    return
+                endif
+                CallAfterFrames 2 NeuroPopupScriptHandlerScript 1 menuid
+
+            end) "first"::1001
             if continue_button_status == 1
                 Print "[Neuro] Continue Game Button Clicked"
             else
@@ -55,8 +65,13 @@ begin MenuMode 1004
     endif
 end
 
+
+int first_time_game_mode
 begin GameMode
-    printc "[Neuro] Game Mode Started"
-    ShowMessage NeuroStartMessage
-    StopQuest NeuroMainQuest
+    if first_time_game_mode == 0
+        set first_time_game_mode to 1
+        StopQuest NeuroMainQuest
+        printc "[Neuro] Game Mode Started"
+        ShowMessage NeuroStartMessage
+    endif
 end

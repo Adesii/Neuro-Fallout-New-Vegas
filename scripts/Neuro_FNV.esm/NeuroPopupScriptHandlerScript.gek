@@ -1,0 +1,59 @@
+scn NeuroPopupScriptHandlerScript
+
+string_var messageTitle
+string_var messageText
+
+string_var optionsText
+string_var optionsstring
+
+string_var finalSendMessage
+
+int exists_multiple_times
+
+
+int iCount
+int buttoncount
+
+int iMenuID
+begin function {iMenuID}
+  if iMenuID != 1001
+    return
+  endif
+  Print ("[Neuro] NeuroPopupScriptHandlerScript called with menu ID: " + $iMenuID)
+  messageTitle := GetUIString "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_Title\string"
+  printc ("[Neuro] Message Title: " + $messageTitle)
+  messageText := GetUIString "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_MessageText\string"
+  printc ("[Neuro] Message Text: " + $messageText)
+  PrintActiveTile
+  optionsText := ""
+  iCount := -1
+  buttoncount := GetUIFloat "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\lb_scrollbar\_number_of_items"
+  printc ("[Neuro] Button Count: " + $buttoncount)
+  while buttoncount >= (iCount += 1)
+    printc ("[Neuro] Checking for button " + $iCount)
+    optionsstring := "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList#" + $iCount + "\MM_Button"
+    if IsComponentLoaded $optionsstring == 1
+      optionsText += GetUIString ($optionsstring + "\string")
+      printc ("[Neuro] Option " + $iCount + ": " + GetUIString ($optionsstring + "\string"))
+    else
+      if IsComponentLoaded "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" == 1
+        optionsText += GetUIString ("MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button\string")
+        break
+      endif
+    endif
+  loop
+  printc ("[Neuro] Options Text: " + $optionsText)
+
+  let finalSendMessage := "Title: " + $messageTitle + "\n Text: " + $messageText + "\n Options: " + $optionsText
+  printc ("[Neuro] Final Send Message: " + $finalSendMessage)
+
+  NSendContext $finalSendMessage
+  if buttoncount == 1 ; We only have one button, so we can just click it
+    printc ("[Neuro] Only one button, clicking it (preparing)")
+    CallAfterSeconds 1.0 (begin function {}
+      printc ("[Neuro] Only one button, clicking it")
+      TapKey 200
+      ClickMenuButton "MessageMenu\NOGLOW_BRANCH\MM_MainRect\MM_ButtonList\MM_Button" 1
+    end) 2
+  endif
+end
