@@ -1,0 +1,107 @@
+scn NeuroMoveToHandlerScript
+
+float activeObjective
+ref activequest
+array_var objective_targets
+int objective_amounts
+array_var target
+
+ref target_value
+
+array_var target_path
+
+array_var current_target_point
+float current_target_point_x
+float current_target_point_y
+float current_target_point_z
+
+float resAngX
+float resAngY
+
+float playerFacingAngle
+float targetFacingAngle
+
+
+float interactionTimer
+
+
+begin GameMode
+;DisablePlayerControls
+
+  activequest = GetActiveQuest
+  if IsFormValid activequest
+    let activeObjective := GetCurrentObjective
+    if activeObjective != -1
+      let objective_targets := (GetObjectiveTargets activequest activeObjective)
+      let objective_amounts := ar_Size (objective_targets)
+      if objective_amounts > 0 && objective_targets != -1
+        foreach target <- objective_targets
+          if eval IsFormValid (target["value"])
+            target_value := (target["value"])
+          endif
+        loop
+      endif
+    endif
+  endif
+  Print ("Objective Target: " + $target_value)
+
+  if IsFormValid target_value
+    if player.GetDistance2D target_value < 60
+      Print ("Reached Objective Target: " + $target_value)
+      SetAutoMove 0
+
+      targetFacingAngle := player.GetHeadingAngle target_value
+      targetFacingAngle := targetFacingAngle / 10
+        ;Print ("Target Facing Angle: " + $targetFacingAngle)
+      playerFacingAngle := player.GetAngle Z + targetFacingAngle
+      player.SetAngle Z playerFacingAngle
+      ; Do up-down angle adjustment if needed
+      GetAnglesBetweenPoints (player.GetPos x) (player.GetPos Y) (player.GetPos Z) (target_value.GetPos x) (target_value.GetPos Y) (target_value.GetPos Z) resAngX resAngY
+      resAngX := resAngX + 5
+      player.SetAngle x resAngX
+      if targetFacingAngle < 5 && targetFacingAngle > -5 && interactionTimer > 1
+        TapKey 18 ; Interact key
+        Print ("Interacting with Objective Target: " + $target_value)
+        interactionTimer := 0
+      else
+        interactionTimer := interactionTimer + GetSecondsPassed
+      endif
+      return
+    endif
+    Print ("trying to move to Objective Target: " + $target_value)
+    current_target_point := player.GetNthPathNode target_value 1
+    Print ("Current Target Point: " + $current_target_point)
+    if eval (ar_Size current_target_point) < 3
+      SetAutoMove 1
+      targetFacingAngle := GetHeadingAngleBetweenPoints (player.GetPos x) (player.GetPos Y) (player.GetAngle Z) (target_value.GetPos x) (target_value.GetPos Y)
+      targetFacingAngle := targetFacingAngle / 10
+        ;Print ("Target Facing Angle: " + $targetFacingAngle)
+      playerFacingAngle := player.GetAngle Z + targetFacingAngle
+      player.SetAngle Z playerFacingAngle
+      return
+    endif
+    current_target_point_x := current_target_point[0]
+    current_target_point_y := current_target_point[1]
+    current_target_point_z := current_target_point[2]
+      ;Print ("Current Target Point: " + $current_target_point_x + ", " + $current_target_point_y + ", " + $current_target_point_z)
+    Print ("Player Position: " + $player.GetPos x + ", " + $player.GetPos Y + ", " + $player.GetPos Z + " with facing angle: " + $player.GetAngle Z + " and distance to target: " + $player.GetDistance2D target_value + " target position: " + $target_value.GetPos x + ", " + $target_value.GetPos Y + ", " + $target_value.GetPos Z)
+    targetFacingAngle := GetHeadingAngleBetweenPoints (player.GetPos x) (player.GetPos Y) (playerFacingAngle) current_target_point_x current_target_point_y ; Returns -180 to 180 degrees, where 0 is straight ahead, negative is left, positive is right
+    Print ("Target Facing Angle: " + $targetFacingAngle)
+    targetFacingAngle := targetFacingAngle / 10
+    playerFacingAngle := player.GetAngle Z + targetFacingAngle
+    if playerFacingAngle >= 360
+
+      playerFacingAngle := playerFacingAngle -360
+    endif
+    if playerFacingAngle < 0
+      playerFacingAngle := playerFacingAngle + 360
+    endif
+        ;Print ("Target Facing Angle: " + $targetFacingAngle)
+    player.SetAngle Z playerFacingAngle
+    SetAutoMove 1
+    Print ("Moving to Objective Target: " + $target_value + " at point: " + $current_target_point_x + ", " + $current_target_point_y + ", " + $current_target_point_z + " with facing angle: " + $playerFacingAngle)
+  else
+    SetAutoMove 0
+  endif
+
+end
