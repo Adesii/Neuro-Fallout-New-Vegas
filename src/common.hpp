@@ -1,5 +1,17 @@
 #pragma once
+// 1. Force the universal standard types and foundational types first
+// to fix the GameAPI.h "unknown override specifier" error
+#include <cstdint>
+#include <string>
+
+// 2. Include the fundamental Windows wrappers cleanly
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
 #include "nvse/CommandTable.h"
+#include "nvse/GameObjects.h"
 #include "nvse/PluginAPI.h"
 // Shortcut macro to register a script command (assigning it an Opcode).
 #define RegisterScriptCommand(nvse, name) nvse->RegisterCommand(&kCommandInfo_##name)

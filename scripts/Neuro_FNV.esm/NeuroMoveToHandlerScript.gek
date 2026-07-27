@@ -27,6 +27,7 @@ float interactionTimer
 
 begin GameMode
 ;DisablePlayerControls
+  return ; Let cpp handle the movement and facing angle adjustments
 
   activequest = GetActiveQuest
   if IsFormValid activequest

@@ -19,11 +19,6 @@ NeuroSDK *g_neuroSDK = nullptr;
 NVSEMessagingInterface *g_messagingInterface{};
 NVSEInterface *g_nvseInterface{};
 NVSECommandTableInterface *g_commandTableInterface{};
-const _FormHeap_Free FormHeap_Free = reinterpret_cast<_FormHeap_Free>(0x00401030);
-
-PlayerCharacter *PlayerCharacter::GetSingleton() {
-  return *reinterpret_cast<PlayerCharacter **>(0x011DEA3C);
-}
 
 #if RUNTIME
 NVSEScriptInterface *g_script{};
@@ -81,7 +76,7 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_ClearScriptDataCache:
     break;
   case NVSEMessagingInterface::kMessage_MainGameLoop:
-    _MESSAGE("Main Game Loop message received. Calling NeuroSDK MainLoop.");
+    // _MESSAGE("Main Game Loop message received. Calling NeuroSDK MainLoop.");
     if (g_neuroSDK) {
       g_neuroSDK->MainLoop();
     }
