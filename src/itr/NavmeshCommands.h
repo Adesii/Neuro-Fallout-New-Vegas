@@ -12,7 +12,7 @@ struct EdgeEndpoints {
 
 struct CoverPoint {
   PathPoint3 pos;
-  UInt32 flags;
+  UINT32 flags;
   float distSq;
 };
 

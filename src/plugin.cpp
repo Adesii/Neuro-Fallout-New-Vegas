@@ -1,8 +1,7 @@
 #pragma once
 #include "NeuroSDK.hpp"
+#include "Utils/DebugLog.hpp"
 #include "common.hpp"
-#include "common/IDebugLog.h"
-#include "common/ITypes.h"
 #include "nvse/GameObjects.h"
 #include <neurosdk.h>
 #include <nvse/PluginAPI.h>
@@ -125,7 +124,7 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
 
   g_neuroSDK = new NeuroSDK();
 
-  UInt32 const neuroOpcodeBase = 0x4297;
+  UINT32 const neuroOpcodeBase = 0x4297;
 
   nvse->SetOpcodeBase(neuroOpcodeBase);
 

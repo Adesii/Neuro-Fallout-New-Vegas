@@ -1,5 +1,5 @@
 #include "common/IErrors.h"
-#include "common/IDebugLog.h"
+#include "Utils/DebugLog.hpp"
 #include <cstdlib>
 
 __declspec(noreturn) static void IErrors_Halt(void)
@@ -36,7 +36,7 @@ void _AssertionFailed_ErrCode(const char * file, unsigned long line, const char 
 		_FATALERROR("Assertion failed in %s (%d): %s (code = %16I64X (%I64d))", file, line, desc, code, code);
 	else
 	{
-		UInt32	code32 = code;
+		uint32_t	code32 = code;
 		_FATALERROR("Assertion failed in %s (%d): %s (code = %08X (%d))", file, line, desc, code32, code32);
 	}
 	

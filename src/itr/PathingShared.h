@@ -1,7 +1,6 @@
 // standalone PathingRequest/Solution machinery shared by PathingCommands and NavmeshCommands
 #pragma once
 
-#include "nvse/Utilities.h"
 class TESObjectCELL;
 class TESWorldSpace;
 class TESObjectREFR;
@@ -20,15 +19,15 @@ struct PathingLocationLayout {
   void *navMeshes;
   TESObjectCELL *cell;
   TESWorldSpace *worldSpace;
-  UInt32 cellCoords;
-  UInt16 triangle;
-  UInt8 flags;
-  UInt8 clientData;
+  UINT32 cellCoords;
+  UINT16 triangle;
+  UINT8 flags;
+  UINT8 clientData;
 };
 static_assert(sizeof(PathingLocationLayout) == 0x28);
 
 struct PathingNodeLayout {
-  UInt32 flags;
+  UINT32 flags;
   PathingLocationLayout pathingLocation;
   PathPoint3 tangent;
   TESObjectREFR *actionRef;
@@ -38,46 +37,46 @@ static_assert(sizeof(PathingNodeLayout) == 0x3C);
 template <typename T> struct BSSimpleArrayLayout {
   void *vtbl;
   T *data;
-  UInt32 size;
-  UInt32 allocSize;
+  UINT32 size;
+  UINT32 allocSize;
 };
 static_assert(sizeof(BSSimpleArrayLayout<void>) == 0x10);
 
 struct PathingSolutionLayout {
   void *vtbl;
-  UInt32 refCount;
+  UINT32 refCount;
   BSSimpleArrayLayout<void> virtualNodes;
-  SInt32 firstLoadedVirtualNodeIndex;
-  SInt32 lastLoadedVirtualNodeIndex;
+  INT32 firstLoadedVirtualNodeIndex;
+  INT32 lastLoadedVirtualNodeIndex;
   BSSimpleArrayLayout<PathingNodeLayout> currentNodes;
-  BSSimpleArrayLayout<UInt32> previousNodes;
-  UInt8 incompletePath;
+  BSSimpleArrayLayout<UINT32> previousNodes;
+  UINT8 incompletePath;
 };
 static_assert(sizeof(PathingSolutionLayout) == 0x44);
 
 struct ScopedPathingRequest {
-  alignas(4) UInt8 data[0xB0] = {};
+  alignas(4) UINT8 data[0xB0] = {};
 
   ScopedPathingRequest() {
-    ThisStdCall<void>(0x6E2420, data); // PathingRequest ctor
+    ThisCall<void>(0x6E2420, data); // PathingRequest ctor
   }
 
   ~ScopedPathingRequest() {
-    ThisStdCall<void>(0x6E2620, data); // PathingRequest dtor
+    ThisCall<void>(0x6E2620, data); // PathingRequest dtor
   }
 
   void *Get() { return data; }
 };
 
 struct ScopedPathingSolution {
-  alignas(4) UInt8 data[sizeof(PathingSolutionLayout)] = {};
+  alignas(4) UINT8 data[sizeof(PathingSolutionLayout)] = {};
 
   ScopedPathingSolution() {
-    ThisStdCall<void>(0x6E7650, data); // PathingSolution ctor
+    ThisCall<void>(0x6E7650, data); // PathingSolution ctor
   }
 
   ~ScopedPathingSolution() {
-    ThisStdCall<void>(0x6E7720, data); // PathingSolution dtor
+    ThisCall<void>(0x6E7720, data); // PathingSolution dtor
   }
 
   PathingSolutionLayout *Get() { return reinterpret_cast<PathingSolutionLayout *>(data); }
@@ -91,7 +90,7 @@ struct ScopedNavMeshPtr {
 
   void Release() {
     if (navMesh) {
-      ThisStdCall<void>(0x42FDA0, &navMesh); // NavMeshPtr dtor, drops the strong ref
+      ThisCall<void>(0x42FDA0, &navMesh); // NavMeshPtr dtor, drops the strong ref
       navMesh = nullptr;
     }
   }

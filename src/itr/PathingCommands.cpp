@@ -19,15 +19,15 @@ extern NVSEArrayVarInterface *g_arrayInterface;
 
 namespace Pathing {
 
-constexpr UInt32 kMaxPathNodes = 1024;
+constexpr UINT32 kMaxPathNodes = 1024;
 
 DWORD s_mainThreadId = 0;
 
 bool IsActorRef(TESObjectREFR *ref) {
   if (!ref || !ref->baseForm)
     return false;
-  return ref->baseForm->typeID == kFormType_Creature ||
-         ref->baseForm->typeID == kFormType_TESNPC; // Was kFormType_NPC idk if this is the correct correction
+  return ref->baseForm->eFormType == kVtbl_Creature ||
+         ref->baseForm->eFormType == kVtbl_TESNPC; // Was kFormType_NPC idk if this is the correct correction
 }
 
 bool IsMainThread() { return !s_mainThreadId || GetCurrentThreadId() == s_mainThreadId; }
@@ -55,7 +55,7 @@ bool BuildPath(Actor *actor, TESObjectREFR *target, PathResult &out) {
   ScopedPathingRequest request;
   ScopedPathingSolution solution;
 
-  PathPoint3 destination = {target->posX, target->posY, target->posZ};
+  PathPoint3 destination = {target->pos.x, target->pos.y, target->pos.z};
   CdeclCall<void>(0x9DBC90, actor, request.Get(), &destination, target->parentCell, target->parentCell->worldSpace,
                   0.0f, static_cast<void *>(nullptr));
 
@@ -66,12 +66,12 @@ bool BuildPath(Actor *actor, TESObjectREFR *target, PathResult &out) {
   if (solutionData->incompletePath)
     return false;
 
-  const UInt32 nodeCount = ThisStdCall<UInt32>(0x8B6800, solution.Get());
-  const UInt32 safeCount = (std::min)(nodeCount, kMaxPathNodes);
+  const UINT32 nodeCount = ThisCall<UINT32>(0x8B6800, solution.Get());
+  const UINT32 safeCount = (std::min)(nodeCount, kMaxPathNodes);
   out.nodes.reserve(safeCount);
 
-  for (UInt32 i = 0; i < safeCount; ++i) {
-    auto *node = ThisStdCall<PathingNodeLayout *>(0x6E7970, solution.Get(), i);
+  for (UINT32 i = 0; i < safeCount; ++i) {
+    auto *node = ThisCall<PathingNodeLayout *>(0x6E7970, solution.Get(), i);
     if (!node)
       break;
     out.nodes.push_back(node->pathingLocation.location);
@@ -167,7 +167,7 @@ bool Cmd_GetNthPathNode_Execute(COMMAND_ARGS) {
   *result = 0;
 
   TESObjectREFR *target = nullptr;
-  UInt32 index = 0;
+  UINT32 index = 0;
   auto *arr = CreateArray(scriptObj);
 
   if (ExtractArgs(EXTRACT_ARGS, &target, &index)) {

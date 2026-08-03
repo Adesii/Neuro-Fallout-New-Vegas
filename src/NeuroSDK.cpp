@@ -1,9 +1,10 @@
 
 #include "NeuroSDK.hpp"
 #include "CachedScripts.hpp"
+#include "MenuHandler.hpp"
+#include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
 #include "common.hpp"
-#include "common/IDebugLog.h"
 #include "neurosdk.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameObjects.h"
@@ -20,11 +21,14 @@ bool NeuroSDK::Initialize() {
       .url = NULL,
       .game_name = "Fallout: New Vegas",
       .poll_ms = 50,
+      .flags =
+          (neurosdk_context_create_flags_e)(neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_DebugPrints |
+                                            neurosdk_context_create_flags_e::
+                                                NeuroSDK_ContextCreateFlags_ValidationLayers),
       .callback_log = [](neurosdk_severity_e severity, char *message,
                          void *user_data) { _MESSAGE("[NeuroSDK] %s", message); },
-#ifdef DEBUG
-      .flags = NEUROSDK_CONTEXT_CREATE_FLAGS_DEBUG,
-#endif
+      // #ifdef DEBUG
+      // #endif
   };
   neurosdk_error_e err;
   if ((err = neurosdk_context_create(&ctx, &desc)) != NeuroSDK_None) {
@@ -40,33 +44,7 @@ bool NeuroSDK::Initialize() {
 }
 
 void NeuroSDK::MainLoop() {
-  // _MESSAGE("NeuroSDK MainLoop called.");
-  // PlayerCharacter *player = GetPlayerCharacter();
-  // _MESSAGE("PlayerCharacter pointer: %p", player);
-  // if (!player) {
-  //   _WARNING("PlayerCharacter is null. Cannot execute test command.");
-  //   return;
-  // }
-  // NVSEArrayVarInterface::Element result;
-  // const bool ok = CachedScripts::Call(
-  //     kGetHeadingAngleBetweenPointsScript, player, result, CachedScripts::FloatArg(player->posX),
-  //     CachedScripts::FloatArg(player->posY), CachedScripts::FloatArg(player->rotZ),
-  //     CachedScripts::FloatArg(player->posX + 100.0f), CachedScripts::FloatArg(player->posY + 100.0f));
-  //
-  // _MESSAGE("Executed test command with result: %s", ok ? "success" : "failure");
-  // if (ok) {
-  //   const double angle = result.GetNumber();
-  //   _MESSAGE("Executed test command with result: %f", angle);
-  // }
-  // NVSEArrayVarInterface::Element result2;
-  // const bool ok2 = CachedScripts::Call(kGetHeadingAngleAltScript, player, result2, CachedScripts::FloatArg(1231.0f),
-  //                                      CachedScripts::FloatArg(2314.0f), CachedScripts::FloatArg(90.0f), player);
-  //
-  // _MESSAGE("Executed second test command with result: %s", ok ? "success" : "failure");
-  // if (ok2) {
-  //   const double angle = result2.GetNumber();
-  //   _MESSAGE("Executed second test command with result: %f", angle);
-  // }
+  MenuHandler::Process();
   Walker::Process();
 }
 

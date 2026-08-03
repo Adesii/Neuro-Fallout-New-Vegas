@@ -2,6 +2,7 @@
 
 #include "GameObjects.h"
 #include "itr/PathingShared.h"
+#include <vector>
 namespace Pathing {
 
 struct PathResult {

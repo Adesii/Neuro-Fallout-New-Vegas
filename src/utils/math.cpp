@@ -1,8 +1,8 @@
 #include "math.h"
-#include "NiPoint.h"
+#include "Gamebryo/NiPoint3.hpp"
 
 namespace Math {
-float GetDistance2D(NiPoint3 *posA, NiPoint3 *posB) {
+float GetDistance2D(const NiPoint3 *posA, const NiPoint3 *posB) {
   if (!posA || !posB)
     return 0.0f;
 

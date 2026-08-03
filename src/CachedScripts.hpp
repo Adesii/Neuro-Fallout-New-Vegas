@@ -1,7 +1,7 @@
 #pragma once
 
+#include "Utils/DebugLog.hpp"
 #include "common.hpp"
-#include "common/IDebugLog.h"
 
 #include <bit>
 #include <cstdint>

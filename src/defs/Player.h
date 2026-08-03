@@ -4,9 +4,8 @@
 //
 
 #include "GameObjects.h"
-#include "common/ITypes.h"
 struct PlayerAutoMove {
-  UInt8 pad00[0x651];
+  UINT8 pad00[0x651];
   bool alwaysRun; // 651
   bool autoMove;  // 652
 };

@@ -9,7 +9,7 @@ if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
     message(FATAL_ERROR "neuro-fnv must be built as a 32-bit (x86) Windows target.")
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -32,11 +32,7 @@ file(GLOB_RECURSE NEURO_FNV_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*/*.cpp"
 )
 
-file(GLOB XNVSE_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/common/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/*.cpp"
-)
-add_library(neuro-fnv SHARED ${NEURO_FNV_SOURCES} ${XNVSE_SOURCES})
+add_library(neuro-fnv SHARED ${NEURO_FNV_SOURCES})
 
 set_target_properties(neuro-fnv PROPERTIES
     OUTPUT_NAME "neuro-fnv"
@@ -51,33 +47,46 @@ target_include_directories(neuro-fnv PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/libneurosdk/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/common"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/nvse"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal/Game"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/shared"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse"
+)
+file(GLOB_RECURSE JG_GAME_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal/Game/*.cpp"
 )
 target_sources(neuro-fnv PRIVATE
-    libs/nvse/nvse/containers.cpp
-    libs/nvse/nvse/GameAPI.cpp
-    libs/nvse/nvse/GameBSExtraData.cpp
-    libs/nvse/nvse/GameData.cpp
-    libs/nvse/nvse/GameExtraData.cpp
-    libs/nvse/nvse/GameForms.cpp
-    libs/nvse/nvse/GameObjects.cpp
-    libs/nvse/nvse/GameOSDepend.cpp
-    libs/nvse/nvse/GameProcess.cpp
-    libs/nvse/nvse/GameRTTI.cpp
-    libs/nvse/nvse/GameScript.cpp
-    libs/nvse/nvse/GameSettings.cpp
-    libs/nvse/nvse/GameTasks.cpp
-    libs/nvse/nvse/GameTiles.cpp
-    libs/nvse/nvse/GameTypes.cpp
-    libs/nvse/nvse/GameUI.cpp
-    libs/nvse/nvse/NiTypes.cpp
-    libs/nvse/nvse/printf.cpp
-    libs/nvse/nvse/SafeWrite.cpp
-    libs/nvse/nvse/Utilities.cpp
-    libs/nvse/nvse/utility.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameAPI.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameBSExtraData.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameForms.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameObjects.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameOSDepend.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameProcess.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameScript.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameTasks.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameTiles.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/GameUI.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/nvse/Utilities.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal/netimmerse.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal/utility.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal/md5/md5.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/JG/internal/sha1/sha1.cpp"
+    ${JG_GAME_SOURCES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/shared/BSMemory/BSMemory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/shared/BSMemory/BSScrapMemory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/shared/SafeWrite/SafeWrite.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/shared/Utils/DebugLog.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/common/IErrors.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/common/ISingleton.cpp"
 )
+
 target_compile_definitions(neuro-fnv PRIVATE
+    GAME
+    NOMINMAX
     RUNTIME
     RUNTIME_VERSION=0x040020D0
     _WINDOWS
@@ -88,7 +97,7 @@ target_compile_definitions(neuro-fnv PRIVATE
 # the master prefix header directly into every translation unit.
 target_compile_options(neuro-fnv PRIVATE 
     /permissive
-    "/FI${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/nvse/prefix.h"
+    "/FI${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/JG/shared/Defines.hpp"
 )
 
 # -----------------------------------------------------------------------------
