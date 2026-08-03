@@ -33,8 +33,8 @@ file(GLOB_RECURSE NEURO_FNV_SOURCES CONFIGURE_DEPENDS
 )
 
 file(GLOB XNVSE_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/xnvse/common/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/xnvse/nvse/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/common/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/*.cpp"
 )
 add_library(neuro-fnv SHARED ${NEURO_FNV_SOURCES} ${XNVSE_SOURCES})
 
@@ -50,31 +50,32 @@ set_target_properties(neuro-fnv PROPERTIES
 target_include_directories(neuro-fnv PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/libneurosdk/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/xnvse"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/xnvse/nvse"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/xnvse/nvse/nvse"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/nvse"
 )
 target_sources(neuro-fnv PRIVATE
-    libs/xnvse/nvse/nvse/containers.cpp
-    libs/xnvse/nvse/nvse/GameAPI.cpp
-    libs/xnvse/nvse/nvse/GameBSExtraData.cpp
-    libs/xnvse/nvse/nvse/GameData.cpp
-    libs/xnvse/nvse/nvse/GameExtraData.cpp
-    libs/xnvse/nvse/nvse/GameForms.cpp
-    libs/xnvse/nvse/nvse/GameObjects.cpp
-    libs/xnvse/nvse/nvse/GameOSDepend.cpp
-    libs/xnvse/nvse/nvse/GameProcess.cpp
-    libs/xnvse/nvse/nvse/GameRTTI.cpp
-    libs/xnvse/nvse/nvse/GameScript.cpp
-    libs/xnvse/nvse/nvse/GameSettings.cpp
-    libs/xnvse/nvse/nvse/GameTasks.cpp
-    libs/xnvse/nvse/nvse/GameTiles.cpp
-    libs/xnvse/nvse/nvse/GameTypes.cpp
-    libs/xnvse/nvse/nvse/NiTypes.cpp
-    libs/xnvse/nvse/nvse/printf.cpp
-    libs/xnvse/nvse/nvse/SafeWrite.cpp
-    libs/xnvse/nvse/nvse/Utilities.cpp
-    libs/xnvse/nvse/nvse/utility.cpp
+    libs/nvse/nvse/containers.cpp
+    libs/nvse/nvse/GameAPI.cpp
+    libs/nvse/nvse/GameBSExtraData.cpp
+    libs/nvse/nvse/GameData.cpp
+    libs/nvse/nvse/GameExtraData.cpp
+    libs/nvse/nvse/GameForms.cpp
+    libs/nvse/nvse/GameObjects.cpp
+    libs/nvse/nvse/GameOSDepend.cpp
+    libs/nvse/nvse/GameProcess.cpp
+    libs/nvse/nvse/GameRTTI.cpp
+    libs/nvse/nvse/GameScript.cpp
+    libs/nvse/nvse/GameSettings.cpp
+    libs/nvse/nvse/GameTasks.cpp
+    libs/nvse/nvse/GameTiles.cpp
+    libs/nvse/nvse/GameTypes.cpp
+    libs/nvse/nvse/GameUI.cpp
+    libs/nvse/nvse/NiTypes.cpp
+    libs/nvse/nvse/printf.cpp
+    libs/nvse/nvse/SafeWrite.cpp
+    libs/nvse/nvse/Utilities.cpp
+    libs/nvse/nvse/utility.cpp
 )
 target_compile_definitions(neuro-fnv PRIVATE
     RUNTIME
@@ -87,7 +88,7 @@ target_compile_definitions(neuro-fnv PRIVATE
 # the master prefix header directly into every translation unit.
 target_compile_options(neuro-fnv PRIVATE 
     /permissive
-    "/FI${CMAKE_CURRENT_SOURCE_DIR}/libs/xnvse/nvse/nvse/prefix.h"
+    "/FI${CMAKE_CURRENT_SOURCE_DIR}/libs/nvse/nvse/prefix.h"
 )
 
 # -----------------------------------------------------------------------------

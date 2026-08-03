@@ -1,0 +1,26 @@
+name ControlFlow;
+
+fn () {
+	string testName = "ControlFlow";
+	print(("Started running xNVSE ${testName} unit tests."));
+
+	int abc = 123;
+	if (abc == 123) {
+		assert(true);
+	} else {
+		assert(false);
+	}
+
+	fn lambda() {
+		int def = 456;
+		if (def == 123) {
+			assert(false);
+		} else {	
+			assert(true);
+		}
+	};
+
+	lambda();
+	
+	print(("Finished running xNVSE ${testName} unit tests."));
+}
