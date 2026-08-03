@@ -1,7 +1,6 @@
 // typed engine function pointers - centralized to catch address errors once
 #pragma once
 
-#include "internal/GameGlobals.h"
 #include "itr/internal/GameGlobals.h"
 
 class Actor;
