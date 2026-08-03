@@ -1,4 +1,4 @@
-#include "ScriptTokens.h"
+#include "scripttokens.h"
 #include "ScriptUtils.h"
 #include "GameRTTI.h"
 

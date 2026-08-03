@@ -17,7 +17,7 @@ struct FunctionInfo;
 struct FunctionContext;
 class FunctionCaller;
 
-#include "ScriptTokens.h"
+#include "scripttokens.h"
 #include <stack>
 
 #if RUNTIME
