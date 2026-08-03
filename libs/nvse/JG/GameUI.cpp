@@ -19,7 +19,7 @@ InterfaceManager *InterfaceManager::GetSingleton(void) { return *(InterfaceManag
 
 Menu *InterfaceManager::GetMenuByType(uint32_t menuType) { return CdeclCall<Menu *>(0xA09030, menuType); }
 
-void RaceSexMenu::UpdatePlayerHead(void) { ThisCall(s_RaceSexMenu__UpdatePlayerHead, this); }
+void RaceSexMenu::UpdatePlayerHead(void) { ThisStdCall(s_RaceSexMenu__UpdatePlayerHead, this); }
 // reimplementation by lStewieAl
 bool bNoHolotapeStopSound = false;
 void MapMenu::PlayHolotape(BGSNote *note, bool playStartStopSound) {
@@ -35,7 +35,7 @@ void MapMenu::PlayHolotape(BGSNote *note, bool playStartStopSound) {
   } else if (note->type == BGSNote::kVoice) {
     auto character = BSMemory::create<Character, 0x8D1F40>(false);
     character->SetTemporary();
-    ThisCall(0x575690, character, note->speaker);
+    ThisStdCall(0x575690, character, note->speaker);
 
     auto pConversation =
         BSMemory::create<Conversation, 0x83B850>(character, PlayerCharacter::GetSingleton(), note->voice);
@@ -55,10 +55,10 @@ void MapMenu::PlayHolotape(BGSNote *note, bool playStartStopSound) {
             break;
 
           auto voiceLineStr = &currentResponse->strResponseText;
-          ThisCall(0x7A1AC0, &holotapeSubtitles, voiceLineStr);
+          ThisStdCall(0x7A1AC0, &holotapeSubtitles, voiceLineStr);
 
           auto topicInfo = currentItem->pTopicInfo;
-          ThisCall(0x61F170, topicInfo, 0, character);
+          ThisStdCall(0x61F170, topicInfo, 0, character);
 
           // append sound
           BSSoundHandle toPlay = BSWin32Audio::GetSingleton()->GetSoundHandleByFilePath(
@@ -66,7 +66,7 @@ void MapMenu::PlayHolotape(BGSNote *note, bool playStartStopSound) {
           toPlay.SetVolume(0.9f);
           holotapeDialogues.Append(&toPlay);
 
-          ThisCall(0x61F170, topicInfo, 1, character);
+          ThisStdCall(0x61F170, topicInfo, 1, character);
         } while (currentItem->NextResponse());
       }
     }
@@ -86,7 +86,7 @@ void MapMenu::PlayHolotape(BGSNote *note, bool playStartStopSound) {
       bNoHolotapeStopSound = true;
     }
     *(uint8_t *)0x11DCFA4 = true;
-    ThisCall(0xAD85A0, BSWin32Audio::GetSingleton()); // FadeInDialogueSound
+    ThisStdCall(0xAD85A0, BSWin32Audio::GetSingleton()); // FadeInDialogueSound
   }
 }
 
@@ -96,7 +96,7 @@ void MapMenu::StopHolotape() {
     currentHolotapeDialogueSound->data.Stop();
   }
   holotapeDialogues.FreeAll();
-  ThisCall(0x7A1C30, &holotapeSubtitles, 1);
+  ThisStdCall(0x7A1C30, &holotapeSubtitles, 1);
   currentHolotapeDialogueSound = nullptr;
   holotapeTotalTime = 0.0f;
   holotapePlayStartTime = 0;
@@ -109,7 +109,7 @@ void MapMenu::StopHolotape() {
     handle.Play(false);
   }
   bNoHolotapeStopSound = false;
-  ThisCall(0xAD8650, BSWin32Audio::GetSingleton()); // FadeOutDialogueSound
+  ThisStdCall(0xAD8650, BSWin32Audio::GetSingleton()); // FadeOutDialogueSound
   *(uint8_t *)0x11DCFA4 = false;
-  ThisCall(0x775670, HUDMainMenu::GetSingleton()); // ClearSubtitlesString
+  ThisStdCall(0x775670, HUDMainMenu::GetSingleton()); // ClearSubtitlesString
 }

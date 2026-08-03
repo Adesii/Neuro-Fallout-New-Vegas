@@ -59,23 +59,23 @@ public:
     return *this;
   }
 
-  bool IsPlaying() const { return ThisCall<bool>(0xAD8930, this); }
+  bool IsPlaying() const { return ThisStdCall<bool>(0xAD8930, this); }
 
-  bool Play(bool abUnk) { return ThisCall<bool>(0xAD8830, this, abUnk); }
+  bool Play(bool abUnk) { return ThisStdCall<bool>(0xAD8830, this, abUnk); }
 
-  bool FadeInPlay(uint32_t auiMilliseconds) { return ThisCall<bool>(0xAD8D60, this, auiMilliseconds); }
+  bool FadeInPlay(uint32_t auiMilliseconds) { return ThisStdCall<bool>(0xAD8D60, this, auiMilliseconds); }
 
-  bool Stop() { return ThisCall<bool>(0xAD88F0, this); }
+  bool Stop() { return ThisStdCall<bool>(0xAD88F0, this); }
 
-  bool Release() { return ThisCall<bool>(0xAD8D10, this); }
+  bool Release() { return ThisStdCall<bool>(0xAD8D10, this); }
 
-  bool FadeOutAndRelease(uint32_t auiMilliseconds) { return ThisCall<bool>(0xAD8DA0, this, auiMilliseconds); }
+  bool FadeOutAndRelease(uint32_t auiMilliseconds) { return ThisStdCall<bool>(0xAD8DA0, this, auiMilliseconds); }
 
-  bool SetPosition(NiPoint3 akPosition) { return ThisCall<bool>(0xAD8B60, this, akPosition); }
+  bool SetPosition(NiPoint3 akPosition) { return ThisStdCall<bool>(0xAD8B60, this, akPosition); }
 
-  void SetObjectToFollow(NiAVObject *apObject) { ThisCall(0xAD8F20, this, apObject); }
+  void SetObjectToFollow(NiAVObject *apObject) { ThisStdCall(0xAD8F20, this, apObject); }
 
-  bool SetVolume(float afVolume) { return ThisCall<bool>(0xAD89E0, this, afVolume); }
+  bool SetVolume(float afVolume) { return ThisStdCall<bool>(0xAD89E0, this, afVolume); }
 };
 
 static_assert(sizeof(BSSoundHandle) == 0xC);
@@ -364,19 +364,19 @@ public:
 
   BSSoundHandle GetSoundHandleByFilePath(const char *apFileName, uint32_t aeAudioFlags, TESSound *apSound) {
     BSSoundHandle kHandle;
-    ThisCall(0xAD7480, this, &kHandle, apFileName, aeAudioFlags, apSound);
+    ThisStdCall(0xAD7480, this, &kHandle, apFileName, aeAudioFlags, apSound);
     return kHandle;
   }
 
   BSSoundHandle GetSoundHandleByFormID(uint32_t auiFormID, uint32_t aeAudioFlags) {
     BSSoundHandle kHandle;
-    ThisCall(0xAD73B0, this, &kHandle, auiFormID, aeAudioFlags);
+    ThisStdCall(0xAD73B0, this, &kHandle, auiFormID, aeAudioFlags);
     return kHandle;
   }
 
   BSSoundHandle GetSoundHandleByEditorName(const char *apEditorID, uint32_t aeAudioFlags) {
     BSSoundHandle kHandle;
-    ThisCall(0xAD7550, this, &kHandle, apEditorID, aeAudioFlags);
+    ThisStdCall(0xAD7550, this, &kHandle, apEditorID, aeAudioFlags);
     return kHandle;
   }
 };
@@ -385,7 +385,7 @@ struct SoundList {
   BSSoundHandle data;
   SoundList *next;
 
-  void Append(BSSoundHandle *sound) { ThisCall(0x7A19A0, this, sound); }
+  void Append(BSSoundHandle *sound) { ThisStdCall(0x7A19A0, this, sound); }
 
-  void FreeAll() { ThisCall(0x76B7A0, this); }
+  void FreeAll() { ThisStdCall(0x76B7A0, this); }
 };
