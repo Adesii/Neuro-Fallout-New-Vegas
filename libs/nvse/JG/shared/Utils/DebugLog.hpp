@@ -79,56 +79,77 @@ private:
 
 extern IDebugLog gLog;
 
+inline char* get_timestamp(char* buffer, size_t bufferSize){
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    snprintf(buffer, bufferSize, "[%04d-%02d-%02d %02d:%02d:%02d.%03d]",
+             st.wYear, st.wMonth, st.wDay,
+             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    return buffer;
+}
+
 inline void _FATALERROR(const char* fmt, ...)
 {
 	va_list args;
+	char buffer[8192];
+	snprintf(buffer, sizeof(buffer), "%s [FATAL] %s",get_timestamp(buffer,sizeof(buffer)), fmt);
 
 	va_start(args, fmt);
-	gLog.Log(IDebugLog::kLevel_FatalError, fmt, args);
+	gLog.Log(IDebugLog::kLevel_FatalError, buffer, args);
 	va_end(args);
 }
 
 inline void _ERROR(const char* fmt, ...)
 {
 	va_list args;
+	char buffer[8192];
+	snprintf(buffer, sizeof(buffer), "%s [ERROR] %s",get_timestamp(buffer,sizeof(buffer)), fmt);
 
 	va_start(args, fmt);
-	gLog.Log(IDebugLog::kLevel_Error, fmt, args);
+	gLog.Log(IDebugLog::kLevel_Error, buffer, args);
 	va_end(args);
 }
 
 inline void _WARNING(const char* fmt, ...)
 {
 	va_list args;
+	char buffer[8192];
+	snprintf(buffer, sizeof(buffer), "%s [WARNING] %s",get_timestamp(buffer,sizeof(buffer)), fmt);
 
 	va_start(args, fmt);
-	gLog.Log(IDebugLog::kLevel_Warning, fmt, args);
+	gLog.Log(IDebugLog::kLevel_Warning, buffer, args);
 	va_end(args);
 }
 
 inline void _MESSAGE(const char* fmt, ...)
 {
 	va_list args;
+	char buffer[8192];
+	snprintf(buffer, sizeof(buffer), "%s [INFO] %s",get_timestamp(buffer,sizeof(buffer)), fmt);
 
 	va_start(args, fmt);
-	gLog.Log(IDebugLog::kLevel_Message, fmt, args);
+	gLog.Log(IDebugLog::kLevel_Message, buffer, args);
 	va_end(args);
 }
 
 inline void _VMESSAGE(const char* fmt, ...)
 {
 	va_list args;
+	char buffer[8192];
+	snprintf(buffer, sizeof(buffer), "%s [VERBOSE] %s",get_timestamp(buffer,sizeof(buffer)), fmt);
 
 	va_start(args, fmt);
-	gLog.Log(IDebugLog::kLevel_VerboseMessage, fmt, args);
+	gLog.Log(IDebugLog::kLevel_VerboseMessage, buffer, args);
 	va_end(args);
 }
 
 inline void _DMESSAGE(const char* fmt, ...)
 {
 	va_list args;
+	char buffer[8192];
+	snprintf(buffer, sizeof(buffer), "%s [DEBUG] %s",get_timestamp(buffer,sizeof(buffer)), fmt);
 
 	va_start(args, fmt);
-	gLog.Log(IDebugLog::kLevel_DebugMessage, fmt, args);
+	gLog.Log(IDebugLog::kLevel_DebugMessage, buffer, args);
 	va_end(args);
 }
