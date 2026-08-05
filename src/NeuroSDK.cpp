@@ -20,7 +20,7 @@ bool NeuroSDK::Initialize() {
   neurosdk_context_create_desc desc = {
       .url = NULL,
       .game_name = "Fallout: New Vegas",
-      .poll_ms = 50,
+      .poll_ms = 100,
       .flags =
           (neurosdk_context_create_flags_e)(neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_DebugPrints |
                                             neurosdk_context_create_flags_e::
@@ -62,8 +62,9 @@ void NeuroSDK::SendContext(char *message, bool silent) {
     _WARNING("Cannot send empty context message to NeuroSDK.");
     return;
   }
+  auto sdk = &NeuroSDK::GetSingleton();
   // _MESSAGE("Sending context message to NeuroSDK: %s and it is Silent: %b", message, silent);
-  if (!isConnected) {
+  if (!sdk->isConnected) {
     _WARNING("NeuroSDK is not connected. Cannot send context message.");
     return;
   }
@@ -75,8 +76,9 @@ void NeuroSDK::SendContext(char *message, bool silent) {
                                .silent = silent,
                            }};
 
+  _DMESSAGE("Sending context message: %s", message);
   neurosdk_error_e err;
-  if ((err = neurosdk_context_send(&ctx, &context_message)) != NeuroSDK_None) {
+  if ((err = neurosdk_context_send(&sdk->ctx, &context_message)) != NeuroSDK_None) {
     _WARNING("Failed to send context message to NeuroSDK: %d", err);
   }
 }
@@ -86,7 +88,6 @@ DEFINE_NEURO_COMMAND_PLUGIN(SendContext, "Send a context message to Neuro", fals
 
 bool Cmd_NSendContext_Execute(COMMAND_ARGS) {
   char message[2048] = {};
-  _MESSAGE("Executing SendContext command with message: %s", message);
   BOOL silent = FALSE;
   ExtractArgsEx(EXTRACT_ARGS_EX, &message, &silent);
   NeuroSDK *neurosdk = &NeuroSDK::GetSingleton();
@@ -95,6 +96,7 @@ bool Cmd_NSendContext_Execute(COMMAND_ARGS) {
     return false;
   }
   neurosdk->SendContext(message, silent);
+  // _MESSAGE("Executing SendContext command with message: %s", message);
   return true;
 }
 void NeuroSDK::RegisterCommands(NVSEInterface *nvse) {
