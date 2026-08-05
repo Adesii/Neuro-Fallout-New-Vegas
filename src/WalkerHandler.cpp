@@ -21,15 +21,15 @@ TESObjectREFR *findcurrentobjectivetarget() {
     return nullptr;
 
   auto *playerRef = reinterpret_cast<TESObjectREFR *>(player);
-  _MESSAGE("Finding current objective target for player: %s", playerRef->GetFullName());
+  // _MESSAGE("Finding current objective target for player: %s", playerRef->GetFullName());
   if (!player->activeQuest || player->questTargetList.Empty()) {
-    _MESSAGE("Player has no active quests.");
+    // _MESSAGE("Player has no active quests.");
     return nullptr;
   }
 
   for (auto iter = player->questTargetList.Begin(); !iter.End(); ++iter) {
     auto *target = iter.Get() ? iter.Get()->target : nullptr;
-    _MESSAGE("Checking objective target: %s", target ? target->GetFullName() : "None");
+    // _MESSAGE("Checking objective target: %s", target ? target->GetFullName() : "None");
     if (target)
       return target;
   }
@@ -65,16 +65,17 @@ void Process() {
   targetPosition = GetNthPathPoint(playerRef, g_currentObjectiveTarget, 1);
   if ((targetPosition.x == 0.0f && targetPosition.y == 0.0f && targetPosition.z == 0.0f) ||
       (Math::GetDistance2D(&playerRef->GetPos(), &g_currentObjectiveTarget->GetPos()) < 60.0f)) {
-    targetPosition = {g_currentObjectiveTarget->pos.x, g_currentObjectiveTarget->pos.y, g_currentObjectiveTarget->pos.z};
+    targetPosition = {g_currentObjectiveTarget->pos.x, g_currentObjectiveTarget->pos.y,
+                      g_currentObjectiveTarget->pos.z};
   }
 
-  _MESSAGE("Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
+  // _MESSAGE("Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
   targetFacingAngle = Math::GetHeadingBetweenPoints(player->pos.x, player->pos.y, Math::ToDegrees(player->rot.z),
                                                     targetPosition.x, targetPosition.y);
   targetFacingAngle = targetFacingAngle / 10.0f;
   playerFacingAngle = player->rot.z + targetFacingAngle;
   player->rot.z = playerFacingAngle;
-  _MESSAGE("Player Facing Angle: %f, with targetFacingAngle: %f", playerFacingAngle, targetFacingAngle);
+  // _MESSAGE("Player Facing Angle: %f, with targetFacingAngle: %f", playerFacingAngle, targetFacingAngle);
 
   SetPlayerAutoMove(player, true);
   if (Math::GetDistance2D(&playerRef->GetPos(), &g_currentObjectiveTarget->GetPos()) < 60.0f)
