@@ -15,6 +15,8 @@ CREATE_PLUGINSCRIPT(GetHeadingAngleBetweenPoints, float, callposx, float, callpo
 
 CREATE_PLUGINSCRIPT(GetHeadingAngleAlt, float, callposx, float, callposy, float, callanglez, ref, target);
 
+neurosdk_severity_e logSeverity = neurosdk_severity_e::NeuroSDK_Severity_Debug;
+
 bool NeuroSDK::Initialize() {
   // Initialize the NeuroSDK context
   neurosdk_context_create_desc desc = {
@@ -25,8 +27,20 @@ bool NeuroSDK::Initialize() {
           (neurosdk_context_create_flags_e)(neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_DebugPrints |
                                             neurosdk_context_create_flags_e::
                                                 NeuroSDK_ContextCreateFlags_ValidationLayers),
-      .callback_log = [](neurosdk_severity_e severity, char *message,
-                         void *user_data) { _MESSAGE("[NeuroSDK] %s", message); },
+      .callback_log =
+          [](neurosdk_severity_e severity, char *message, void *user_data) {
+            if (severity >= logSeverity) {
+              if (severity == NeuroSDK_Severity_Error) {
+                _ERROR("[NeuroSDK] %s", message);
+              } else if (severity == NeuroSDK_Severity_Warn) {
+                _WARNING("[NeuroSDK] %s", message);
+              } else if (severity == NeuroSDK_Severity_Info) {
+                _MESSAGE("[NeuroSDK] %s", message);
+              } else if (severity == NeuroSDK_Severity_Debug) {
+                _DMESSAGE("[NeuroSDK] %s", message);
+              }
+            }
+          },
       // #ifdef DEBUG
       // #endif
   };
