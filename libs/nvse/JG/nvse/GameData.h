@@ -54,3 +54,29 @@ public:
 	TESBoundObject* last;				// 8
 	uint32_t			unkC;				// C
 };
+
+
+//from JIP:
+struct Timer
+{
+	UINT8		disableCounter;			// 00
+	UINT8		pad01[3];				// 01
+	float		fpsClamp;				// 04
+	float		fpsClampRemainder;		// 08
+	float		secondsPassed;			// 0C
+	float		lastSecondsPassed;		// 10
+	UINT32		msPassed;				// 14
+	UINT32		tickCount;				// 18
+	UINT8		isChangeTimeMultSlowly;	// 1C
+	UINT8		byte1D;					// 1D
+	UINT8		pad1E[2];				// 1E
+};
+
+struct TimeGlobal : Timer
+{
+	float		flt20;
+	float		flt24;
+	float		flt28;
+
+	static TimeGlobal *Get() {return (TimeGlobal*)0x11F6394;}
+};

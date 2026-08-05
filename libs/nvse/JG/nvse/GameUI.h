@@ -909,7 +909,14 @@ public:
 		float	displayTime;			// 40C
 	};
 
-	struct SubtitleData;
+	// Struct definition from JIP
+	struct SubtitleData {
+		char text[0x104];
+		UINT32 startTime;
+		float displayTime;
+		NiPoint3 position;
+		INT32 priority;
+	};
 
 	struct Struct224 {
 		uint8_t		byte00;		// 00
