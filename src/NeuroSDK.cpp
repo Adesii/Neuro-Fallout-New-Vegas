@@ -44,6 +44,20 @@ bool NeuroSDK::Initialize() {
 }
 
 void NeuroSDK::MainLoop() {
+  if (!isConnected) {
+    _WARNING("NeuroSDK is not connected. Skipping MainLoop.");
+    return;
+  }
+
+  neurosdk_message_t *messages = NULL;
+  int count = 0;
+
+  auto err = neurosdk_context_poll(&ctx, &messages, &count);
+  if (err != NeuroSDK_None) {
+    _WARNING("Failed to poll NeuroSDK context: %d", err);
+    return;
+  }
+
   MenuHandler::Process();
   Walker::Process();
 }
