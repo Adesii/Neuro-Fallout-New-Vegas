@@ -21,6 +21,10 @@ Menu* InterfaceManager::GetMenuByType(uint32_t menuType) {
 	return CdeclCall<Menu*>(0xA09030, menuType);
 }
 
+Tile* InterfaceManager::GetActiveTile() const {
+	return activeTile ? activeTile : activeTileAlt;
+}
+
 void RaceSexMenu::UpdatePlayerHead(void) {
 	ThisCall(s_RaceSexMenu__UpdatePlayerHead, this);
 }

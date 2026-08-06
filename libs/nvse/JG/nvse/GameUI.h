@@ -110,7 +110,7 @@ public:
 	//static Tile::Value *		GetMenuComponentValue(const char * componentPath);
 	//static Tile *				GetMenuComponentTile(const char * componentPath);
 
-	Tile* GetActiveTile();
+	Tile* GetActiveTile() const;
 	VATSHighlightData* GetVATSHighlightData() {
 		return ThisCall<VATSHighlightData*>(0x602170, this);
 	}
@@ -1498,6 +1498,7 @@ public:
 		bool			(*menuCallback)(char*);	// 58
 		Script* scriptCallback;		// 58
 	};
+	__forceinline static TextEditMenu *Get() {return *(TextEditMenu**)0x11DAEC4;}
 };
 static_assert(sizeof(TextEditMenu) == 0x5C);
 
