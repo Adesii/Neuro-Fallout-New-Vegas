@@ -13,6 +13,8 @@ public:
   static void SendContext(char *message, bool silent = false);
   void RegisterCommands(NVSEInterface *nvse);
 
+  static std::string GetCharacterDisplayName();
+
 private:
   neurosdk_context_t ctx;
   bool isConnected = false;

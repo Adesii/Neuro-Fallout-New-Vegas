@@ -15,6 +15,8 @@ CREATE_PLUGINSCRIPT(GetHeadingAngleBetweenPoints, float, callposx, float, callpo
 
 CREATE_PLUGINSCRIPT(GetHeadingAngleAlt, float, callposx, float, callposy, float, callanglez, ref, target);
 
+CREATE_PLUGINSCRIPT(SetGameSpeed, float, speed);
+
 neurosdk_severity_e logSeverity = neurosdk_severity_e::NeuroSDK_Severity_Debug;
 
 bool NeuroSDK::Initialize() {
@@ -22,7 +24,7 @@ bool NeuroSDK::Initialize() {
   neurosdk_context_create_desc desc = {
       .url = NULL,
       .game_name = "Fallout: New Vegas",
-      .poll_ms = 100,
+      .poll_ms = 1, // This is blocking for somereason.. resulting in low fps. TODO: Figure out how to not have it block
       .flags =
           (neurosdk_context_create_flags_e)(neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_DebugPrints |
                                             neurosdk_context_create_flags_e::
@@ -109,6 +111,16 @@ void NeuroSDK::SendContext(char *message, bool silent) {
   if ((err = neurosdk_context_send(&sdk->ctx, &context_message)) != NeuroSDK_None) {
     _WARNING("Failed to send context message to NeuroSDK: %d", err);
   }
+}
+
+std::string NeuroSDK::GetCharacterDisplayName() {
+  auto &sdk = NeuroSDK::GetSingleton();
+  auto name = neurosdk_context_character_display_name(&sdk.ctx);
+  if (!name) {
+    _WARNING("Failed to get character display name from NeuroSDK.");
+    return "";
+  }
+  return std::string(name);
 }
 
 // Command definitions
