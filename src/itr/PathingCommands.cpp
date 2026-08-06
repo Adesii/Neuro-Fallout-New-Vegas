@@ -2,6 +2,7 @@
 // builds a standalone PathingRequest/Solution instead of reading an actor's live mover path
 
 #include "itr/PathingCommands.h"
+#include "JG/internal/decoding.h"
 #include "PathingShared.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameAPI.h"
@@ -93,6 +94,18 @@ bool GetPath(TESObjectREFR *actorRef, TESObjectREFR *target, PathResult &out) {
 
   BuildPath(static_cast<Actor *>(actorRef), target, out);
   return out.complete;
+}
+
+bool PointOnNavmesh(const PathPoint3 &point, TESObjectCELL *cell, TESWorldSpace *worldSpace) {
+  if (!cell)
+    return false;
+  alignas(4) UINT8 loc[sizeof(PathingLocationLayout)] = {};
+  ThisCall<void>(0x6DCEE0, loc, &point, cell, worldSpace); // PathingLocation::PathingLocation
+
+  // stored navMeshInfo/navMeshes are borrowed engine pointers, no owned refs to release
+  const bool resolved = ThisCall<bool>(0x6DD6F0, loc, 0); // PathingLocation::ResolveTriangle
+  const UINT16 triangle = reinterpret_cast<PathingLocationLayout *>(loc)->triangle;
+  return resolved && triangle != 0xFFFF;
 }
 
 NVSEArrayVarInterface::Array *CreateArray(Script *scriptObj) {
@@ -197,4 +210,128 @@ bool Cmd_GetPathToRef_Execute(COMMAND_ARGS) {
   AssignArray(arr, result);
   return true;
 }
+
+// JohnnyGuitar section:
+
+static float Sign(const NiPoint3 &p1, const NiPoint3 &p2, const NiPoint3 &p3) {
+  return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+}
+
+static bool PointInTriangle(const NiPoint3 &pt, const NiPoint3 &v1, const NiPoint3 &v2, const NiPoint3 &v3) {
+  bool b1 = Sign(pt, v1, v2) < 0.0;
+  bool b2 = Sign(pt, v2, v3) < 0.0;
+  bool b3 = Sign(pt, v3, v1) < 0.0;
+
+  return (b1 == b2) && (b2 == b3);
+}
+
+static NiPoint3 __fastcall GetTriangleCenter(const NiPoint3 &v1, const NiPoint3 &v2, const NiPoint3 &v3) {
+  return NiPoint3((v1.x + v2.x + v3.x) / 3.0f, (v1.y + v2.y + v3.y) / 3.0f, (v1.z + v2.z + v3.z) / 3.0f);
+}
+
+void __fastcall GetClosestNavMeshTriangle(const TESObjectCELL *apCell, const NiPoint3 &arPointToTest,
+                                          bool checkDisabled, float zLimit, NiPoint4 &arOut) {
+  NavMeshArray *pNavMeshArray = apCell->pNavMeshes;
+  if (!pNavMeshArray)
+    return;
+
+  for (uint32_t i = 0; i < pNavMeshArray->GetSize(); i++) {
+
+    NavMeshPtr spNavMesh = pNavMeshArray->GetAt(i);
+    if (!spNavMesh)
+      continue;
+
+    NavMeshInfo *pInfo = spNavMesh->pNavMeshInfo;
+    if (!pInfo)
+      continue;
+
+    for (uint32_t j = 0; j < spNavMesh->GetTriangleCount(); j++) {
+      NavMeshTriangle *pNavMeshTriangle = spNavMesh->GetTriangle(j);
+      if (checkDisabled && ((pNavMeshTriangle->uiFlags & NavMeshTriangle::DISABLED) != 0))
+        continue;
+
+      // Get triangle vertices
+      NiPoint3 kVerts[3];
+      for (uint32_t k = 0; k < 3; k++) {
+        NiPoint3 *pVertex = spNavMesh->GetVertex(pNavMeshTriangle->sVertices[k]);
+        if (!pVertex)
+          continue;
+
+        kVerts[k] = *pVertex;
+      }
+
+      NiPoint3 kTriCenter = GetTriangleCenter(kVerts[0], kVerts[1], kVerts[2]);
+
+      if (zLimit > 0 && fabs(kTriCenter.z - arPointToTest.z) > zLimit)
+        continue;
+
+      // Get distance to triangle center
+      float fDist = arPointToTest.Distance(kTriCenter);
+
+      if (fDist < arOut.w) {
+        arOut.w = fDist;
+        arOut.x = kTriCenter.x;
+        arOut.y = kTriCenter.y;
+        arOut.z = kTriCenter.z;
+      }
+    }
+  }
+}
+
+bool __fastcall GetPointNavMesh(const TESObjectCELL *apCell, const NiPoint3 &arPointToTest, bool checkDisabled,
+                                float zLimit, NiPoint4 &arOut) {
+  NavMeshArray *pNavMeshArray = apCell->pNavMeshes;
+  if (!pNavMeshArray)
+    return false;
+
+  for (uint32_t i = 0; i < pNavMeshArray->GetSize(); i++) {
+
+    NavMeshPtr spNavMesh = pNavMeshArray->GetAt(i);
+    if (!spNavMesh)
+      continue;
+
+    NavMeshInfo *pInfo = spNavMesh->pNavMeshInfo;
+    if (!pInfo)
+      continue;
+
+    for (uint32_t j = 0; j < spNavMesh->GetTriangleCount(); j++) {
+      NavMeshTriangle *pNavMeshTriangle = spNavMesh->GetTriangle(j);
+      if (!pNavMeshTriangle)
+        continue;
+      if (checkDisabled && (pNavMeshTriangle->uiFlags & NavMeshTriangle::DISABLED) != 0)
+        continue;
+
+      // Get triangle vertices
+      NiPoint3 kVerts[3];
+      for (uint32_t k = 0; k < 3; k++) {
+        NiPoint3 *pVertex = spNavMesh->GetVertex(pNavMeshTriangle->sVertices[k]);
+        if (!pVertex)
+          continue;
+
+        kVerts[k] = *pVertex;
+      }
+
+      // Check if player is inside the triangle
+      if (PointInTriangle(arPointToTest, kVerts[0], kVerts[1], kVerts[2])) {
+        // Get triangle center
+        NiPoint3 kTriCenter = GetTriangleCenter(kVerts[0], kVerts[1], kVerts[2]);
+
+        if (zLimit > 0 && fabs(kTriCenter.z - arPointToTest.z) > zLimit)
+          continue;
+
+        // Get distance to triangle center
+        float fDist = arPointToTest.Distance(kTriCenter);
+
+        arOut.x = kTriCenter.x;
+        arOut.y = kTriCenter.y;
+        arOut.z = kTriCenter.z;
+        arOut.w = fDist;
+
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 } // namespace Pathing

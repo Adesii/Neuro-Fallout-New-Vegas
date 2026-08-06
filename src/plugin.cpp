@@ -28,6 +28,7 @@ NVSEDataInterface *g_dataInterface{};
 NVSESerializationInterface *g_serializationInterface{};
 NVSEConsoleInterface *g_consoleInterface{};
 NVSEEventManagerInterface *g_eventInterface{};
+NVSETogglePlayerControlsInterface *g_togglePlayerControlsInterface{};
 bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 #endif
 
@@ -119,6 +120,8 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
     g_serializationInterface =
         static_cast<NVSESerializationInterface *>(nvse->QueryInterface(kInterface_Serialization));
     g_consoleInterface = static_cast<NVSEConsoleInterface *>(nvse->QueryInterface(kInterface_Console));
+    g_togglePlayerControlsInterface =
+        static_cast<NVSETogglePlayerControlsInterface *>(nvse->QueryInterface(kInterface_PlayerControls));
     ExtractArgsEx = g_script->ExtractArgsEx;
 #endif
   }

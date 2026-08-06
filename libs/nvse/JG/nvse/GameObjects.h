@@ -396,6 +396,25 @@ public:
 	uint32_t						unk7C;				// 7C
 	uint32_t						unk80;				// 80
 	uint32_t						unk84;				// 84
+		enum MovementFlags
+	{
+		kMoveFlag_Forward =		1,
+		kMoveFlag_Backward =	2,
+		kMoveFlag_Left =		4,
+		kMoveFlag_Right =		8,
+		kMoveFlag_TurnLeft =	0x10,
+		kMoveFlag_TurnRight =	0x20,
+		kMoveFlag_IsKeyboard =	0x40,	// (returns that the movement is for non-controller)
+		kMoveFlag_Walking =		0x100,
+		kMoveFlag_Running =		0x200,
+		kMoveFlag_Sneaking =	0x400,
+		kMoveFlag_Swimming =	0x800,
+		kMoveFlag_Jump =		0x1000,
+		kMoveFlag_Flying =		0x2000,
+		kMoveFlag_Fall =		0x4000,
+		kMoveFlag_Slide =		0x8000
+	};
+
 };
 
 // A0

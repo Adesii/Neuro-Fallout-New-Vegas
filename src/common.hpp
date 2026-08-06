@@ -34,6 +34,7 @@ extern NVSEDataInterface *g_dataInterface;
 extern NVSESerializationInterface *g_serializationInterface;
 extern NVSEConsoleInterface *g_consoleInterface;
 extern NVSEEventManagerInterface *g_eventInterface;
+extern NVSETogglePlayerControlsInterface *g_togglePlayerControlsInterface;
 extern bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 #endif
 
