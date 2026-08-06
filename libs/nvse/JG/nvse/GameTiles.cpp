@@ -168,7 +168,7 @@ Tile* Tile::GetComponent(const char* componentPath, const char*& trait) {
 	AutoTileLock kLock;
 	Tile* parentTile = this;
 	char* slashPos;
-	while (slashPos = SlashPos(componentPath)) {
+	while ((slashPos = SlashPos(componentPath))) {
 		*slashPos = 0;
 		parentTile = parentTile->GetChild(componentPath);
 		if (!parentTile) return NULL;
