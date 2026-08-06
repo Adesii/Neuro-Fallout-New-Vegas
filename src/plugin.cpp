@@ -2,6 +2,7 @@
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
+#include "hooks/Hooks_DirectInput8Create.h"
 #include "nvse/GameObjects.h"
 #include <neurosdk.h>
 #include <nvse/PluginAPI.h>
@@ -141,5 +142,9 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
 #endif
   // Register commands
   NeuroSDK::GetSingleton().RegisterCommands(nvse);
+// HOOKS
+#if RUNTIME
+  Hook_DirectInput8Create_Init();
+#endif
   return true;
 }
