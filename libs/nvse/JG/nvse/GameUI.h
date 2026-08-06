@@ -251,7 +251,7 @@ struct VATSHighlightData {
 	HighlightedRef highlightedRefs[32];
 };
 
-void Debug_DumpMenus(void);
+void Debug_DumpMenus(bool bValues = false, bool bChildren = false);
 
 struct EventCallbackScripts;
 
@@ -310,6 +310,7 @@ public:
 	uint32_t				unk0DC[37];		// 0DC
 
 	void UpdatePlayerHead(void);
+	__forceinline static RaceSexMenu *Get() {return *(RaceSexMenu**)0x11DA634;}
 };
 
 class LevelUpMenu : public Menu {
@@ -703,9 +704,9 @@ public:
 	~MessageMenu();
 
 	TileRect* tile28;		// 28
-	TileText* tile2C;		// 2C
+	TileText* titleTile;		// 2C
 	TileImage* tile30;		// 30
-	TileText* tile34;		// 34
+	TileText* messageText;		// 34
 	TileImage* tile38;		// 38
 	TileImage* tile3C;		// 3C
 	ListBox<int>		buttonList;		// 40
@@ -718,6 +719,7 @@ public:
 	uint8_t				unk8D;			// 8D
 	uint8_t				pad8E[2];		// 8E
 	uint32_t				unk90;			// 90
+	__forceinline static MessageMenu *Get() {return *(MessageMenu**)0x11DA4F0;}
 };
 
 typedef ListBox<ItemChange> MenuItemEntryList;
@@ -1364,6 +1366,7 @@ public:
 	uint32_t							unk1C8;			// 1C8
 	uint32_t							unk1CC;			// 1CC
 	uint32_t							unk1D0;			// 1D0
+	__forceinline static StartMenu *Get() {return *(StartMenu**)0x11DAAC0;}
 };
 static_assert(sizeof(StartMenu) == 0x1D4);
 

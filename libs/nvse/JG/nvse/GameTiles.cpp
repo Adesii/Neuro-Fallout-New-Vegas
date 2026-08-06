@@ -194,39 +194,56 @@ Tile* Tile::GetComponentTile(const char* componentPath) {
 	return (tile && !trait) ? tile : NULL;
 }
 
-void Tile::Dump() {
-	/*PrintDebug("%08X\t%s", this, name.m_data);
-	s_debug.Indent();
+void Tile::Dump(bool bValues, bool bChildren, int depth) {
+	if(depth <= 0)
+		_MESSAGE("%s", name.c_str());
+	gLog.Indent();
 
-	PrintDebug("Values:");
+	if (bValues) {
+		_MESSAGE("values:");
 
-	s_debug.Indent();
+	gLog.Indent();
 
-	Value* value;
-	const char* traitName;
-	char traitID[9];
-	for (BSSimpleArray<Value*>::Iterator iter(values); !iter.End(); ++iter) {
-		value = *iter;
-		traitName = TraitIDToName(value->id);
+	for(UINT32 i = 0; i < values.GetSize(); i++)
+	{
+		Value		* val = values[i];
+		const char	* traitName = TraitIDToName(val->id);
+		char		traitNameIDBuf[16];
 
-		if (!traitName) {
-			UIntToHex(value->id, traitID);
-			traitName = traitID;
+		if(!traitName)
+		{
+			sprintf_s(traitNameIDBuf, "%08X", val->id);
+			traitName = traitNameIDBuf;
 		}
-		if (value->str)
-			PrintDebug("%d  %s: %s", value->id, traitName, value->str);
-		/*else if (value->action)
-			PrintDebug("%d  %s: Action %08X", value->id, traitName, value->action);
+
+		if(val->str)
+			_MESSAGE("%s: %s", traitName, val->str);
+		else if(val->action)
+			_MESSAGE("%s: action %08X", traitName, val->action);
 		else
-			PrintDebug("%d  %s: %.4f", value->id, traitName, value->num);
+			_MESSAGE("%s: %f", traitName, val->num);
 	}
 
-	s_debug.Outdent();
+	gLog.Outdent();
 
-	for (DListNode<Tile>* traverse = children.Tail(); traverse; traverse = traverse->prev)
-		if (traverse->data) traverse->data->Dump();
+	}
 
-	s_debug.Outdent();*/
+	if (bChildren){
+	auto iter = children.GetHeadPos();
+	while (iter)
+	{
+		Tile* node = children.GetNext(iter);
+		if(node)
+		{
+			_MESSAGE("child: %s", node->name.c_str());
+			gLog.Indent();
+			node->Dump(bValues, bChildren, depth + 1);
+			gLog.Outdent();
+		}
+	}
+	}
+
+	gLog.Outdent();
 }
 
 // not a one-way mapping, so we just return the first

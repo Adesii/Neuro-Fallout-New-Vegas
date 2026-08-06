@@ -28,6 +28,23 @@ Tile* InterfaceManager::GetActiveTile() const {
 void RaceSexMenu::UpdatePlayerHead(void) {
 	ThisCall(s_RaceSexMenu__UpdatePlayerHead, this);
 }
+void Debug_DumpMenus(bool bValues, bool bChildren)
+{
+	for(UINT32 i = 0; i < g_TileMenuArray->GetSize(); i++)
+	{
+		Tile* tileMenu = g_TileMenuArray->GetAt(i);
+
+		if(tileMenu)
+		{
+			_MESSAGE("menu %d at %x:", i, tileMenu);
+			gLog.Indent();
+
+			tileMenu->Dump(bValues, bChildren);
+
+			gLog.Outdent();
+		}
+	}
+}
 // reimplementation by lStewieAl
 bool bNoHolotapeStopSound = false;
 void MapMenu::PlayHolotape(BGSNote* note, bool playStartStopSound)

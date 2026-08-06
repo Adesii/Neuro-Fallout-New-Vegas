@@ -79,7 +79,7 @@ bool handleCharacterNameTextEdit() {
       _MESSAGE("Character name is already set to \"%s\", Accepting it.", characterName.c_str());
       _MESSAGE("Current time: %f, Remaining delay: %f", TimeGlobal::Get()->secondsPassed,
                DelayedGuard::GetRemainingDelay("MenuAcceptCharacterName"));
-      if (DelayedGuard::Delay("MenuAcceptCharacterName", 2.5f)) {
+      if (DelayedGuard::Delay("MenuAcceptCharacterName", 1.5f)) {
         textedit->HandleClick(textedit->okButton->GetValue(kTileValue_id)->num, textedit->okButton);
         DelayedGuard::Reset("MenuAcceptCharacterName");
       }
@@ -94,31 +94,92 @@ bool handleCharacterNameTextEdit() {
   return false;
 }
 
-void HandleTextEdit() {
-  auto *interfaces = InterfaceManager::GetSingleton();
-  if (!interfaces)
-    return;
+bool HandleTextEdit() {
   // If TextEditMenu is active don't check other things
   if (!handleCharacterNameTextEdit())
-    return;
+    return false;
+  return true;
+}
+
+bool HandleCharacterEditor() {
+
+  auto menu = RaceSexMenu::Get();
+  if (!menu || !menu->tile)
+    return false;
+  // We are in character editor
+  // TODO: actually allow the SDK to control the character editor. For now just skip past it by pressing ok all the time
+  // Debug_DumpMenus();
+  // menu->tile->Dump(false, true);
+
+  // _MESSAGE("Menu tile name: %s", menu->tile->name.c_str());
+  char componentPath[] = "NOGLOW_BRANCH/RSM_Background/RSM_next_button"; /// RSM_Background/RSM_next_button
+  auto okButton = menu->tile->GetComponentTile(componentPath);
+  // _MESSAGE("Ok button tile name: %s", okButton ? okButton->name.c_str() : "null");
+  if (okButton) {
+    // _MESSAGE("Character editor detected, clicking ok button.");
+    if (DelayedGuard::Delay("MenuAcceptCharacterEditor", 0.5f)) {
+      menu->HandleClick(okButton->GetValue(kTileValue_id)->num, okButton);
+      DelayedGuard::Reset("MenuAcceptCharacterEditor");
+    }
+  }
+  return true;
+}
+
+bool HandleMessagePopup() {
+  auto menu = MessageMenu::Get();
+  bool isinStartMenu = StartMenu::Get() != nullptr;
+  if (!menu || !menu->tile || isinStartMenu)
+    return false;
+
+  if (menu->buttonList.itemCount == 1) {
+    auto buttonTile = menu->buttonList.GetNthTile(0);
+    if (buttonTile) {
+      if (DelayedGuard::Delay("MenuAcceptMessagePopup", 1.5f)) {
+        _MESSAGE("Message popup detected, clicking ok button.");
+        // Get Data about the MessageMenu and send it
+        std::string messageTitle = menu->titleTile->GetValue(kTileValue_string)->str;
+        std::string messageText = menu->messageText->GetValue(kTileValue_string)->str;
+        NeuroSDK::SendContext(("MessagePopup: " + messageTitle + " \n " + messageText).data());
+        menu->HandleClick(buttonTile->GetValue(kTileValue_id)->num, buttonTile);
+        DelayedGuard::Reset("MenuAcceptMessagePopup");
+      }
+    }
+  } else {
+    // find Yes and click it
+    auto buttonList = menu->buttonList.GetHead();
+    while (buttonList) {
+      auto buttonItem = buttonList->GetNext();
+      if (buttonItem && buttonItem->m_item->tile) {
+        auto buttonTile = buttonItem->m_item->tile;
+        char componentPath[] = "string";
+        auto value = buttonTile->GetComponentValue(componentPath);
+        _MESSAGE("Message popup detected, button text: %s", value && value->str ? value->str : "null");
+        if (value && value->str && std::strcmp(value->str, "Yes") == 0) {
+          // TODO: give the SDK the ability to choose which button to click. For now just click Yes
+          menu->buttonList.SetSelectedTile(buttonTile);
+          if (DelayedGuard::Delay("MenuAcceptMessagePopup", 1.5f)) {
+            _MESSAGE("Message popup detected, clicking Yes button.");
+            std::string messageTitle = menu->titleTile->GetValue(kTileValue_string)->str;
+            std::string messageText = menu->messageText->GetValue(kTileValue_string)->str;
+            menu->HandleClick(buttonTile->GetValue(kTileValue_id)->num, buttonTile);
+            DelayedGuard::Reset("MenuAcceptMessagePopup");
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return true;
 }
 
 void Process() {
+  if (HandleMessagePopup())
+    return;
   HandleSubtitles();
-  HandleTextEdit();
-  // auto *interfaces = InterfaceManager::GetSingleton();
-  // if (!interfaces)
-  //   return;
-  //
-  // auto *menu = interfaces->activeMenu;
-  // if (!menu || !menu->tile)
-  //   return;
-  //
-  // static uint32_t lastMenuID = Interface::NoMenu;
-  // if (menu->id == lastMenuID)
-  //   return;
-  //
-  // lastMenuID = menu->id;
-  // _MESSAGE("Active menu ID: %u", menu->id);
+  if (HandleTextEdit())
+    return;
+  if (HandleCharacterEditor())
+    return;
 }
 } // namespace MenuHandler

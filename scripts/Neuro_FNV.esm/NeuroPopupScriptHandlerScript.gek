@@ -16,6 +16,7 @@ int buttoncount
 
 int iMenuID
 begin function {iMenuID}
+  return
   if iMenuID != 1001
     return
   endif

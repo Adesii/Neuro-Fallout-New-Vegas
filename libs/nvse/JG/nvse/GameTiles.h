@@ -276,7 +276,7 @@ public:
 	void			PokeValue(uint32_t valueID);
 	void			FakeClick();
 
-	void			Dump();
+	void			Dump(bool bValues = false, bool bChildren = false, int depth = 0);
 
 	static void Lock() {
 		CdeclCall(0xA044F0);
