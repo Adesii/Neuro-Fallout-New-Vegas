@@ -181,5 +181,10 @@ void Process() {
     return;
   if (HandleCharacterEditor())
     return;
+  // TODO: Handle
+  // Vitals checker
+  // Dialogue Menu
+  // History menu (the thing that doc shows after the exam. for like modifiers)
+  // the other menus. like pip boy (tho that should likely be a whole seperate thing)
 }
 } // namespace MenuHandler
