@@ -76,8 +76,10 @@ void NeuroSDK::MainLoop() {
     return;
   }
 
-  MenuHandler::Process();
-  Walker::Process();
+  if (MenuHandler::Process())
+    Walker::Stop();
+  else
+    Walker::Process();
 }
 
 void NeuroSDK::StartupMessage() {
@@ -89,22 +91,22 @@ void NeuroSDK::StartupMessage() {
   }
 }
 
-void NeuroSDK::SendContext(char *message, bool silent) {
+bool NeuroSDK::SendContext(const char *message, bool silent) {
   if (!message || strlen(message) == 0) {
     _WARNING("Cannot send empty context message to NeuroSDK.");
-    return;
+    return false;
   }
   auto sdk = &NeuroSDK::GetSingleton();
   // _MESSAGE("Sending context message to NeuroSDK: %s and it is Silent: %b", message, silent);
   if (!sdk->isConnected) {
     _WARNING("NeuroSDK is not connected. Cannot send context message.");
-    return;
+    return false;
   }
 
   neurosdk_message_t context_message;
   context_message.kind = NeuroSDK_MessageKind_Context;
   context_message.value = {.context = {
-                               .message = message,
+                               .message = const_cast<char *>(message),
                                .silent = silent,
                            }};
 
@@ -112,7 +114,9 @@ void NeuroSDK::SendContext(char *message, bool silent) {
   neurosdk_error_e err;
   if ((err = neurosdk_context_send(&sdk->ctx, &context_message)) != NeuroSDK_None) {
     _WARNING("Failed to send context message to NeuroSDK: %d", err);
+    return false;
   }
+  return true;
 }
 
 std::string NeuroSDK::GetCharacterDisplayName() {

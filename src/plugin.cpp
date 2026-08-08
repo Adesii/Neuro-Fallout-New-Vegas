@@ -139,7 +139,7 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
       _MESSAGE("Failed to Connect. Ignoring for now.");
     } else {
       _MESSAGE("NeuroSDK Connected to FNVSE");
-      NeuroSDK::GetSingleton().SendContext((char *)"NeuroSDK Connected to FNVSE", true);
+      NeuroSDK::GetSingleton().SendContext("NeuroSDK Connected to FNVSE", true);
     }
   }
 #endif

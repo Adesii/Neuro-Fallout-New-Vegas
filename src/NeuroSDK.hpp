@@ -10,7 +10,7 @@ class NeuroSDK : public ISingleton<NeuroSDK> {
 public:
   bool Initialize();
   void MainLoop();
-  static void SendContext(char *message, bool silent = false);
+  static bool SendContext(const char *message, bool silent = false);
   void RegisterCommands(NVSEInterface *nvse);
 
   static std::string GetCharacterDisplayName();
