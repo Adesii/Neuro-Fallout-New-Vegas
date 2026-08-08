@@ -1,5 +1,6 @@
 #include "WalkerHandler.hpp"
-#include "CachedScripts.hpp"
+#include "GameData.h"
+#include "GameOSDepend.h"
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
 #include "PluginAPI.h"
@@ -7,415 +8,425 @@
 #include "common.hpp"
 #include "decoding.h"
 #include "defs/Player.h"
+#include "hooks/Hooks_DirectInput8Create.h"
 #include "itr/PathingCommands.h"
-#include "itr/PathingShared.h"
 #include "nvse/GameForms.h"
-#include "utils/DelayedGuard.hpp"
+#include "nvse/GameUI.h"
 #include "utils/math.h"
 #include <algorithm>
 #include <cfloat>
-#include <cstddef>
-#include <cstdint>
-#include <memory>
+#include <cmath>
+#include <vector>
+
 namespace Walker {
+namespace {
 
-CREATE_PLUGINSCRIPT(SetAutoMove, float, walk);
+constexpr float kInteractionDistance = 80.0f;
+constexpr float kNearbyActorDistance = 600.0f;
+constexpr float kStuckDistance = 1.0f;
+constexpr float kStuckDelay = 3.0f;
+constexpr float kRecoveryDuration = 1.0f;
+constexpr float kInteractionDelay = 1.0f;
+constexpr float kLookTargetResponse = 4.0f;
+constexpr float kMaxTurnRate = 3.0f;
+constexpr float kTurnSpeedResponse = 4.0f;
+constexpr float kTurnAccelerationResponse = 7.0f;
+constexpr float kTurnReversalResponse = 2.5f;
+constexpr float kTurnDeadZone = 0.01f;
+constexpr UINT8 kUnboundKey = 0xFF;
 
-///////// From FalloutNVAccess plugin ///////// TODO: Move this to a utility file instead. Should be useful elsewhere
-/// too
-bool IsInteractable(TESObjectREFR *a_ref) {
-  if (!a_ref)
+struct TargetSelection {
+  BGSQuestObjective::Target *objectiveData = nullptr;
+  TESObjectREFR *objective = nullptr;
+  TESObjectREFR *lookAt = nullptr;
+  bool shouldMove = false;
+};
+
+struct WalkerState {
+  TESObjectREFR *waypointMarker = nullptr;
+  TESObjectREFR *trackedTarget = nullptr;
+  TESObjectCELL *trackedCell = nullptr;
+  NiPoint3 smoothedLookTarget = {0.0f, 0.0f, 0.0f};
+  NiPoint3 lastPlayerPosition = {0.0f, 0.0f, 0.0f};
+  float stationaryTime = 0.0f;
+  float recoveryTime = 0.0f;
+  float interactionTime = 0.0f;
+  float turnVelocity = 0.0f;
+  bool lookTargetInitialized = false;
+  bool positionInitialized = false;
+  bool recovering = false;
+  UINT8 heldMovementKeys[4] = {kUnboundKey, kUnboundKey, kUnboundKey, kUnboundKey};
+};
+
+WalkerState g_state;
+
+bool IsInteractable(TESObjectREFR *ref) {
+  if (!ref || ref->GetDeleted() || !ref->baseForm)
     return false;
-  if (a_ref->GetDeleted())
-    return false;
-  // if (a_ref->uiFormFlags & TESObjectREFR::kFlags_Temporary) return false;
 
-  if (!a_ref->baseForm)
-    return false;
-
-  // Skip disabled references (not currently active in the world)
-  // if (IsRefDisabled(a_ref)) return false;
-
-  // Actor detection uses the REFERENCE type (Character=0x3B, Creature=0x3C),
-  // not the base form type (TESNPC=0x2A, TESCreature=0x2B).
-  UINT8 refType = a_ref->eFormType;
-
-  // Actors are always interactable (living NPCs and corpses).
-  // Check early — actors may not have 3D loaded at distance but are still valid.
+  const UINT8 refType = ref->eFormType;
   if (refType == _FormType::Character || refType == _FormType::Creature)
     return true;
 
-  UINT8 typeID = a_ref->baseForm->eFormType;
-
-  // Skip "destroyed" world fixtures — a fixture flagged destroyed via SetDestroyed
-  // is powered-off / spent and must not be reported:
-  //   - Hidden Valley Datastore terminals (BGSTerminal) the power switch flags off.
-  //   - Harvested plants (TESObjectACTI, e.g. Broc Flower) whose pick script sets
-  //     destroyed until the plant respawns.
-  // This is deliberately NOT applied to pickup items. FNV overloads SetDestroyed as
-  // a generic script state marker, and some quest ITEMS flag themselves destroyed
-  // while still intact and interactive — e.g. the Goodsprings "Back in the Saddle"
-  // tutorial target VCG02Bottle (a MISC "Sunset Sarsaparilla Bottle") runs
-  // SetDestroyed 1 in OnLoad so its OnHitWith can tally shots, yet it stays a valid
-  // shoot-target the whole time. Hiding destroyed items would drop such targets from
-  // the Items list, so item types are exempt (an item's "broken" state is condition/
-  // ExtraHealth, never this flag — so the exemption loses nothing). Bit 0x00800000 =
-  // kFlags_Destroyed (JIP's TESObjectREFR::IsDestroyed). Checked after the actor
-  // early-return so it never affects living/dead actors, whose state is lifeState.
-  // TODO:
-  // if ((a_ref->uiFormFlags & TESObjectREFR::kFlags_Destroyed) && !IsItemType(typeID))
-  // 	return false;
-
-  // Doors are always interactable (load doors may lack 3D until approached)
+  const UINT8 typeID = ref->baseForm->eFormType;
   if (typeID == _FormType::TESObjectDOOR)
     return true;
-
-  // Skip objects with no 3D loaded (not visible in the world)
-  // if (!a_ref->GetNiNode())
-  //   return false;
-
-  UINT32 baseID = a_ref->baseForm->GetFormID();
-
-  // Skip known internal marker base forms (XMarker, MapMarker, triggers, etc.)
-  // if (IsInternalMarkerID(baseID))
-  //   return false;
-
-  // Skip BGSIdleMarker — always an internal marker
   if (typeID == _FormType::BGSIdleMarker)
     return false;
-
-  // Skip activators that use the invisible EditorMarker.NIF model
-  // if (typeID == _FormType::TESObjectACTI && IsEditorMarkerActivator(a_ref->baseForm))
-  //   return false;
-
-  // Skip invisible lights (no model mesh)
-  // if (typeID == _FormType::TESObjectLIGH && IsInvisibleLight(a_ref->baseForm))
-  //   return false;
-
-  // Skip trigger volume objects (activators/furniture with attached primitive
-  // collision volumes, e.g. "Vigor Tester Trigger", "CouchTrigger").
-  // These are invisible collision zones used by scripts, not player-interactable.
-  if (a_ref->extraDataList.GetExtraData(_ExtraDataType::ExtraPrimitive))
+  if (ref->extraDataList.GetExtraData(_ExtraDataType::ExtraPrimitive))
     return false;
 
-  // Must have a display name
-  const char *name = a_ref->GetFullName();
-  if (!name || name[0] == '\0')
+  const char *name = ref->GetFullName();
+  return name && name[0] != '\0';
+}
+
+float GetFrameTime() {
+  auto *time = TimeGlobal::Get();
+  return time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
+}
+
+bool IsValidPoint(const PathPoint3 &point) {
+  return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+}
+
+void ReleaseMovementKeys() {
+  auto &input = DIHookControl::GetSingleton();
+  for (UINT8 &key : g_state.heldMovementKeys) {
+    if (key != kUnboundKey)
+      input.SetKeyHeldState(key, false);
+    key = kUnboundKey;
+  }
+}
+
+void ResetNavigationState() {
+  g_state.trackedTarget = nullptr;
+  g_state.trackedCell = nullptr;
+  g_state.stationaryTime = 0.0f;
+  g_state.recoveryTime = 0.0f;
+  g_state.interactionTime = 0.0f;
+  g_state.turnVelocity = 0.0f;
+  g_state.lookTargetInitialized = false;
+  g_state.positionInitialized = false;
+  g_state.recovering = false;
+}
+
+void StopInternal(PlayerCharacter *player) {
+  ReleaseMovementKeys();
+  Player::SetAutoMove(player, false);
+  ResetNavigationState();
+}
+
+bool EnsureWaypointMarker(PlayerCharacter *player) {
+  if (!g_state.waypointMarker)
+    g_state.waypointMarker = TESObjectREFR::Create(true);
+  if (!g_state.waypointMarker)
     return false;
 
+  g_state.waypointMarker->parentCell = player->GetParentCell();
   return true;
 }
 
-typedef void *(__cdecl *_GameHeapAlloc)(UINT32 size);
-static _GameHeapAlloc GameHeapAlloc = (_GameHeapAlloc)0xAA3E40;
-
-TESObjectREFR *m_waypointTarget; // A Custom Temporary Target that can be set
-void CreateWaypointMarker() {
-  if (m_waypointTarget)
-    return; // already created
-  m_waypointTarget = TESObjectREFR::Create(true);
-  m_waypointTarget->parentCell = PlayerCharacter::GetSingleton()->parentCell;
-}
-
-///////////////////////
-
-const float INTERACTION_DISTANCE = 80.0f;
-
-BGSQuestObjective::Target *g_currentObjectiveTargetData;
-TESObjectREFR *g_currentObjectiveTarget;
-TESObjectREFR *g_lookAtTarget;
-bool MovePlayerToTarget = true;
-
-BGSQuestObjective::Target *findcurrentobjectivetarget() {
-  auto *player = PlayerCharacter::GetSingleton();
-  if (!player)
+BGSQuestObjective::Target *FindCurrentObjectiveTarget(PlayerCharacter *player) {
+  if (!player->activeQuest || player->questTargetList.Empty())
     return nullptr;
-
-  auto *playerRef = reinterpret_cast<TESObjectREFR *>(player);
-  // _MESSAGE("Finding current objective target for player: %s", playerRef->GetFullName());
-  if (!player->activeQuest || player->questTargetList.Empty()) {
-    // _MESSAGE("Player has no active quests.");
-    return nullptr;
-  }
 
   for (auto iter = player->questTargetList.Begin(); !iter.End(); ++iter) {
-    BGSQuestObjective::Target *target = iter.Get() ? iter.Get() : nullptr;
-    // _MESSAGE("Checking objective target: %s", target ? target->GetFullName() : "None");
+    auto *target = iter.Get();
     if (target && target->target)
       return target;
   }
-
   return nullptr;
 }
 
-float targetFacingAngle = 0.0f;
-float playerFacingAngle = 0.0f;
-PathPoint3 targetPosition = {0.0f, 0.0f, 0.0f};
+bool IsInSameTravelSpace(TESObjectREFR *a, TESObjectREFR *b) {
+  if (!a || !b)
+    return false;
 
-PathPoint3 GetNthPathPoint(Actor *actorRef, TESObjectREFR *target, int n) {
-  Pathing::PathResult pathResult;
-  if (Pathing::BuildPath((Actor *)actorRef, target, pathResult)) {
-    if (n >= 0 && n < pathResult.nodes.size()) {
-      return pathResult.nodes[n];
-    } else if (!pathResult.nodes.empty()) {
-      _MESSAGE("Requested path point index %d is out of bounds. Returning last node instead.", n);
-      return pathResult.nodes.front(); // Return the last node if n is out of bounds
-    }
-  }
-  return {FLT_MAX, FLT_MAX, FLT_MAX};
+  auto *aCell = a->GetParentCell();
+  auto *bCell = b->GetParentCell();
+  if (!aCell || !bCell)
+    return false;
+  if (aCell == bCell)
+    return true;
+  return aCell->worldSpace && aCell->worldSpace == bCell->worldSpace;
 }
 
-void getNearbyObjects(TESObjectREFR *playerRef, float radius, std::vector<TESObjectREFR *> &nearbyActors,
+TESObjectREFR *ResolveObjectiveTarget(PlayerCharacter *player, BGSQuestObjective::Target *targetData) {
+  if (!targetData || !targetData->target)
+    return nullptr;
+  if (IsInSameTravelSpace(player, targetData->target))
+    return targetData->target;
+
+  // The engine orders this chain from the player side to the target side; see
+  // FalloutNVAccess/src/menus/MapMenuHandler.cpp (MIT) for the same interpretation.
+  if (targetData->data.teleportLinks.IsEmpty() || !targetData->data.teleportLinks.pBuffer)
+    return nullptr;
+  auto *nextDoor = targetData->data.teleportLinks.GetAt(0).door;
+  return nextDoor && !nextDoor->GetDeleted() ? nextDoor : nullptr;
+}
+
+void GetNearbyObjects(TESObjectREFR *playerRef, float radius, std::vector<TESObjectREFR *> &nearbyObjects,
                       bool actorsOnly) {
-  nearbyActors.clear();
-  if (!playerRef)
+  nearbyObjects.clear();
+  auto *cell = TES::GetSingleton()->currentInterior;
+  if (!cell)
+    cell = playerRef->GetParentCell();
+  if (!cell)
     return;
 
-  auto *cell = TES::GetSingleton()->currentInterior;
-  if (!cell) {
-    cell = playerRef->GetParentCell();
-    if (!cell)
-      return;
+  for (auto *entry = cell->objectList.GetHead(); entry; entry = entry->GetNext()) {
+    auto *ref = entry->GetItem();
+    if (!ref || ref == playerRef || (actorsOnly && !ref->IsActor()))
+      continue;
+    if (Math::GetDistance2D(&playerRef->GetPos(), &ref->GetPos()) <= radius)
+      nearbyObjects.push_back(ref);
   }
 
-  auto objects = cell->objectList.GetHead();
-  while (objects) {
-    objects = objects->GetNext();
-    if (objects == nullptr)
-      continue;
-    auto *ref = objects->GetItem();
-    if (ref && ref != playerRef && (ref->IsActor() || !actorsOnly)) {
-      float distance = Math::GetDistance2D(&playerRef->GetPos(), &ref->GetPos());
-      if (distance <= radius) {
-        nearbyActors.push_back(reinterpret_cast<Actor *>(ref));
-      }
-    }
-  }
-  // Sort the nearby actors by distance to the player
-  std::sort(nearbyActors.begin(), nearbyActors.end(), [playerRef](TESObjectREFR *a, TESObjectREFR *b) {
-    float distanceA = Math::GetDistance2D(&playerRef->GetPos(), &a->GetPos());
-    float distanceB = Math::GetDistance2D(&playerRef->GetPos(), &b->GetPos());
-    return distanceA < distanceB;
+  std::sort(nearbyObjects.begin(), nearbyObjects.end(), [playerRef](TESObjectREFR *a, TESObjectREFR *b) {
+    return Math::GetDistance2D(&playerRef->GetPos(), &a->GetPos()) <
+           Math::GetDistance2D(&playerRef->GetPos(), &b->GetPos());
   });
 }
 
-void FigureOutCurrentLookAtObject() {
-  auto *player = PlayerCharacter::GetSingleton();
-  if (g_currentObjectiveTarget) {
-    g_lookAtTarget = g_currentObjectiveTarget;
-    MovePlayerToTarget = Math::GetDistance2D(&player->GetPos(), &g_lookAtTarget->GetPos()) >= INTERACTION_DISTANCE;
-    return;
+TargetSelection SelectTarget(PlayerCharacter *player) {
+  TargetSelection selection;
+  selection.objectiveData = FindCurrentObjectiveTarget(player);
+  selection.objective = ResolveObjectiveTarget(player, selection.objectiveData);
+  if (selection.objective) {
+    selection.lookAt = selection.objective;
+    selection.shouldMove =
+        Math::GetDistance2D(&player->GetPos(), &selection.objective->GetPos()) >= kInteractionDistance;
+    return selection;
   }
-  if (g_lookAtTarget) {
-    MovePlayerToTarget = Math::GetDistance2D(&player->GetPos(), &g_lookAtTarget->GetPos()) >= INTERACTION_DISTANCE;
-  }
+
   std::vector<TESObjectREFR *> nearbyActors;
-  // If there is a speaker talking to the player, we look at them once we don't have an objective
-  getNearbyObjects(reinterpret_cast<TESObjectREFR *>(player), 600.0f, nearbyActors, true);
-  for (auto *actor : nearbyActors) {
-    if (actor->IsActor()) {
-      g_lookAtTarget = actor;
-      MovePlayerToTarget = false;
-      return;
+  GetNearbyObjects(reinterpret_cast<TESObjectREFR *>(player), kNearbyActorDistance, nearbyActors, true);
+  if (!nearbyActors.empty())
+    selection.lookAt = nearbyActors.front();
+  return selection;
+}
+
+TESObjectCELL *GetNavigationCell(PlayerCharacter *player) {
+  auto *cell = TES::GetSingleton()->currentInterior;
+  return cell ? cell : player->GetParentCell();
+}
+
+bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPoint3 &pathPoint) {
+  g_state.waypointMarker->pos = destination;
+
+  Pathing::PathResult path;
+  if (!Pathing::BuildPath(player, g_state.waypointMarker, path) || path.nodes.empty())
+    return false;
+
+  const size_t pointIndex = std::min<size_t>(1, path.nodes.size() - 1);
+  pathPoint = path.nodes[pointIndex];
+  return IsValidPoint(pathPoint);
+}
+
+PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, TESObjectREFR *target) {
+  const NiPoint3 destination = target->GetPos();
+  if (Math::GetDistance2D(&player->GetPos(), &destination) < kInteractionDistance)
+    return {destination.x, destination.y, destination.z};
+
+  PathPoint3 pathPoint;
+  if (BuildPathPoint(player, destination, pathPoint))
+    return pathPoint;
+
+  auto *cell = GetNavigationCell(player);
+  if (cell) {
+    NiPoint4 closest = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
+    Pathing::GetClosestNavMeshTriangle(cell, destination, false, 0.0f, closest);
+    if (closest.x != FLT_MAX) {
+      const NiPoint3 onNavmesh = {closest.x, closest.y, closest.z};
+      if (BuildPathPoint(player, onNavmesh, pathPoint))
+        return pathPoint;
+    }
+  }
+
+  return {destination.x, destination.y, destination.z};
+}
+
+void UpdateStuckState(PlayerCharacter *player, bool shouldMove, float deltaTime) {
+  if (!shouldMove) {
+    g_state.stationaryTime = 0.0f;
+    g_state.recoveryTime = 0.0f;
+    g_state.recovering = false;
+    g_state.positionInitialized = false;
+    return;
+  }
+
+  if (!g_state.positionInitialized) {
+    g_state.lastPlayerPosition = player->GetPos();
+    g_state.positionInitialized = true;
+    return;
+  }
+
+  if (Math::GetDistance2D(&player->GetPos(), &g_state.lastPlayerPosition) <= kStuckDistance)
+    g_state.stationaryTime += deltaTime;
+  else
+    g_state.stationaryTime = 0.0f;
+
+  g_state.lastPlayerPosition = player->GetPos();
+  if (!g_state.recovering && g_state.stationaryTime >= kStuckDelay) {
+    g_state.recovering = true;
+    g_state.recoveryTime = 0.0f;
+  }
+  if (g_state.recovering) {
+    g_state.recoveryTime += deltaTime;
+    if (g_state.recoveryTime >= kRecoveryDuration) {
+      g_state.recovering = false;
+      g_state.stationaryTime = 0.0f;
     }
   }
 }
 
-NiPoint3 lastPlayerPosition = {0.0f, 0.0f, 0.0f};
-bool playerIsStuck = false;
-
-TESObjectREFR *GetCurrentObjectiveTarget() {
-  if (g_currentObjectiveTargetData) {
-    if (TES::GetSingleton()->currentInterior && !g_currentObjectiveTargetData->target->IsInInterior()) {
-      for (auto door : g_currentObjectiveTargetData->data.teleportLinks) {
-        if (door.door && door.door->GetParentCell() == TES::GetSingleton()->currentInterior) {
-          return door.door;
-        }
-      };
-    }
-    if (!TES::GetSingleton()->currentInterior && g_currentObjectiveTargetData->target->IsInInterior()) {
-      for (auto door : g_currentObjectiveTargetData->data.teleportLinks) {
-        if (door.door && !door.door->IsInInterior()) {
-          return door.door;
-        }
-      };
-    }
-    return g_currentObjectiveTargetData->target;
+NiPoint3 UpdateSmoothedLookTarget(const PathPoint3 &navigationPoint, float deltaTime) {
+  const NiPoint3 desired = {navigationPoint.x, navigationPoint.y, navigationPoint.z};
+  if (!g_state.lookTargetInitialized) {
+    g_state.smoothedLookTarget = desired;
+    g_state.lookTargetInitialized = true;
+    return desired;
   }
-  return nullptr;
+
+  const float alpha = 1.0f - std::exp(-kLookTargetResponse * deltaTime);
+  g_state.smoothedLookTarget.x += (desired.x - g_state.smoothedLookTarget.x) * alpha;
+  g_state.smoothedLookTarget.y += (desired.y - g_state.smoothedLookTarget.y) * alpha;
+  g_state.smoothedLookTarget.z += (desired.z - g_state.smoothedLookTarget.z) * alpha;
+  return g_state.smoothedLookTarget;
 }
 
-// TODO: Add Turn accellaration and deceleration to make the turning more natural. Right now it just snaps to the target
-// angle if the angles are too small. making the view jittery
-// It should only kick in in rapidly changing angles. if the angle is changing in the same direction its fine if its
-// fast
+void UpdateLook(PlayerCharacter *player, const NiPoint3 &lookTarget, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+
+  const float headingError = Math::GetHeadingBetweenPoints(player->pos.x, player->pos.y, Math::ToDegrees(player->rot.z),
+                                                           lookTarget.x, lookTarget.y);
+  if (std::abs(headingError) < kTurnDeadZone && std::abs(g_state.turnVelocity) < kTurnDeadZone) {
+    g_state.turnVelocity = 0.0f;
+    return;
+  }
+
+  const float desiredVelocity = std::clamp(headingError * kTurnSpeedResponse, -kMaxTurnRate, kMaxTurnRate);
+  const bool reversing = desiredVelocity * g_state.turnVelocity < 0.0f;
+  const float response = reversing ? kTurnReversalResponse : kTurnAccelerationResponse;
+  const float velocityAlpha = 1.0f - std::exp(-response * deltaTime);
+  g_state.turnVelocity += (desiredVelocity - g_state.turnVelocity) * velocityAlpha;
+
+  float turnAmount = g_state.turnVelocity * deltaTime;
+  if (turnAmount * headingError > 0.0f && std::abs(turnAmount) > std::abs(headingError)) {
+    turnAmount = headingError;
+    g_state.turnVelocity = 0.0f;
+  }
+  player->rot.z += turnAmount;
+}
+
+void HoldMovementKey(UINT8 key, size_t slot) {
+  if (key == kUnboundKey)
+    return;
+  DIHookControl::GetSingleton().SetKeyHeldState(key, true);
+  g_state.heldMovementKeys[slot] = key;
+}
+
+void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, bool shouldMove) {
+  ReleaseMovementKeys();
+  Player::SetAutoMove(player, false);
+  if (!shouldMove)
+    return;
+
+  auto *input = OSInputGlobals::GetSingleton();
+  if (!input)
+    return;
+
+  const float relativeHeading = Math::GetHeadingBetweenPoints(
+      player->pos.x, player->pos.y, Math::ToDegrees(player->rot.z), navigationPoint.x, navigationPoint.y);
+  const float diagonalThreshold = Math::ToRadians(22.5f);
+  const float reverseThreshold = Math::ToRadians(112.5f);
+  const float sideLimit = Math::ToRadians(157.5f);
+
+  if (std::abs(relativeHeading) < Math::ToRadians(67.5f))
+    HoldMovementKey(input->keyBinds[ControlCode::Forward], 0);
+  if (std::abs(relativeHeading) > reverseThreshold)
+    HoldMovementKey(input->keyBinds[ControlCode::Backward], 1);
+  if (relativeHeading > diagonalThreshold && relativeHeading < sideLimit)
+    HoldMovementKey(input->keyBinds[ControlCode::Right], 2);
+  if (relativeHeading < -diagonalThreshold && relativeHeading > -sideLimit)
+    HoldMovementKey(input->keyBinds[ControlCode::Left], 3);
+}
+
+void TryActivate(PlayerCharacter *player, const TargetSelection &selection, float deltaTime) {
+  if (!selection.objective ||
+      Math::GetDistance2D(&player->GetPos(), &selection.objective->GetPos()) >= kInteractionDistance) {
+    g_state.interactionTime = 0.0f;
+    return;
+  }
+
+  g_state.interactionTime += deltaTime;
+  if (g_state.interactionTime < kInteractionDelay)
+    return;
+  g_state.interactionTime = 0.0f;
+
+  TESObjectREFR *activationTarget = IsInteractable(selection.objective) ? selection.objective : nullptr;
+  if (!activationTarget) {
+    std::vector<TESObjectREFR *> nearbyObjects;
+    GetNearbyObjects(reinterpret_cast<TESObjectREFR *>(player), 100.0f, nearbyObjects, false);
+    auto result = std::find_if(nearbyObjects.begin(), nearbyObjects.end(), IsInteractable);
+    if (result != nearbyObjects.end())
+      activationTarget = *result;
+  }
+
+  if (activationTarget) {
+    CALL_MEMBER_FN(activationTarget, Activate)(player, 0, 0, 1);
+    _MESSAGE("Walker interacted with: %s", activationTarget->GetFullName());
+  }
+}
+
+} // namespace
+
+void Stop() { StopInternal(PlayerCharacter::GetSingleton()); }
+
 void Process() {
-  bool isinStartMenu = StartMenu::Get() != nullptr;
-  if (isinStartMenu)
-    return;
-
-  CreateWaypointMarker();
-
-  g_currentObjectiveTargetData = findcurrentobjectivetarget();
-  g_currentObjectiveTarget = GetCurrentObjectiveTarget();
-  auto player = PlayerCharacter::GetSingleton();
-  if (!player)
-    return;
-  m_waypointTarget->parentCell = player->GetParentCell();
-  if ((player->pcControlFlags & (PlayerCharacter::kControlFlag_Movement | PlayerCharacter::kControlFlag_Look)) != 0) {
+  auto *player = PlayerCharacter::GetSingleton();
+  if (!player || StartMenu::Get() ||
+      (player->pcControlFlags & (PlayerCharacter::kControlFlag_Movement | PlayerCharacter::kControlFlag_Look)) != 0) {
+    StopInternal(player);
     return;
   }
-  FigureOutCurrentLookAtObject();
-  if (!g_lookAtTarget)
+  if (!EnsureWaypointMarker(player)) {
+    StopInternal(player);
     return;
-
-  // _MESSAGE("Current Objective Target: %s", g_lookAtTarget ? g_lookAtTarget->GetFullName() : "None");
-  // _MESSAGE("Player Position: x=%f, y=%f, z=%f", player->GetPos().x, player->GetPos().y, player->GetPos().z);
-
-  auto *playerRef = reinterpret_cast<TESObjectREFR *>(player);
-  TESObjectCELL *TargetCell = TES::GetSingleton()->currentInterior;
-  if (!TargetCell) {
-    TargetCell = player->GetParentCell();
-  }
-  m_waypointTarget->pos = g_lookAtTarget->GetPos();
-  targetPosition = GetNthPathPoint(player, m_waypointTarget, 1);
-  if (Math::GetDistance2D(&playerRef->GetPos(), &m_waypointTarget->GetPos()) < 50.0f) {
-    targetPosition = GetNthPathPoint(player, m_waypointTarget, 2);
-    _MESSAGE("Player is close to the target, getting the 2nd path point instead of the 1st.");
-  }
-  // _MESSAGE("1Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-  NiPoint3 targetNavMeshPoint = {targetPosition.x, targetPosition.y, targetPosition.z};
-  if ((targetPosition.x == FLT_MAX || targetPosition.y == FLT_MAX || targetPosition.z == FLT_MAX)) {
-    NiPoint4 arOut = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
-    Pathing::GetClosestNavMeshTriangle(TargetCell, g_lookAtTarget->GetPos(), false, 0.0f, arOut);
-    if (arOut.x != FLT_MAX) {
-      m_waypointTarget->pos = {arOut.x, arOut.y, arOut.z};
-    }
-    targetPosition = GetNthPathPoint(player, m_waypointTarget, 1);
-    // _MESSAGE("2Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-  }
-  if ((Math::GetDistance2D(&playerRef->GetPos(), &g_lookAtTarget->GetPos()) < INTERACTION_DISTANCE)) {
-    targetPosition = {g_lookAtTarget->pos.x, g_lookAtTarget->pos.y, g_lookAtTarget->pos.z};
-    // _MESSAGE("3Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-  }
-  NiPoint3 targetNavMeshPoint2 = m_waypointTarget->GetPos();
-  NiPoint4 arOut = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
-  if (targetPosition.x == FLT_MAX || targetPosition.y == FLT_MAX || targetPosition.z == FLT_MAX) {
-    Pathing::GetClosestNavMeshTriangle(TargetCell, targetNavMeshPoint2, false, 0.0f, arOut);
-    if (arOut.x != FLT_MAX) {
-      m_waypointTarget->pos = {arOut.x, arOut.y, arOut.z};
-      targetPosition = GetNthPathPoint(player, m_waypointTarget, 1);
-      // _MESSAGE("4Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-      if (targetPosition.x == FLT_MAX || targetPosition.y == FLT_MAX || targetPosition.z == FLT_MAX) {
-        targetPosition = {g_lookAtTarget->pos.x, g_lookAtTarget->pos.y, g_lookAtTarget->pos.z};
-      }
-    } else {
-      targetPosition = {g_lookAtTarget->pos.x, g_lookAtTarget->pos.y, g_lookAtTarget->pos.z};
-    }
   }
 
-  // _MESSAGE("5Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-  if (MovePlayerToTarget && ((Math::GetDistance2D(&player->GetPos(), &lastPlayerPosition) <= 1.0f &&
-                              DelayedGuard::Delay("StuckTimerMovement", 3.0f)) ||
-                             playerIsStuck)) {
-    playerIsStuck = true;
-    TESObjectCELL *TargetCell = TES::GetSingleton()->currentInterior;
-    if (!TargetCell) {
-      TargetCell = player->GetParentCell();
-    }
-    if (Pathing::GetPointNavMesh(TargetCell, targetNavMeshPoint2, false, 0.0f, arOut)) {
-      _MESSAGE("Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-      _MESSAGE("Target NavMesh Point: x=%f, y=%f, z=%f, distance=%f", arOut.x, arOut.y, arOut.z, arOut.w);
-      targetPosition.x = arOut.x;
-      targetPosition.y = arOut.y;
-      targetPosition.z = arOut.z;
-      m_waypointTarget->pos = {targetPosition.x, targetPosition.y, targetPosition.z};
-      targetPosition = GetNthPathPoint(player, m_waypointTarget, 1);
-    } else {
-      Pathing::GetClosestNavMeshTriangle(TargetCell, targetNavMeshPoint2, false, 0.0f, arOut);
-      if (arOut.w < 0.0f) {
-        _MESSAGE("No valid NavMesh triangle found for target position.");
-        // Reset the unstuck movement timer to avoid immediate retry
-        DelayedGuard::Reset("StuckTimerMovement");
-        playerIsStuck = false;
-      } else {
-        _MESSAGE("Current Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-        _MESSAGE("Closest NavMesh Triangle Point: x=%f, y=%f, z=%f, distance=%f", arOut.x, arOut.y, arOut.z, arOut.w);
-        targetPosition.x = arOut.x;
-        targetPosition.y = arOut.y;
-        targetPosition.z = arOut.z;
-        m_waypointTarget->pos = {targetPosition.x, targetPosition.y, targetPosition.z};
-        targetPosition = GetNthPathPoint(player, m_waypointTarget, 1);
-      }
-    }
-    // Move one second according to the above points
-    if (DelayedGuard::Delay("UnstuckMovementTimer", 1.0f)) {
-      playerIsStuck = false;
-      DelayedGuard::Reset("StuckTimerMovement");
-      DelayedGuard::Reset("UnstuckMovementTimer");
-    }
+  const TargetSelection selection = SelectTarget(player);
+  if (!selection.lookAt || selection.lookAt->GetDeleted()) {
+    StopInternal(player);
+    return;
   }
-  if (!MovePlayerToTarget) {
-    DelayedGuard::Reset("StuckTimerMovement");
-    targetPosition = {
-        g_lookAtTarget->pos.x, g_lookAtTarget->pos.y,
-        g_lookAtTarget->pos.z}; // If we aren't moving to the target, we want to look at it instead of moving to it
-  }
-  // _MESSAGE("Target Position: x=%f, y=%f, z=%f", targetPosition.x, targetPosition.y, targetPosition.z);
-  targetFacingAngle = Math::GetHeadingBetweenPoints(player->pos.x, player->pos.y, Math::ToDegrees(player->rot.z),
-                                                    targetPosition.x, targetPosition.y);
-  targetFacingAngle = targetFacingAngle / 10.0f;
-  _MESSAGE("Target Facing Angle: %f", targetFacingAngle);
-  playerFacingAngle = player->rot.z + targetFacingAngle;
-  player->rot.z = playerFacingAngle;
-  lastPlayerPosition = player->GetPos();
-  // We reached our destination but the objective didn't finish. this likely means we need to interact with something
-  if (g_currentObjectiveTarget &&
-      Math::GetDistance2D(&player->GetPos(), &g_currentObjectiveTarget->GetPos()) < INTERACTION_DISTANCE) {
-    // Scan current cell for interactable objects and see if we can interact with them
-    //  Prioritize the nearest one to the player
-    //  but first check if the objective target is interactable and within range
-    if (IsInteractable(g_currentObjectiveTarget)) {
-      // _MESSAGE("test interaction: %b ", g_currentObjectiveTarget->Activate((TESObjectREFR *)player, 0, 0, 1));
-      if (DelayedGuard::Delay("InteractionTimer", 1.0f)) {
-        CALL_MEMBER_FN(g_currentObjectiveTarget, Activate)(player, 0, 0, 1);
-        DelayedGuard::Reset("InteractionTimer");
-        _MESSAGE("Interacting with current objective target: %s", g_currentObjectiveTarget->GetFullName());
-      }
-    } else {
-      if (DelayedGuard::Delay("InteractionTimer", 1.0f)) {
-        std::vector<TESObjectREFR *> nearbyActors;
-        getNearbyObjects(reinterpret_cast<TESObjectREFR *>(player), 100.0f, nearbyActors, false);
-        for (auto *ref : nearbyActors) {
-          if (IsInteractable(ref)) {
-            CALL_MEMBER_FN(ref, Activate)(player, 0, 0, 1);
-            DelayedGuard::Reset("InteractionTimer");
-            _MESSAGE("Interacting with nearby interactable object: %s", ref->GetFullName());
-            break;
-          }
-        }
-      }
-    }
-  }
-  // _MESSAGE("Player Facing Angle: %f, with targetFacingAngle: %f", playerFacingAngle, targetFacingAngle);
-  PlayerMover *playerMover = reinterpret_cast<PlayerMover *>(player->actorMover);
-  // TODO: Figure out how to move player to target position so we can also strafe if needed
-  // Look into how FalloutNVAccess handles this with AutoMover
-  if (playerMover) {
-    Player::SetAutoMove(player, MovePlayerToTarget);
-    // If we aren't moving left. Set the Move left flag so we automatically move
-    // if (playerMover->pcMovementFlags & ActorMover::MovementFlags::kMoveFlag_Left) {
-    //   playerMover->pcMovementFlags &= ~ActorMover::MovementFlags::kMoveFlag_Left;
-    // }
-    // Player::veloctyVector direction = {targetPosition.x - player->pos.x * 100.0f,
-    //                                    targetPosition.y - player->pos.y * 100.0f,
-    //                                    targetPosition.z - player->pos.z * 100.0f};
-    // Player::SetVelocity(player, direction);
-    // playerMover->Update(TimeGlobal::Get()->secondsPassed);
-  } else {
 
-    Player::SetAutoMove(player, MovePlayerToTarget);
+  auto *currentCell = player->GetParentCell();
+  if (selection.lookAt != g_state.trackedTarget || currentCell != g_state.trackedCell) {
+    ReleaseMovementKeys();
+    ResetNavigationState();
+    g_state.trackedTarget = selection.lookAt;
+    g_state.trackedCell = currentCell;
   }
+
+  const float deltaTime = GetFrameTime();
+  const PathPoint3 navigationPoint = ResolveNavigationPoint(player, selection.lookAt);
+  UpdateStuckState(player, selection.shouldMove, deltaTime);
+
+  PathPoint3 movementPoint = navigationPoint;
+  if (g_state.recovering) {
+    auto *cell = GetNavigationCell(player);
+    NiPoint4 closest = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
+    if (cell && Pathing::GetPointNavMesh(cell, g_state.waypointMarker->GetPos(), false, 0.0f, closest))
+      movementPoint = {closest.x, closest.y, closest.z};
+  }
+
+  const NiPoint3 lookTarget =
+      selection.shouldMove ? UpdateSmoothedLookTarget(movementPoint, deltaTime) : selection.lookAt->GetPos();
+  UpdateLook(player, lookTarget, deltaTime);
+  UpdateMovement(player, movementPoint, selection.shouldMove);
+  TryActivate(player, selection, deltaTime);
 }
 
 } // namespace Walker
