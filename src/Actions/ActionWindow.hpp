@@ -31,6 +31,7 @@ private:
   std::string m_forceState;
   NeuroSDK::ActionPriority m_forcePriority = NeuroSDK::ActionPriority::High;
   std::vector<std::unique_ptr<IAction>> m_actions;
+  bool m_ownsForce = false;
 };
 
 } // namespace Actions

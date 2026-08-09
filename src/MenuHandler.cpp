@@ -1,6 +1,7 @@
 #include "MenuHandler.hpp"
 #include "GameUI.h"
 #include "Menus/CharacterEditorHandler.hpp"
+#include "Menus/DialogHandler.hpp"
 #include "Menus/MessagePopupHandler.hpp"
 #include "Menus/SpecialAllocationHandler.hpp"
 #include "Menus/SubtitleHandler.hpp"
@@ -11,6 +12,7 @@ namespace MenuHandler {
 
 void Reset() {
   Menus::SpecialAllocationHandler::Reset();
+  Menus::DialogHandler::Reset();
   Menus::TextEditHandler::Reset();
   Menus::CharacterEditorHandler::Reset();
 }
@@ -18,6 +20,7 @@ void Reset() {
 bool Process() {
   // Observation is independent of modal menu handling so subtitles are not lost behind a popup.
   Menus::SubtitleHandler::Process();
+  Menus::DialogHandler::Observe();
 
   const UINT32 topMenu = Interface::GetTopMenuID();
   static UINT32 lastTopMenu = Interface::NoMenu;
@@ -28,8 +31,9 @@ bool Process() {
   const bool popupPresent = topMenu == Interface::Message && !StartMenu::Get();
   const bool textEditPresent = topMenu == Interface::TextEdit;
   const bool characterEditorPresent = topMenu == Interface::RaceMenu;
-  const bool specialBlocksGameplay =
-      Menus::SpecialAllocationHandler::Process(!popupPresent && !textEditPresent && !characterEditorPresent);
+  const bool dialogPresent = topMenu == Interface::Dialog;
+  const bool specialBlocksGameplay = Menus::SpecialAllocationHandler::Process(
+      !popupPresent && !textEditPresent && !characterEditorPresent && !dialogPresent);
 
   if (Menus::MessagePopupHandler::Process()) {
     Menus::TextEditHandler::Reset();
@@ -41,6 +45,8 @@ bool Process() {
     return true;
   }
   if (Menus::CharacterEditorHandler::Process())
+    return true;
+  if (Menus::DialogHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting()))
     return true;
   if (specialBlocksGameplay)
     return true;

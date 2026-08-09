@@ -7,6 +7,8 @@
 namespace Actions {
 namespace {
 
+ActionWindow *g_forcedWindow = nullptr;
+
 bool IsValidActionName(const std::string &name) {
   if (name.empty() || name.front() == '_' || name.back() == '_')
     return false;
@@ -65,19 +67,37 @@ bool ActionWindow::Register() {
     names.push_back(definition.name);
   }
 
+  auto releaseForce = [this]() {
+    if (m_ownsForce && g_forcedWindow == this)
+      g_forcedWindow = nullptr;
+    m_ownsForce = false;
+  };
+  if (!m_forceQuery.empty()) {
+    if (g_forcedWindow && g_forcedWindow != this) {
+      _WARNING("ActionWindow cannot register while another force is active");
+      m_state = State::Faulted;
+      return false;
+    }
+    g_forcedWindow = this;
+    m_ownsForce = true;
+  }
+
   if (!m_context.empty() && !NeuroSDK::SendContext(m_context.c_str(), m_contextSilent)) {
     _WARNING("ActionWindow failed to send context");
+    releaseForce();
     m_state = State::Faulted;
     return false;
   }
   if (!ActionRegistry::Get().Bind(*this)) {
     _WARNING("ActionWindow failed to bind actions locally");
+    releaseForce();
     m_state = State::Faulted;
     return false;
   }
   if (!NeuroSDK::RegisterActions(definitions)) {
     _WARNING("ActionWindow failed to register actions with NeuroSDK");
     ActionRegistry::Get().Unbind(*this);
+    releaseForce();
     m_state = State::Faulted;
     return false;
   }
@@ -115,6 +135,9 @@ bool ActionWindow::End() {
   }
   const bool sent = NeuroSDK::UnregisterActions(names);
   if (sent) {
+    if (m_ownsForce && g_forcedWindow == this)
+      g_forcedWindow = nullptr;
+    m_ownsForce = false;
     m_state = State::Ended;
     _MESSAGE("ActionWindow unregistered %zu action(s)", names.size());
   }
@@ -123,6 +146,9 @@ bool ActionWindow::End() {
 
 void ActionWindow::Abandon() {
   ActionRegistry::Get().Unbind(*this);
+  if (m_ownsForce && g_forcedWindow == this)
+    g_forcedWindow = nullptr;
+  m_ownsForce = false;
   m_state = State::Ended;
 }
 
