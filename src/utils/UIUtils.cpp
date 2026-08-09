@@ -33,7 +33,7 @@ bool ClickTile(Menu *menu, Tile *tile) {
 Tile *GetControl(Menu *menu, const char *name) {
   if (!menu || !menu->tile)
     return nullptr;
-  char path[32] = {};
+  char path[256] = {};
   strcpy_s(path, name);
   return menu->tile->GetComponentTile(path);
 }

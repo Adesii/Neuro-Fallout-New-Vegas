@@ -1,11 +1,13 @@
 #include "MenuHandler.hpp"
 #include "GameUI.h"
+#include "Menus/CharGenHandler.hpp"
 #include "Menus/CharacterEditorHandler.hpp"
 #include "Menus/DialogHandler.hpp"
 #include "Menus/MessagePopupHandler.hpp"
 #include "Menus/SpecialAllocationHandler.hpp"
 #include "Menus/SubtitleHandler.hpp"
 #include "Menus/TextEditHandler.hpp"
+#include "Menus/TraitsHandler.hpp"
 #include "Utils/DebugLog.hpp"
 
 namespace MenuHandler {
@@ -13,6 +15,8 @@ namespace MenuHandler {
 void Reset() {
   Menus::SpecialAllocationHandler::Reset();
   Menus::DialogHandler::Reset();
+  Menus::CharGenHandler::Reset();
+  Menus::TraitsHandler::Reset();
   Menus::TextEditHandler::Reset();
   Menus::CharacterEditorHandler::Reset();
 }
@@ -32,8 +36,11 @@ bool Process() {
   const bool textEditPresent = topMenu == Interface::TextEdit;
   const bool characterEditorPresent = topMenu == Interface::RaceMenu;
   const bool dialogPresent = topMenu == Interface::Dialog;
-  const bool specialBlocksGameplay = Menus::SpecialAllocationHandler::Process(
-      !popupPresent && !textEditPresent && !characterEditorPresent && !dialogPresent);
+  const bool charGenPresent = topMenu == Interface::CharGen;
+  const bool traitsPresent = topMenu == Interface::Traits;
+  const bool specialBlocksGameplay =
+      Menus::SpecialAllocationHandler::Process(!popupPresent && !textEditPresent && !characterEditorPresent &&
+                                               !dialogPresent && !charGenPresent && !traitsPresent);
 
   if (Menus::MessagePopupHandler::Process()) {
     Menus::TextEditHandler::Reset();
@@ -47,6 +54,11 @@ bool Process() {
   if (Menus::CharacterEditorHandler::Process())
     return true;
   if (Menus::DialogHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting()))
+    return true;
+  if (Menus::CharGenHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting()))
+    return true;
+  if (Menus::TraitsHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting() &&
+                                    !Menus::CharGenHandler::IsExecuting()))
     return true;
   if (specialBlocksGameplay)
     return true;
