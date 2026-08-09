@@ -39,6 +39,8 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_ExitGame:
     break;
   case NVSEMessagingInterface::kMessage_ExitToMainMenu:
+    if (g_neuroSDK)
+      g_neuroSDK->ResetAutomation();
     break;
   case NVSEMessagingInterface::kMessage_LoadGame:
     break;
@@ -49,6 +51,8 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     break;
 #endif
   case NVSEMessagingInterface::kMessage_PreLoadGame:
+    if (g_neuroSDK)
+      g_neuroSDK->ResetAutomation();
     break;
   case NVSEMessagingInterface::kMessage_ExitGame_Console:
     break;
@@ -65,6 +69,8 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_RenameNewGame:
     break;
   case NVSEMessagingInterface::kMessage_NewGame:
+    if (g_neuroSDK)
+      g_neuroSDK->ResetAutomation();
     break;
   case NVSEMessagingInterface::kMessage_DeleteGameName:
     break;

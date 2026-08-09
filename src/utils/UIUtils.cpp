@@ -30,4 +30,13 @@ bool ClickTile(Menu *menu, Tile *tile) {
   return true;
 }
 
+Tile *GetControl(Menu *menu, const char *name) {
+  if (!menu || !menu->tile)
+    return nullptr;
+  char path[32] = {};
+  strcpy_s(path, name);
+  return menu->tile->GetComponentTile(path);
+}
+
+bool ClickControl(Menu *menu, const char *name) { return UIUtils::ClickTile(menu, GetControl(menu, name)); }
 } // namespace UIUtils

@@ -2,14 +2,34 @@
 #include "GameUI.h"
 #include "Menus/CharacterEditorHandler.hpp"
 #include "Menus/MessagePopupHandler.hpp"
+#include "Menus/SpecialAllocationHandler.hpp"
 #include "Menus/SubtitleHandler.hpp"
 #include "Menus/TextEditHandler.hpp"
+#include "Utils/DebugLog.hpp"
 
 namespace MenuHandler {
+
+void Reset() {
+  Menus::SpecialAllocationHandler::Reset();
+  Menus::TextEditHandler::Reset();
+  Menus::CharacterEditorHandler::Reset();
+}
 
 bool Process() {
   // Observation is independent of modal menu handling so subtitles are not lost behind a popup.
   Menus::SubtitleHandler::Process();
+
+  const UINT32 topMenu = Interface::GetTopMenuID();
+  static UINT32 lastTopMenu = Interface::NoMenu;
+  if (topMenu != lastTopMenu) {
+    _DMESSAGE("MenuHandler top menu changed: %u -> %u", lastTopMenu, topMenu);
+    lastTopMenu = topMenu;
+  }
+  const bool popupPresent = topMenu == Interface::Message && !StartMenu::Get();
+  const bool textEditPresent = topMenu == Interface::TextEdit;
+  const bool characterEditorPresent = topMenu == Interface::RaceMenu;
+  const bool specialBlocksGameplay =
+      Menus::SpecialAllocationHandler::Process(!popupPresent && !textEditPresent && !characterEditorPresent);
 
   if (Menus::MessagePopupHandler::Process()) {
     Menus::TextEditHandler::Reset();
@@ -21,6 +41,8 @@ bool Process() {
     return true;
   }
   if (Menus::CharacterEditorHandler::Process())
+    return true;
+  if (specialBlocksGameplay)
     return true;
 
   // Unknown menus are not automated yet, but they still pause gameplay automation.

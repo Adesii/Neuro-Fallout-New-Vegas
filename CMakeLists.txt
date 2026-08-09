@@ -45,6 +45,7 @@ set_target_properties(neuro-fnv PROPERTIES
 # -----------------------------------------------------------------------------
 target_include_directories(neuro-fnv PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/libneurosdk/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/libneurosdk/vendor"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/common"

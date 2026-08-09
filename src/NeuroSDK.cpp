@@ -1,5 +1,6 @@
 
 #include "NeuroSDK.hpp"
+#include "Actions/ActionRegistry.hpp"
 #include "CachedScripts.hpp"
 #include "MenuHandler.hpp"
 #include "Utils/DebugLog.hpp"
@@ -60,35 +61,37 @@ bool NeuroSDK::Initialize() {
 }
 
 void NeuroSDK::MainLoop() {
-  if (!isConnected) {
-    Walker::Stop();
+  if (!isConnected || !neurosdk_context_connected(&ctx)) {
+    ResetAutomation();
     _WARNING("NeuroSDK is not connected. Skipping MainLoop.");
     return;
   }
 
-  neurosdk_message_t *messages = NULL;
-  int count = 0;
-
-  auto err = neurosdk_context_poll(&ctx, &messages, &count);
-  if (err != NeuroSDK_None) {
-    Walker::Stop();
-    _WARNING("Failed to poll NeuroSDK context: %d", err);
+  if (!PollMessages()) {
+    ResetAutomation();
     return;
   }
 
-  if (MenuHandler::Process())
+  const bool menuBlocksGameplay = MenuHandler::Process();
+  Actions::ActionRegistry::Get().Dispatch(TakeActionInbox());
+
+  if (menuBlocksGameplay)
     Walker::Stop();
   else
     Walker::Process();
 }
 
+void NeuroSDK::ResetAutomation() {
+  MenuHandler::Reset();
+  Actions::ActionRegistry::Get().Reset();
+  actionInbox.clear();
+  Walker::Stop();
+}
+
 void NeuroSDK::StartupMessage() {
-  neurosdk_message_t startup_message;
+  neurosdk_message_t startup_message{};
   startup_message.kind = NeuroSDK_MessageKind_Startup;
-  neurosdk_error_e err;
-  if ((err = neurosdk_context_send(&ctx, &startup_message)) != NeuroSDK_None) {
-    _ERROR("Failed to send startup message to NeuroSDK: %d", err);
-  }
+  SendSDKMessage(startup_message);
 }
 
 bool NeuroSDK::SendContext(const char *message, bool silent) {
@@ -103,7 +106,7 @@ bool NeuroSDK::SendContext(const char *message, bool silent) {
     return false;
   }
 
-  neurosdk_message_t context_message;
+  neurosdk_message_t context_message{};
   context_message.kind = NeuroSDK_MessageKind_Context;
   context_message.value = {.context = {
                                .message = const_cast<char *>(message),
@@ -111,12 +114,145 @@ bool NeuroSDK::SendContext(const char *message, bool silent) {
                            }};
 
   _DMESSAGE("Sending context message: %s", message);
-  neurosdk_error_e err;
-  if ((err = neurosdk_context_send(&sdk->ctx, &context_message)) != NeuroSDK_None) {
-    _WARNING("Failed to send context message to NeuroSDK: %d", err);
+  return sdk->SendSDKMessage(context_message);
+}
+
+bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitions) {
+  if (definitions.empty())
+    return false;
+
+  std::vector<neurosdk_action_t> actions;
+  std::vector<std::string> schemas;
+  actions.reserve(definitions.size());
+  schemas.reserve(definitions.size());
+  for (const auto &definition : definitions) {
+    if (!definition.schema.IsEmpty() && definition.schema.GetType() != Actions::Json::JsonSchemaType::Object) {
+      _WARNING("Cannot register action '%s': root schema type must be object", definition.name.c_str());
+      return false;
+    }
+    _DMESSAGE("Registering NeuroSDK action: %s", definition.name.c_str());
+    schemas.push_back(definition.schema.Serialize());
+    actions.push_back({.name = const_cast<char *>(definition.name.c_str()),
+                       .description = const_cast<char *>(definition.description.c_str()),
+                       .json_schema = const_cast<char *>(schemas.back().c_str())});
+  }
+
+  neurosdk_message_t message{};
+  message.kind = NeuroSDK_MessageKind_ActionsRegister;
+  message.value.actions_register = {.actions = actions.data(), .actions_len = static_cast<int>(actions.size())};
+  return NeuroSDK::GetSingleton().SendSDKMessage(message);
+}
+
+bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
+  if (names.empty())
+    return true;
+
+  std::vector<char *> actionNames;
+  actionNames.reserve(names.size());
+  for (const auto &name : names)
+    actionNames.push_back(const_cast<char *>(name.c_str()));
+  for (const auto &name : names)
+    _DMESSAGE("Unregistering NeuroSDK action: %s", name.c_str());
+
+  neurosdk_message_t message{};
+  message.kind = NeuroSDK_MessageKind_ActionsUnregister;
+  message.value.actions_unregister = {.action_names = actionNames.data(),
+                                      .action_names_len = static_cast<int>(actionNames.size())};
+  return NeuroSDK::GetSingleton().SendSDKMessage(message);
+}
+
+bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &query, const std::string &state,
+                            ActionPriority priority, bool ephemeralContext) {
+  if (names.empty() || query.empty())
+    return false;
+  _DMESSAGE("Forcing %zu NeuroSDK action(s): %s", names.size(), query.c_str());
+
+  std::vector<char *> actionNames;
+  actionNames.reserve(names.size());
+  for (const auto &name : names)
+    actionNames.push_back(const_cast<char *>(name.c_str()));
+
+  neurosdk_priority_e sdkPriority = NeuroSDK_Priority_Low;
+  switch (priority) {
+  case ActionPriority::Medium:
+    sdkPriority = NeuroSDK_Priority_Medium;
+    break;
+  case ActionPriority::High:
+    sdkPriority = NeuroSDK_Priority_High;
+    break;
+  case ActionPriority::Critical:
+    sdkPriority = NeuroSDK_Priority_Critical;
+    break;
+  default:
+    break;
+  }
+
+  neurosdk_message_t message{};
+  message.kind = NeuroSDK_MessageKind_ActionsForce;
+  message.value.actions_force = {.state = state.empty() ? nullptr : const_cast<char *>(state.c_str()),
+                                 .query = const_cast<char *>(query.c_str()),
+                                 .ephemeral_context = ephemeralContext,
+                                 .action_names = actionNames.data(),
+                                 .action_names_len = static_cast<int>(actionNames.size()),
+                                 .priority = sdkPriority};
+  return NeuroSDK::GetSingleton().SendSDKMessage(message);
+}
+
+bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::string &resultMessage) {
+  if (id.empty())
+    return false;
+  _DMESSAGE("Sending action result (id: %s, success: %s): %s", id.c_str(), success ? "true" : "false",
+            resultMessage.c_str());
+
+  neurosdk_message_t message{};
+  message.kind = NeuroSDK_MessageKind_ActionResult;
+  message.value.action_result = {.id = const_cast<char *>(id.c_str()),
+                                 .success = success,
+                                 .message =
+                                     resultMessage.empty() ? nullptr : const_cast<char *>(resultMessage.c_str())};
+  return NeuroSDK::GetSingleton().SendSDKMessage(message);
+}
+
+bool NeuroSDK::SendSDKMessage(neurosdk_message_t &message) {
+  const auto error = neurosdk_context_send(&ctx, &message);
+  if (error != NeuroSDK_None) {
+    _WARNING("Failed to send NeuroSDK message kind %d: %s", message.kind, neurosdk_error_string(error));
     return false;
   }
+
+  // send() polls internally; drain any messages it received into plugin-owned storage.
+  return PollMessages();
+}
+
+bool NeuroSDK::PollMessages() {
+  neurosdk_message_t *messages = nullptr;
+  int count = 0;
+  const auto error = neurosdk_context_poll(&ctx, &messages, &count);
+  if (error != NeuroSDK_None) {
+    _WARNING("Failed to poll NeuroSDK context: %s", neurosdk_error_string(error));
+    return false;
+  }
+
+  for (int index = 0; index < count; ++index) {
+    auto &message = messages[index];
+    if (message.kind != NeuroSDK_MessageKind_Action)
+      continue;
+
+    const auto &action = message.value.action;
+    _DMESSAGE("Polled NeuroSDK action: %s (id: %s)", action.name ? action.name : "<missing>",
+              action.id ? action.id : "<missing>");
+    actionInbox.push_back({.id = action.id ? action.id : "",
+                           .name = action.name ? action.name : "",
+                           .data = action.data ? action.data : ""});
+    neurosdk_message_destroy(&message);
+  }
   return true;
+}
+
+std::vector<Actions::Request> NeuroSDK::TakeActionInbox() {
+  std::vector<Actions::Request> requests;
+  requests.swap(actionInbox);
+  return requests;
 }
 
 std::string NeuroSDK::GetCharacterDisplayName() {
