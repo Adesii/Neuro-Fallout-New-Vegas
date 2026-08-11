@@ -13,11 +13,14 @@ class ActionRegistry {
 public:
   static ActionRegistry &Get();
 
+  bool Bind(IAction &action);
+  void Unbind(IAction &action);
   bool Bind(ActionWindow &window);
   void Unbind(ActionWindow &window);
   void Dispatch(std::vector<Request> requests);
   void Reset();
   bool HasPendingResult(const std::string &actionName) const;
+  void CancelPendingResults(const std::vector<std::string> &actionNames, std::string message);
 
 private:
   struct Entry {
@@ -31,6 +34,7 @@ private:
     std::string message;
     std::function<void()> execute;
     std::function<std::optional<std::string>()> revalidate;
+    std::string cancellation;
   };
 
   std::unordered_map<std::string, Entry> m_entries;

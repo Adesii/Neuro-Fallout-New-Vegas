@@ -1,4 +1,5 @@
 #pragma once
+#include "GameplayHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
@@ -39,6 +40,7 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_ExitGame:
     break;
   case NVSEMessagingInterface::kMessage_ExitToMainMenu:
+    GameplayHandler::SetReady(false);
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
     break;
@@ -51,12 +53,14 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     break;
 #endif
   case NVSEMessagingInterface::kMessage_PreLoadGame:
+    GameplayHandler::SetReady(false);
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
     break;
   case NVSEMessagingInterface::kMessage_ExitGame_Console:
     break;
   case NVSEMessagingInterface::kMessage_PostLoadGame:
+    GameplayHandler::SetReady(msg->data != nullptr);
     break;
   case NVSEMessagingInterface::kMessage_PostPostLoad:
     break;
@@ -71,6 +75,7 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_NewGame:
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
+    GameplayHandler::SetReady(true);
     break;
   case NVSEMessagingInterface::kMessage_DeleteGameName:
     break;

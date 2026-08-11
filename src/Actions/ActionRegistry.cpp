@@ -12,6 +12,17 @@ ActionRegistry &ActionRegistry::Get() {
   return registry;
 }
 
+bool ActionRegistry::Bind(IAction &action) {
+  const auto &name = action.GetDefinition().name;
+  return m_entries.emplace(name, Entry{&action, nullptr}).second;
+}
+
+void ActionRegistry::Unbind(IAction &action) {
+  auto entry = m_entries.find(action.GetDefinition().name);
+  if (entry != m_entries.end() && entry->second.action == &action)
+    m_entries.erase(entry);
+}
+
 bool ActionRegistry::Bind(ActionWindow &window) {
   for (const auto &action : window.GetActions()) {
     const auto &name = action->GetDefinition().name;
@@ -41,6 +52,10 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
     if (entry == m_entries.end()) {
       _WARNING("ActionRegistry rejected unavailable action: %s", request.name.c_str());
       NeuroSDK::SendActionResult(request.id, false, "Action is no longer available.");
+      continue;
+    }
+    if (HasPendingResult(request.name)) {
+      NeuroSDK::SendActionResult(request.id, false, "A previous request for this action is still pending.");
       continue;
     }
 
@@ -89,8 +104,26 @@ bool ActionRegistry::HasPendingResult(const std::string &actionName) const {
                      [&](const PendingResult &pending) { return pending.actionName == actionName; });
 }
 
+void ActionRegistry::CancelPendingResults(const std::vector<std::string> &actionNames, std::string message) {
+  for (auto &pending : m_pendingResults) {
+    if (std::find(actionNames.begin(), actionNames.end(), pending.actionName) != actionNames.end()) {
+      pending.execute = {};
+      pending.revalidate = {};
+      pending.cancellation = message;
+    }
+  }
+}
+
 void ActionRegistry::RetryPendingResults() {
   for (auto iter = m_pendingResults.begin(); iter != m_pendingResults.end();) {
+    if (!iter->cancellation.empty()) {
+      if (!NeuroSDK::SendActionResult(iter->id, false, iter->cancellation)) {
+        ++iter;
+        continue;
+      }
+      iter = m_pendingResults.erase(iter);
+      continue;
+    }
     if (iter->revalidate) {
       auto error = iter->revalidate();
       if (error) {

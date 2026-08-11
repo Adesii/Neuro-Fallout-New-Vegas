@@ -2,6 +2,7 @@
 #include "NeuroSDK.hpp"
 #include "Actions/ActionRegistry.hpp"
 #include "CachedScripts.hpp"
+#include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
 #include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
@@ -73,16 +74,18 @@ void NeuroSDK::MainLoop() {
   }
 
   const bool menuBlocksGameplay = MenuHandler::Process();
+  GameplayHandler::Process(menuBlocksGameplay);
   Actions::ActionRegistry::Get().Dispatch(TakeActionInbox());
 
   if (menuBlocksGameplay)
-    Walker::Stop();
+    Walker::Pause();
   else
     Walker::Process();
 }
 
 void NeuroSDK::ResetAutomation() {
   MenuHandler::Reset();
+  GameplayHandler::Reset();
   Actions::ActionRegistry::Get().Reset();
   actionInbox.clear();
   Walker::Stop();
