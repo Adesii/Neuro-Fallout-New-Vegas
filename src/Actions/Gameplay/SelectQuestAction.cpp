@@ -16,7 +16,8 @@ Definition BuildDefinition() {
   id.Minimum(1);
   schema.Property(kId, std::move(id), true);
   return {.name = "select_quest",
-          .description = "Select and follow a quest target using an id returned by query_quests.",
+          .description = "Select a quest and report its current objective using an id returned by query_quests. This "
+                         "does not start travel.",
           .schema = std::move(schema)};
 }
 

@@ -1,4 +1,5 @@
 #include "GameplayHandler.hpp"
+#include "Actions/Gameplay/DoCurrentQuestAction.hpp"
 #include "Actions/Gameplay/ExploreAction.hpp"
 #include "Actions/Gameplay/QueryNearbyAction.hpp"
 #include "Actions/Gameplay/QueryQuestsAction.hpp"
@@ -56,7 +57,7 @@ bool g_actionsBuilt = false;
 bool g_ready = false;
 std::vector<QuestEntry> g_quests;
 std::vector<ObjectEntry> g_objects;
-std::optional<QuestSelection> g_selectedQuest;
+std::optional<QuestSelection> g_currentQuestRoute;
 uint32_t g_completedQuestStep = 0;
 float g_questResolveTime = 0.0f;
 std::vector<uint32_t> g_recentExploration;
@@ -70,6 +71,7 @@ void BuildActions() {
     return;
   g_actions.Add(std::make_unique<Actions::Gameplay::QueryQuestsAction>())
       .Add(std::make_unique<Actions::Gameplay::SelectQuestAction>())
+      .Add(std::make_unique<Actions::Gameplay::DoCurrentQuestAction>())
       .Add(std::make_unique<Actions::Gameplay::QueryNearbyAction>())
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(false))
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(true))
@@ -407,15 +409,19 @@ void ObserveQuests() {
   }
 }
 
+void ClearCurrentQuestRoute() {
+  g_currentQuestRoute.reset();
+  g_completedQuestStep = 0;
+  g_questResolveTime = 0.0f;
+}
+
 void ProcessWalkerEvents() {
   for (auto &event : Walker::TakeEvents()) {
     if (event.owner == Walker::Owner::Quest) {
       if (event.type == Walker::EventType::Completed)
         g_completedQuestStep = event.targetFormId;
       else {
-        g_selectedQuest.reset();
-        g_completedQuestStep = 0;
-        g_questResolveTime = 0.0f;
+        ClearCurrentQuestRoute();
       }
     }
     if (event.owner == Walker::Owner::Exploration && event.type == Walker::EventType::Completed) {
@@ -427,35 +433,29 @@ void ProcessWalkerEvents() {
   }
 }
 
-void ContinueSelectedQuest() {
-  if (!g_selectedQuest)
+void ContinueCurrentQuest() {
+  if (!g_currentQuestRoute)
     return;
   auto *player = PlayerCharacter::GetSingleton();
-  auto *quest = LookupQuest(g_selectedQuest->questFormId);
+  auto *quest = LookupQuest(g_currentQuestRoute->questFormId);
   if (!player || !quest || player->activeQuest != quest) {
-    g_selectedQuest.reset();
-    g_completedQuestStep = 0;
-    g_questResolveTime = 0.0f;
+    ClearCurrentQuestRoute();
     return;
   }
-  auto *objective = FindObjective(g_selectedQuest->questFormId, g_selectedQuest->objectiveId);
+  auto *objective = FindObjective(g_currentQuestRoute->questFormId, g_currentQuestRoute->objectiveId);
   if (!objective || (quest->flags & (2 | 0x40)) ||
       (objective->status & 3) != BGSQuestObjective::eQObjStatus_displayed) {
-    g_selectedQuest.reset();
-    g_completedQuestStep = 0;
-    g_questResolveTime = 0.0f;
+    ClearCurrentQuestRoute();
     return;
   }
-  auto *target = ResolveQuestTarget(objective, g_selectedQuest->targetFormId);
+  auto *target = ResolveQuestTarget(objective, g_currentQuestRoute->targetFormId);
   if (!target) {
     auto *time = TimeGlobal::Get();
     g_questResolveTime += time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
     if (g_questResolveTime >= kQuestResolveTimeout) {
-      NeuroSDK::SendContext(("Could not resolve the next route step for " + g_selectedQuest->description + ".").c_str(),
-                            false);
-      g_selectedQuest.reset();
-      g_completedQuestStep = 0;
-      g_questResolveTime = 0.0f;
+      NeuroSDK::SendContext(
+          ("Could not resolve the next route step for " + g_currentQuestRoute->description + ".").c_str(), false);
+      ClearCurrentQuestRoute();
     }
     return;
   }
@@ -468,11 +468,10 @@ void ContinueSelectedQuest() {
     g_completedQuestStep = 0;
     const Walker::Intent intent =
         Walker::CanInteract(target->GetFormID()) ? Walker::Intent::Interact : Walker::Intent::Move;
-    if (!Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest, g_selectedQuest->description)) {
-      NeuroSDK::SendContext(("Could not start the next route step for " + g_selectedQuest->description + ".").c_str(),
-                            false);
-      g_selectedQuest.reset();
-      g_completedQuestStep = 0;
+    if (!Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest, g_currentQuestRoute->description)) {
+      NeuroSDK::SendContext(
+          ("Could not start the next route step for " + g_currentQuestRoute->description + ".").c_str(), false);
+      ClearCurrentQuestRoute();
     }
   }
 }
@@ -491,7 +490,7 @@ void Process(bool gameplayBlocked) {
   if (!g_actions.IsRegistered() && PlayerCharacter::GetSingleton())
     g_actions.Register();
   ObserveQuests();
-  ContinueSelectedQuest();
+  ContinueCurrentQuest();
 }
 
 void SetReady(bool ready) {
@@ -504,9 +503,7 @@ void Reset() {
   g_actions.Abandon();
   g_quests.clear();
   g_objects.clear();
-  g_selectedQuest.reset();
-  g_completedQuestStep = 0;
-  g_questResolveTime = 0.0f;
+  ClearCurrentQuestRoute();
   g_recentExploration.clear();
   g_objectiveObservations.clear();
   g_questFlags.clear();
@@ -558,18 +555,76 @@ void SelectQuest(const QuestSelection &selection) {
   auto *quest = LookupQuest(selection.questFormId);
   if (!quest)
     return;
+  if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Quest)
+    Walker::Stop();
+  ClearCurrentQuestRoute();
   ActivateQuest(quest);
-  g_selectedQuest = selection;
-  g_completedQuestStep = 0;
-  g_questResolveTime = 0.0f;
+  const std::string context = "Selected quest: " + selection.description + ".";
+  NeuroSDK::SendContext(context.c_str(), true);
+}
+
+bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *quest = player ? player->activeQuest : nullptr;
+  if (!quest) {
+    error = "No quest is currently selected. Use query_quests and select_quest first.";
+    return false;
+  }
+  if (quest->flags & (2 | 0x40)) {
+    error = "The currently selected quest is already completed or failed.";
+    return false;
+  }
+
+  bool hasActiveObjective = false;
+  for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
+    auto *objective = objectiveIter.Get();
+    if (!objective || objective->quest != quest || (objective->status & 3) != BGSQuestObjective::eQObjStatus_displayed)
+      continue;
+    hasActiveObjective = true;
+    for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
+      auto *target = targetIter.Get();
+      if (!target || !target->target || !ResolveQuestTarget(objective, target->target->GetFormID()))
+        continue;
+      selection = {quest->GetFormID(), objective->objectiveId, target->target->GetFormID(),
+                   QuestName(quest) + ": " + ObjectiveText(objective)};
+      return true;
+    }
+  }
+
+  error = hasActiveObjective ? "The current quest objective has no reachable target."
+                             : "The currently selected quest has no active objective.";
+  return false;
+}
+
+bool RevalidateCurrentQuest(const QuestSelection &selection, std::string &error) {
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *quest = LookupQuest(selection.questFormId);
+  if (!player || !quest || player->activeQuest != quest) {
+    error = "The currently selected quest changed before execution.";
+    return false;
+  }
+  if (!RevalidateQuestSelection(selection, error)) {
+    error = "The current quest objective is no longer active.";
+    return false;
+  }
+  auto *objective = FindObjective(selection.questFormId, selection.objectiveId);
+  if (!ResolveQuestTarget(objective, selection.targetFormId)) {
+    error = "The current quest objective no longer has a reachable route.";
+    return false;
+  }
+  return true;
+}
+
+void DoCurrentQuest(const QuestSelection &selection) {
+  ClearCurrentQuestRoute();
+  g_currentQuestRoute = selection;
   auto *objective = FindObjective(selection.questFormId, selection.objectiveId);
   auto *target = ResolveQuestTarget(objective, selection.targetFormId);
   const Walker::Intent intent =
       target && Walker::CanInteract(target->GetFormID()) ? Walker::Intent::Interact : Walker::Intent::Move;
   if (!target || !Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest, selection.description)) {
     NeuroSDK::SendContext(("Could not begin following " + selection.description + ".").c_str(), false);
-    g_selectedQuest.reset();
-    g_completedQuestStep = 0;
+    ClearCurrentQuestRoute();
   }
 }
 
@@ -593,7 +648,6 @@ void QueryNearby() {
   }
   NeuroSDK::SendContext(context.str().c_str(), true);
 }
-
 bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error) {
   auto entry =
       std::find_if(g_objects.begin(), g_objects.end(), [id](const ObjectEntry &object) { return object.id == id; });

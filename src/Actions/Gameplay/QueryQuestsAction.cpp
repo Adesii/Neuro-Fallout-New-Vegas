@@ -4,9 +4,10 @@
 namespace Actions::Gameplay {
 
 QueryQuestsAction::QueryQuestsAction()
-    : m_definition({.name = "query_quests",
-                    .description = "List current incomplete quest objectives and ids that can be selected for travel.",
-                    .schema = {}}) {}
+    : m_definition(
+          {.name = "query_quests",
+           .description = "List current incomplete quest objectives and ids that can be passed to select_quest.",
+           .schema = {}}) {}
 
 const Definition &QueryQuestsAction::GetDefinition() const { return m_definition; }
 

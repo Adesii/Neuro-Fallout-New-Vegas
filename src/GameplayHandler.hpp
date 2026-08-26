@@ -27,6 +27,9 @@ void QueryQuests();
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error);
 bool RevalidateQuestSelection(const QuestSelection &selection, std::string &error);
 void SelectQuest(const QuestSelection &selection);
+bool PrepareCurrentQuest(QuestSelection &selection, std::string &error);
+bool RevalidateCurrentQuest(const QuestSelection &selection, std::string &error);
+void DoCurrentQuest(const QuestSelection &selection);
 
 void QueryNearby();
 bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error);
