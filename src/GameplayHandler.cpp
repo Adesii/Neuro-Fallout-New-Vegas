@@ -54,8 +54,6 @@ struct ObjectiveObservation {
 Actions::PersistentActionSet g_actions;
 bool g_actionsBuilt = false;
 bool g_ready = false;
-uint32_t g_questGeneration = 0;
-uint32_t g_objectGeneration = 0;
 std::vector<QuestEntry> g_quests;
 std::vector<ObjectEntry> g_objects;
 std::optional<QuestSelection> g_selectedQuest;
@@ -252,7 +250,7 @@ std::vector<ObjectEntry> ScanObjects(float radius) {
       const float distance = Distance3D(player->GetPos(), ref->GetPos());
       if (!std::isfinite(distance) || distance > radius)
         continue;
-      objects.push_back({{0, ref->GetFormID(), cell->GetFormID(), name}, 0, distance, std::move(category)});
+      objects.push_back({{ref->GetFormID(), cell->GetFormID(), name}, 0, distance, std::move(category)});
     }
   };
 
@@ -281,7 +279,6 @@ std::vector<ObjectEntry> ScanObjects(float radius) {
 
 void BuildQuestCatalog() {
   g_quests.clear();
-  ++g_questGeneration;
   auto *player = PlayerCharacter::GetSingleton();
   if (!player)
     return;
@@ -301,11 +298,11 @@ void BuildQuestCatalog() {
         continue;
       const bool sameSpace = IsInSameTravelSpace(player, target->target);
       const float distance = sameSpace ? Distance3D(player->GetPos(), target->target->GetPos()) : 0.0f;
-      g_quests.push_back({{g_questGeneration, objective->quest->GetFormID(), objective->objectiveId,
-                           target->target->GetFormID(), description},
-                          0,
-                          distance,
-                          sameSpace});
+      g_quests.push_back(
+          {{objective->quest->GetFormID(), objective->objectiveId, target->target->GetFormID(), description},
+           0,
+           distance,
+           sameSpace});
     }
   }
 
@@ -514,14 +511,12 @@ void Reset() {
   g_objectiveObservations.clear();
   g_questFlags.clear();
   g_observationInitialized = false;
-  ++g_questGeneration;
-  ++g_objectGeneration;
 }
 
 void QueryQuests() {
   BuildQuestCatalog();
   std::ostringstream context;
-  context << "Current selectable quest targets (generation " << g_questGeneration << "):";
+  context << "Current selectable quest targets:";
   if (g_quests.empty()) {
     context << " none.";
   } else {
@@ -536,11 +531,7 @@ void QueryQuests() {
   NeuroSDK::SendContext(context.str().c_str(), true);
 }
 
-bool ValidateQuestSelection(int generation, int id, QuestSelection &selection, std::string &error) {
-  if (generation < 0 || static_cast<uint32_t>(generation) != g_questGeneration) {
-    error = "The quest list generation changed. Run query_quests again.";
-    return false;
-  }
+bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error) {
   auto entry = std::find_if(g_quests.begin(), g_quests.end(), [id](const QuestEntry &quest) { return quest.id == id; });
   if (entry == g_quests.end()) {
     error = ValidQuestIds();
@@ -551,10 +542,6 @@ bool ValidateQuestSelection(int generation, int id, QuestSelection &selection, s
 }
 
 bool RevalidateQuestSelection(const QuestSelection &selection, std::string &error) {
-  if (selection.generation != g_questGeneration) {
-    error = "The quest list changed. Run query_quests again.";
-    return false;
-  }
   auto *objective = FindObjective(selection.questFormId, selection.objectiveId);
   auto *target = LookupReference(selection.targetFormId);
   auto *quest = LookupQuest(selection.questFormId);
@@ -590,14 +577,11 @@ void QueryNearby() {
   g_objects = ScanObjects(kNearbyRadius);
   if (g_objects.size() > kNearbyLimit)
     g_objects.resize(kNearbyLimit);
-  ++g_objectGeneration;
-  for (size_t index = 0; index < g_objects.size(); ++index) {
-    g_objects[index].generation = g_objectGeneration;
+  for (size_t index = 0; index < g_objects.size(); ++index)
     g_objects[index].id = static_cast<int>(index + 1);
-  }
 
   std::ostringstream context;
-  context << "Nearby interactable objects and loot (generation " << g_objectGeneration << "):";
+  context << "Nearby interactable objects and loot:";
   if (g_objects.empty()) {
     context << " none found in the loaded area.";
   } else {
@@ -610,11 +594,7 @@ void QueryNearby() {
   NeuroSDK::SendContext(context.str().c_str(), true);
 }
 
-bool ValidateObjectSelection(int generation, int id, ObjectSelection &selection, std::string &error) {
-  if (generation < 0 || static_cast<uint32_t>(generation) != g_objectGeneration) {
-    error = "The nearby-object list generation changed. Run query_nearby again.";
-    return false;
-  }
+bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error) {
   auto entry =
       std::find_if(g_objects.begin(), g_objects.end(), [id](const ObjectEntry &object) { return object.id == id; });
   if (entry == g_objects.end()) {
@@ -626,10 +606,6 @@ bool ValidateObjectSelection(int generation, int id, ObjectSelection &selection,
 }
 
 bool RevalidateObjectSelection(const ObjectSelection &selection, std::string &error) {
-  if (selection.generation && selection.generation != g_objectGeneration) {
-    error = "The nearby-object list changed. Run query_nearby again.";
-    return false;
-  }
   auto *player = PlayerCharacter::GetSingleton();
   auto *ref = LookupReference(selection.referenceFormId);
   if (!player || !ref || !ref->GetParentCell() || ref->GetParentCell()->GetFormID() != selection.cellFormId ||
@@ -660,7 +636,6 @@ bool PrepareExploration(ObjectSelection &selection, std::string &error) {
   g_randomState = g_randomState * 1664525u + 1013904223u;
   const auto &candidate = candidates[g_randomState % variedCandidateCount];
   selection = candidate;
-  selection.generation = 0;
   return RevalidateObjectSelection(selection, error);
 }
 

@@ -9,18 +9,14 @@ namespace Actions::Gameplay {
 namespace {
 
 constexpr const char *kId = "id";
-constexpr const char *kGeneration = "generation";
 
 Definition BuildDefinition() {
   auto schema = Json::JsonSchema::Object();
   auto id = Json::JsonSchema::Integer();
   id.Minimum(1);
-  auto generation = Json::JsonSchema::Integer();
-  generation.Minimum(1);
-  schema.Property(kGeneration, std::move(generation), true);
   schema.Property(kId, std::move(id), true);
   return {.name = "select_quest",
-          .description = "Select and follow a quest target using the generation and id returned by query_quests.",
+          .description = "Select and follow a quest target using an id returned by query_quests.",
           .schema = std::move(schema)};
 }
 
@@ -35,15 +31,14 @@ PreparedAction SelectQuestAction::Validate(const Request &request) {
   auto data = ActionData::Parse(request.data, error);
   if (!data)
     return PreparedAction::Failure(std::move(error));
-  if (!data->IsObject() || data->Size() != 2)
-    return PreparedAction::Failure("Expected exactly two integer properties named generation and id.");
-  int generation = 0;
+  if (!data->IsObject() || data->Size() != 1)
+    return PreparedAction::Failure("Expected exactly one integer property named id.");
   int id = 0;
-  if (!data->GetInteger(kGeneration, generation) || !data->GetInteger(kId, id))
-    return PreparedAction::Failure("generation and id must be integers.");
+  if (!data->GetInteger(kId, id))
+    return PreparedAction::Failure("id must be an integer.");
 
   GameplayHandler::QuestSelection selection;
-  if (!GameplayHandler::ValidateQuestSelection(generation, id, selection, error))
+  if (!GameplayHandler::ValidateQuestSelection(id, selection, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success(
       "Selected " + selection.description + ".", [selection]() { GameplayHandler::SelectQuest(selection); },

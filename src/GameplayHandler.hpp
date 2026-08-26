@@ -7,7 +7,6 @@
 namespace GameplayHandler {
 
 struct QuestSelection {
-  uint32_t generation = 0;
   uint32_t questFormId = 0;
   uint32_t objectiveId = 0;
   uint32_t targetFormId = 0;
@@ -15,7 +14,6 @@ struct QuestSelection {
 };
 
 struct ObjectSelection {
-  uint32_t generation = 0;
   uint32_t referenceFormId = 0;
   uint32_t cellFormId = 0;
   std::string name;
@@ -26,12 +24,12 @@ void Reset();
 void SetReady(bool ready);
 
 void QueryQuests();
-bool ValidateQuestSelection(int generation, int id, QuestSelection &selection, std::string &error);
+bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error);
 bool RevalidateQuestSelection(const QuestSelection &selection, std::string &error);
 void SelectQuest(const QuestSelection &selection);
 
 void QueryNearby();
-bool ValidateObjectSelection(int generation, int id, ObjectSelection &selection, std::string &error);
+bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error);
 bool RevalidateObjectSelection(const ObjectSelection &selection, std::string &error);
 void StartObjectAction(const ObjectSelection &selection, Walker::Intent intent);
 
