@@ -450,7 +450,7 @@ bool Process(bool unobstructed) {
       .Add(std::make_unique<Actions::Menu::SelectSkillAction>(options.size()));
   if (canFinish)
     g_window->Add(std::make_unique<Actions::Menu::DoneCharGenMenuAction>());
-  g_window->SetForce(query, state, NeuroSDK::ActionPriority::High);
+  g_window->SetForce(query, state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();

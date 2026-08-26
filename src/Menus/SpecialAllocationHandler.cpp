@@ -358,7 +358,7 @@ bool Process(bool unobstructed) {
   _MESSAGE("Opening set_special action window: %s", state.c_str());
   g_window->SetContext("Vitals Tester ready. " + state)
       .Add(std::make_unique<Actions::Menu::SetSpecialAction>())
-      .SetForce(query, state, NeuroSDK::ActionPriority::High);
+      .SetForce(query, state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();

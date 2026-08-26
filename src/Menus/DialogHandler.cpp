@@ -331,7 +331,7 @@ bool Process(bool automationAllowed) {
   g_window = std::make_unique<Actions::ActionWindow>();
   g_window->SetContext("Dialog choice required. " + state)
       .Add(std::make_unique<Actions::Menu::SelectDialogAction>(options.size()))
-      .SetForce("Choose the dialog response to say by its index.", state, NeuroSDK::ActionPriority::High);
+      .SetForce("Choose the dialog response to say by its index.", state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();

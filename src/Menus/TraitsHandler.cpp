@@ -432,7 +432,7 @@ bool Process(bool unobstructed) {
   if (canSelect)
     g_window->Add(std::make_unique<Actions::Menu::SelectTraitAction>(options.size()));
   g_window->Add(std::make_unique<Actions::Menu::DoneTraitsMenuAction>())
-      .SetForce(query, state, NeuroSDK::ActionPriority::High);
+      .SetForce(query, state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();
