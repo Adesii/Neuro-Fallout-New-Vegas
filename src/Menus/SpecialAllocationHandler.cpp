@@ -52,9 +52,10 @@ int GetSpecialValue(int index) {
 std::string BuildState(int totalPoints) {
   static constexpr const char *names[] = {"Strength",     "Perception", "Endurance", "Charisma",
                                           "Intelligence", "Agility",    "Luck"};
-  std::string state = "Available SPECIAL total: " + std::to_string(totalPoints) + ". Current values:";
+  std::string state =
+      "## SPECIAL allocation\nAvailable total: **" + std::to_string(totalPoints) + "**\n\n## Current values";
   for (int index = 0; index < 7; ++index)
-    state += " " + std::string(names[index]) + " " + std::to_string(GetSpecialValue(index)) + (index == 6 ? "." : ",");
+    state += "\n- **" + std::string(names[index]) + ":** " + std::to_string(GetSpecialValue(index));
   return state;
 }
 
@@ -356,8 +357,7 @@ bool Process(bool unobstructed) {
       "Choose all seven SPECIAL values from 1 to 10. Their total must equal " + std::to_string(data->totalPoints) + ".";
   g_window = std::make_unique<Actions::ActionWindow>();
   _MESSAGE("Opening set_special action window: %s", state.c_str());
-  g_window->SetContext("Vitals Tester ready. " + state)
-      .Add(std::make_unique<Actions::Menu::SetSpecialAction>())
+  g_window->Add(std::make_unique<Actions::Menu::SetSpecialAction>())
       .SetForce(query, state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)

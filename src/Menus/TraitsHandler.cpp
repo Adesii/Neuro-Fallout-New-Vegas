@@ -113,19 +113,20 @@ std::string BuildSignature(TraitMenu *menu, const std::vector<TraitOption> &opti
 
 std::string BuildState(TraitMenu *menu, const std::vector<TraitOption> &options) {
   const bool canSelect = menu->maxSelect > 0 && menu->numSelected <= menu->maxSelect;
-  std::string state = "Selected trait slots: " + std::to_string(menu->numSelected) + " of up to " +
-                      std::to_string(menu->maxSelect) + ".";
-  state += " Traits are optional. You may choose done_traits_menu now, including with zero selected traits, to make "
-           "no further changes.";
+  std::string state = "## Traits\nSelected slots: **" + std::to_string(menu->numSelected) + " of up to " +
+                      std::to_string(menu->maxSelect) +
+                      "**. Traits are optional; `done_traits_menu` keeps the current "
+                      "selection and may be used with zero traits.";
   if (canSelect)
-    state += " select_trait requires select and unselect indexes. unselect is ignored while a free slot exists or no "
-             "trait is selected, but it must still be a valid trait index.";
+    state += " `select_trait` requires `select` and `unselect` indexes. `unselect` is ignored while a free slot exists "
+             "or no trait is selected, but it must still be a valid trait index.";
   else
     state += " Trait selection is unavailable in the current menu state.";
-  state += "\nTraits:";
+  state += "\n\n## Available traits";
   for (size_t index = 0; index < options.size(); ++index) {
-    state += "\n" + std::to_string(index) + (options[index].selected ? " [selected] " : " [not selected] ") +
-             options[index].name + ": " + options[index].description;
+    state += "\n- `" + std::to_string(index) + "` - **" +
+             std::string(options[index].selected ? "selected" : "not selected") + "** - " + options[index].name + ": " +
+             options[index].description;
   }
   return state;
 }
@@ -428,7 +429,6 @@ bool Process(bool unobstructed) {
                   "anything else. Traits are optional."
                 : "Use done_traits_menu to finish now without selecting a trait. Traits are optional.";
   g_window = std::make_unique<Actions::ActionWindow>();
-  g_window->SetContext("Trait choice required. " + state);
   if (canSelect)
     g_window->Add(std::make_unique<Actions::Menu::SelectTraitAction>(options.size()));
   g_window->Add(std::make_unique<Actions::Menu::DoneTraitsMenuAction>())

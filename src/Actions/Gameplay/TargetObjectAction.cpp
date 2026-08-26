@@ -43,15 +43,13 @@ PreparedAction TargetObjectAction::Validate(const Request &request) {
   if (!GameplayHandler::ValidateObjectSelection(id, selection, error))
     return PreparedAction::Failure(std::move(error));
   const Walker::Intent intent = m_interact ? Walker::Intent::Interact : Walker::Intent::Move;
-  return PreparedAction::Success(
-      std::string(m_interact ? "Moving to interact with " : "Moving to ") + selection.name + ".",
-      [selection, intent]() { GameplayHandler::StartObjectAction(selection, intent); },
-      [selection]() -> std::optional<std::string> {
-        std::string revalidationError;
-        if (!GameplayHandler::RevalidateObjectSelection(selection, revalidationError))
-          return revalidationError;
-        return std::nullopt;
-      });
+  return PreparedAction::Success([selection, intent]() { GameplayHandler::StartObjectAction(selection, intent); },
+                                 [selection]() -> std::optional<std::string> {
+                                   std::string revalidationError;
+                                   if (!GameplayHandler::RevalidateObjectSelection(selection, revalidationError))
+                                     return revalidationError;
+                                   return std::nullopt;
+                                 });
 }
 
 } // namespace Actions::Gameplay

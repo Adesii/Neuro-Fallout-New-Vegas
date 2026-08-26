@@ -89,7 +89,7 @@ std::string BuildSignature(DialogMenu *menu, const std::vector<DialogOption> &op
 }
 
 std::string BuildSpokenDialog(const char *heading) {
-  std::string context = heading;
+  std::string context = "## " + std::string(heading);
   for (const auto &line : g_pendingSpeech) {
     context += "\n- ";
     if (!line.speaker.empty())
@@ -100,16 +100,16 @@ std::string BuildSpokenDialog(const char *heading) {
 }
 
 std::string BuildState(DialogMenu *menu, const std::vector<DialogOption> &options) {
-  std::string state = BuildSpokenDialog("Spoken dialog since the last choice:");
+  std::string state = BuildSpokenDialog("Spoken dialog since the last choice");
   if (g_pendingSpeech.empty()) {
     const std::string speaker = UIUtils::GetTileString(menu ? menu->tile034 : nullptr);
     const std::string text = UIUtils::GetTileString(menu ? menu->tile038 : nullptr);
     if (!text.empty())
       state += "\n- " + (speaker.empty() ? std::string() : speaker + ": ") + "\"" + text + "\"";
   }
-  state += "\nDialog options:";
+  state += "\n\n## Dialog options";
   for (size_t index = 0; index < options.size(); ++index)
-    state += "\n" + std::to_string(index) + ": " + options[index].text;
+    state += "\n- `" + std::to_string(index) + "` - " + options[index].text;
   return state;
 }
 
@@ -142,7 +142,7 @@ void StopExecution(const std::string &reason) {
 void FlushPendingSpeech() {
   if (g_pendingSpeech.empty())
     return;
-  const std::string context = BuildSpokenDialog("Dialog ended after these spoken lines:");
+  const std::string context = BuildSpokenDialog("Dialog ended after these spoken lines");
   if (NeuroSDK::SendContext(context.c_str()))
     g_pendingSpeech.clear();
 }
@@ -329,8 +329,7 @@ bool Process(bool automationAllowed) {
 
   const std::string state = BuildState(menu, options);
   g_window = std::make_unique<Actions::ActionWindow>();
-  g_window->SetContext("Dialog choice required. " + state)
-      .Add(std::make_unique<Actions::Menu::SelectDialogAction>(options.size()))
+  g_window->Add(std::make_unique<Actions::Menu::SelectDialogAction>(options.size()))
       .SetForce("Choose the dialog response to say by its index.", state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)

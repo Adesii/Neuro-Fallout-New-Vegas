@@ -33,6 +33,19 @@ std::optional<ActionData> ActionData::Parse(std::string_view source, std::string
   return ActionData(root);
 }
 
+bool ActionData::ValidateNoParameters(std::string_view source, std::string &error) {
+  if (source.empty())
+    return true;
+  auto data = Parse(source, error);
+  if (!data)
+    return false;
+  if (!data->IsObject() || data->Size() != 0) {
+    error = "This action takes no parameters.";
+    return false;
+  }
+  return true;
+}
+
 bool ActionData::IsObject() const {
   auto *root = static_cast<json_value_s *>(m_root);
   return root && root->type == json_type_object;

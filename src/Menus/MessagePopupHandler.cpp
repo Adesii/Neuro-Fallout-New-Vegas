@@ -50,9 +50,12 @@ bool Process() {
   const auto buttons = GetButtons(menu);
 
   std::string signature = title + "\n" + text;
-  std::string context = "Message popup: " + title + "\n" + text;
+  std::string context = "## Message popup\n";
+  if (!title.empty())
+    context += "**" + title + "**\n\n";
+  context += text;
   if (!buttons.empty()) {
-    context += "\nOptions:";
+    context += "\n\n## Options";
     for (const auto &button : buttons) {
       signature += "\n" + button.label;
       context += "\n- " + button.label;

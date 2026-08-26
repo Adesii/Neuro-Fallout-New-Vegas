@@ -22,6 +22,7 @@ struct ObjectSelection {
 void Process(bool gameplayBlocked);
 void Reset();
 void SetReady(bool ready);
+bool ValidateGameplayAction(std::string &error);
 
 void QueryQuests();
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error);

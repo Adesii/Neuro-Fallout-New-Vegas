@@ -29,8 +29,6 @@ PersistentActionSet &PersistentActionSet::Add(std::unique_ptr<IAction> action) {
 bool PersistentActionSet::Register() {
   if (m_registered)
     return true;
-  if (m_unregisterPending && !Unregister())
-    return false;
   if (m_actions.empty())
     return false;
 
@@ -68,35 +66,10 @@ bool PersistentActionSet::Register() {
   return true;
 }
 
-bool PersistentActionSet::Unregister() {
-  if (!m_registered && !m_unregisterPending)
-    return true;
-
-  std::vector<std::string> names;
-  names.reserve(m_actions.size());
-  for (const auto &action : m_actions)
-    names.push_back(action->GetDefinition().name);
-
-  if (m_registered) {
-    ActionRegistry::Get().CancelPendingResults(names, "Gameplay actions are unavailable while a menu is open.");
-    for (const auto &action : m_actions)
-      ActionRegistry::Get().Unbind(*action);
-    m_registered = false;
-    m_unregisterPending = true;
-  }
-  if (!NeuroSDK::UnregisterActions(names))
-    return false;
-
-  m_unregisterPending = false;
-  _MESSAGE("PersistentActionSet unregistered %zu action(s)", m_actions.size());
-  return true;
-}
-
 void PersistentActionSet::Abandon() {
   for (const auto &action : m_actions)
     ActionRegistry::Get().Unbind(*action);
   m_registered = false;
-  m_unregisterPending = false;
 }
 
 bool PersistentActionSet::IsRegistered() const { return m_registered; }

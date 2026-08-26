@@ -1,5 +1,7 @@
 #include "QueryNearbyAction.hpp"
+#include "Actions/ActionData.hpp"
 #include "GameplayHandler.hpp"
+#include <utility>
 
 namespace Actions::Gameplay {
 
@@ -10,8 +12,11 @@ QueryNearbyAction::QueryNearbyAction()
 
 const Definition &QueryNearbyAction::GetDefinition() const { return m_definition; }
 
-PreparedAction QueryNearbyAction::Validate(const Request &) {
-  return PreparedAction::Success("Nearby-object scan requested.", []() { GameplayHandler::QueryNearby(); });
+PreparedAction QueryNearbyAction::Validate(const Request &request) {
+  std::string error;
+  if (!ActionData::ValidateNoParameters(request.data, error) || !GameplayHandler::ValidateGameplayAction(error))
+    return PreparedAction::Failure(std::move(error));
+  return PreparedAction::Success([]() { GameplayHandler::QueryNearby(); });
 }
 
 } // namespace Actions::Gameplay

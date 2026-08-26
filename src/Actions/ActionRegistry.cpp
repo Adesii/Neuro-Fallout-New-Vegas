@@ -51,11 +51,15 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
     auto entry = m_entries.find(request.name);
     if (entry == m_entries.end()) {
       _WARNING("ActionRegistry rejected unavailable action: %s", request.name.c_str());
-      NeuroSDK::SendActionResult(request.id, false, "Action is no longer available.");
+      NeuroSDK::SendActionResult(request.id, false,
+                                 "Unknown or unavailable action `" + request.name +
+                                     "`. Choose from the currently registered actions.");
       continue;
     }
     if (HasPendingResult(request.name)) {
-      NeuroSDK::SendActionResult(request.id, false, "A previous request for this action is still pending.");
+      NeuroSDK::SendActionResult(request.id, false,
+                                 "A previous request for `" + request.name +
+                                     "` is still awaiting its result. Wait before retrying.");
       continue;
     }
 
@@ -75,14 +79,14 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
     }
 
     if (entry->second.window && !entry->second.window->End()) {
-      NeuroSDK::SendActionResult(request.id, false, "Failed to close the action window.");
+      NeuroSDK::SendActionResult(request.id, false,
+                                 "The decision changed while the action was being accepted. Choose again.");
       continue;
     }
-    if (!NeuroSDK::SendActionResult(request.id, true, prepared.message)) {
+    if (!NeuroSDK::SendActionResult(request.id, true, {})) {
       _WARNING("Action '%s' result send deferred", request.name.c_str());
       m_pendingResults.push_back({.id = request.id,
                                   .actionName = request.name,
-                                  .message = std::move(prepared.message),
                                   .execute = std::move(prepared.execute),
                                   .revalidate = std::move(prepared.revalidate)});
       continue;
@@ -104,26 +108,8 @@ bool ActionRegistry::HasPendingResult(const std::string &actionName) const {
                      [&](const PendingResult &pending) { return pending.actionName == actionName; });
 }
 
-void ActionRegistry::CancelPendingResults(const std::vector<std::string> &actionNames, std::string message) {
-  for (auto &pending : m_pendingResults) {
-    if (std::find(actionNames.begin(), actionNames.end(), pending.actionName) != actionNames.end()) {
-      pending.execute = {};
-      pending.revalidate = {};
-      pending.cancellation = message;
-    }
-  }
-}
-
 void ActionRegistry::RetryPendingResults() {
   for (auto iter = m_pendingResults.begin(); iter != m_pendingResults.end();) {
-    if (!iter->cancellation.empty()) {
-      if (!NeuroSDK::SendActionResult(iter->id, false, iter->cancellation)) {
-        ++iter;
-        continue;
-      }
-      iter = m_pendingResults.erase(iter);
-      continue;
-    }
     if (iter->revalidate) {
       auto error = iter->revalidate();
       if (error) {
@@ -135,7 +121,7 @@ void ActionRegistry::RetryPendingResults() {
         continue;
       }
     }
-    if (!NeuroSDK::SendActionResult(iter->id, true, iter->message)) {
+    if (!NeuroSDK::SendActionResult(iter->id, true, {})) {
       ++iter;
       continue;
     }

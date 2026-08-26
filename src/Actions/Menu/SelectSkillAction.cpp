@@ -47,14 +47,13 @@ PreparedAction SelectSkillAction::Validate(const Request &request) {
   Menus::CharGenHandler::SelectionSnapshot snapshot;
   if (!Menus::CharGenHandler::ValidateSelection(select, unselect, snapshot, error))
     return PreparedAction::Failure(std::move(error));
-  return PreparedAction::Success(
-      "Skill selection accepted.", [snapshot]() { Menus::CharGenHandler::StartSelection(snapshot); },
-      [snapshot]() -> std::optional<std::string> {
-        std::string revalidationError;
-        if (!Menus::CharGenHandler::RevalidateSelection(snapshot, revalidationError))
-          return revalidationError;
-        return std::nullopt;
-      });
+  return PreparedAction::Success([snapshot]() { Menus::CharGenHandler::StartSelection(snapshot); },
+                                 [snapshot]() -> std::optional<std::string> {
+                                   std::string revalidationError;
+                                   if (!Menus::CharGenHandler::RevalidateSelection(snapshot, revalidationError))
+                                     return revalidationError;
+                                   return std::nullopt;
+                                 });
 }
 
 } // namespace Actions::Menu

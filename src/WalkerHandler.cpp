@@ -23,6 +23,10 @@ namespace {
 constexpr float kInteractionDistance = 100.0f;
 constexpr float kStuckDistance = 1.0f;
 constexpr float kStuckDelay = 3.0f;
+constexpr float kOscillationWindowDuration = 3.0f;
+constexpr float kOscillationDistanceMargin = 50.0f;
+constexpr float kOscillationDirectionThreshold = 2.0f;
+constexpr int kOscillationReversalLimit = 6;
 constexpr float kRecoveryDuration = 1.0f;
 constexpr float kInteractionDelay = 1.0f;
 constexpr float kCloseLookDistance = 400.0f;
@@ -50,13 +54,20 @@ struct WalkerState {
   TESObjectCELL *trackedCell = nullptr;
   NiPoint3 smoothedLookTarget = {0.0f, 0.0f, 0.0f};
   NiPoint3 lastPlayerPosition = {0.0f, 0.0f, 0.0f};
+  float lastTargetDistance = 0.0f;
+  float oscillationWindowTime = 0.0f;
+  float oscillationMinimumDistance = 0.0f;
+  float oscillationMaximumDistance = 0.0f;
   float stationaryTime = 0.0f;
   float recoveryTime = 0.0f;
   float interactionTime = 0.0f;
   float turnVelocity = 0.0f;
   int recoveryAttempts = 0;
+  int oscillationDirection = 0;
+  int oscillationReversals = 0;
   bool lookTargetInitialized = false;
   bool positionInitialized = false;
+  bool targetDistanceInitialized = false;
   bool recovering = false;
   bool hasCommand = false;
   Command command;
@@ -65,6 +76,15 @@ struct WalkerState {
 
 WalkerState g_state;
 std::vector<Event> g_events;
+void ResetDistanceOscillation() {
+  g_state.lastTargetDistance = 0.0f;
+  g_state.oscillationWindowTime = 0.0f;
+  g_state.oscillationMinimumDistance = 0.0f;
+  g_state.oscillationMaximumDistance = 0.0f;
+  g_state.oscillationDirection = 0;
+  g_state.oscillationReversals = 0;
+  g_state.targetDistanceInitialized = false;
+}
 
 TESObjectREFR *LookupReference(uint32_t formId) {
   auto *form = TESForm::GetFormByNumericID(formId);
@@ -175,6 +195,7 @@ void ResetRouteState() {
   g_state.recoveryAttempts = 0;
   g_state.lookTargetInitialized = false;
   g_state.positionInitialized = false;
+  ResetDistanceOscillation();
   g_state.recovering = false;
 }
 
@@ -236,38 +257,89 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, TESObjectREFR *target
   return {destination.x, destination.y, destination.z};
 }
 
-bool UpdateStuckState(PlayerCharacter *player, bool shouldMove, float deltaTime) {
+bool UpdateDistanceOscillation(float targetDistance, float deltaTime) {
+  if (!std::isfinite(targetDistance)) {
+    ResetDistanceOscillation();
+    return false;
+  }
+  if (!g_state.targetDistanceInitialized) {
+    g_state.lastTargetDistance = targetDistance;
+    g_state.oscillationMinimumDistance = targetDistance;
+    g_state.oscillationMaximumDistance = targetDistance;
+    g_state.targetDistanceInitialized = true;
+    return false;
+  }
+
+  g_state.oscillationWindowTime += deltaTime;
+  g_state.oscillationMinimumDistance = std::min(g_state.oscillationMinimumDistance, targetDistance);
+  g_state.oscillationMaximumDistance = std::max(g_state.oscillationMaximumDistance, targetDistance);
+  const float distanceDelta = targetDistance - g_state.lastTargetDistance;
+  const int direction = distanceDelta >= kOscillationDirectionThreshold    ? 1
+                        : distanceDelta <= -kOscillationDirectionThreshold ? -1
+                                                                           : 0;
+  if (direction) {
+    if (g_state.oscillationDirection && direction != g_state.oscillationDirection)
+      ++g_state.oscillationReversals;
+    g_state.oscillationDirection = direction;
+    g_state.lastTargetDistance = targetDistance;
+  }
+
+  const float distanceRange = g_state.oscillationMaximumDistance - g_state.oscillationMinimumDistance;
+  if (g_state.oscillationReversals >= kOscillationReversalLimit && distanceRange <= kOscillationDistanceMargin) {
+    ResetDistanceOscillation();
+    return true;
+  }
+  if (g_state.oscillationWindowTime >= kOscillationWindowDuration || distanceRange > kOscillationDistanceMargin)
+    ResetDistanceOscillation();
+  return false;
+}
+
+bool StartRecovery(const char *reason) {
+  if (++g_state.recoveryAttempts > kMaxRecoveryAttempts)
+    return false;
+  g_state.recovering = true;
+  g_state.recoveryTime = 0.0f;
+  g_state.stationaryTime = 0.0f;
+  ResetDistanceOscillation();
+  _DMESSAGE("Walker starting recovery attempt %d: %s", g_state.recoveryAttempts, reason);
+  return true;
+}
+
+bool UpdateStuckState(PlayerCharacter *player, float targetDistance, bool shouldMove, float deltaTime) {
   if (!shouldMove) {
     g_state.stationaryTime = 0.0f;
     g_state.recoveryTime = 0.0f;
     g_state.recovering = false;
     g_state.positionInitialized = false;
+    ResetDistanceOscillation();
     return true;
   }
 
   if (!g_state.positionInitialized) {
     g_state.lastPlayerPosition = player->GetPos();
     g_state.positionInitialized = true;
-    return true;
+  } else {
+    if (Math::GetDistance2D(&player->GetPos(), &g_state.lastPlayerPosition) <= kStuckDistance)
+      g_state.stationaryTime += deltaTime;
+    else
+      g_state.stationaryTime = 0.0f;
+    g_state.lastPlayerPosition = player->GetPos();
   }
 
-  if (Math::GetDistance2D(&player->GetPos(), &g_state.lastPlayerPosition) <= kStuckDistance)
-    g_state.stationaryTime += deltaTime;
-  else
-    g_state.stationaryTime = 0.0f;
-  g_state.lastPlayerPosition = player->GetPos();
-
+  const bool distanceOscillating = !g_state.recovering && UpdateDistanceOscillation(targetDistance, deltaTime);
   if (!g_state.recovering && g_state.stationaryTime >= kStuckDelay) {
-    if (++g_state.recoveryAttempts > kMaxRecoveryAttempts)
+    if (!StartRecovery("no player movement"))
       return false;
-    g_state.recovering = true;
-    g_state.recoveryTime = 0.0f;
+  } else if (distanceOscillating && !StartRecovery("target distance oscillation")) {
+    return false;
   }
+
   if (g_state.recovering) {
     g_state.recoveryTime += deltaTime;
     if (g_state.recoveryTime >= kRecoveryDuration) {
       g_state.recovering = false;
       g_state.stationaryTime = 0.0f;
+      ResetDistanceOscillation();
     }
   }
   return true;
@@ -457,7 +529,7 @@ void Process() {
   const float distance = Distance3D(player->GetPos(), target->GetPos());
   const bool shouldMove = distance >= kInteractionDistance;
   const PathPoint3 navigationPoint = ResolveNavigationPoint(player, target);
-  if (!UpdateStuckState(player, shouldMove, deltaTime)) {
+  if (!UpdateStuckState(player, distance, shouldMove, deltaTime)) {
     FinishCommand(player, EventType::Failed, "Could not reach " + g_state.command.description + ".");
     return;
   }

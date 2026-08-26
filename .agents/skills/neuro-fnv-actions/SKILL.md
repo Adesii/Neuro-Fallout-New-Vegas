@@ -1,6 +1,6 @@
 ---
 name: neuro-fnv-actions
-description: Use when adding or changing NeuroSDK actions, action windows, action registration/forcing/results, JSON schemas, menu automation, or frame-driven visual action execution in neuro-FNV.
+description: Use when changing NeuroSDK context, actions, action registration/forcing/results, JSON schemas, menu automation, or frame-driven visual action execution in neuro-FNV.
 compatibility: OpenCode project skill for the neuro-FNV 32-bit xNVSE plugin
 metadata:
   project: neuro-FNV
@@ -11,6 +11,11 @@ metadata:
 
 Use this skill before working on files under `src/Actions/`, adding menu-backed Neuro actions, changing
 `NeuroSDK` action transport, or designing action execution and UI lockout behavior.
+
+The SDK-facing design guidance below is derived from VedalAI's official
+[`API/BEST_PRACTICES.md`](https://github.com/VedalAI/neuro-sdk/blob/main/API/BEST_PRACTICES.md). Its protocol behavior
+is verified against the current server; guidance about what Neuro handles well is directional and may change. Project
+invariants and locally verified implementation details in this skill remain mandatory.
 
 ## Start Here
 
@@ -58,6 +63,67 @@ libneurosdk is intentionally a thin C transport. Do not expand it unless a wire 
 submodule currently contains one required critical fix: `NeuroSDK_MessageKind_ActionResult` must serialize
 `action/result`, not `action:result`.
 
+## Official SDK Integration Practices
+
+Apply these rules when designing the user-facing integration, not only when serializing protocol messages.
+
+### Context
+
+- Write Markdown or readable plaintext. Prefer Markdown, start structured content at `##`, and avoid top-level `#`
+  headings. Do not send raw JSON when a short explanation or bulleted list communicates the same state.
+- Send occasional, meaningful updates. Never stream small position, animation, frame, or other high-frequency changes.
+- Send long-lived rules and controls once at startup and again only at meaningful boundaries such as a new level or
+  first encounter. Put information needed for the immediate forced decision in that force's `state`.
+- Context may be sent while an action result is pending; the server queues it and preserves delivery order. Still send
+  the result first whenever possible so Neuro is not blocked waiting.
+- Give Neuro only information available to a human player. Moderate explicit lists (roughly 20 items) are acceptable;
+  clearly state their meaning instead of expecting inference.
+
+### Action Surface
+
+- Use descriptive verb names and descriptions of one or two sentences. Neuro reads the exact `name`, `description`,
+  and `schema`; do not add an action that merely lists currently registered actions.
+- Keep persistent gameplay actions registered and stable. Avoid rapid registration churn because it delays responses.
+  Menu-scoped `ActionWindow`s are the justified exception: publish once when the menu becomes actionable, retain the
+  window while waiting, and close it exactly once on acceptance or menu invalidation.
+- Use separate actions for genuinely different verbs. Use one action with an `enum` for a fixed homogeneous choice
+  set. For frequently changing choices, keep a stable broad parameter, validate it locally, and return the current
+  valid options on failure instead of rebuilding an enum every frame.
+- Avoid many near-identical actions; Neuro tends to fixate on a subset. Action names are character-scoped and shared
+  by concurrent integrations, so choose collision-resistant names if neuro-FNV must coexist with another integration.
+- Always return `success: false` for unknown or stale action names. The server safely discards results for stale IDs;
+  silence leaves Neuro blocked.
+
+### Results and Validation
+
+- Return `action/result` immediately after local validation and before in-game execution. The current server abandons
+  actions after a short timeout of roughly 20 seconds, but this is not a timer to rely on.
+- Treat schema-conforming data as untrusted anyway. Neuro may request impossible actions or send malformed values;
+  validate shape, value, current availability, permissions, and live state.
+- A failed result during an active force is retried automatically a limited number of times. Make its message
+  actionable and include the current valid choices. Outside a force, there is no automatic retry.
+- Successful results are empty in this project because validation cannot mutate game state and execution starts only
+  after result delivery. Report meaningful deferred state changes through context; never imply execution completed.
+
+### Forces
+
+- Force an action whenever gameplay is blocked on Neuro's decision. For open-ended situations, allow a reasonable
+  period and then force instead of trusting Neuro to remember indefinitely.
+- Maintain exactly one active force. Wait for its result before issuing the next; a new force can cancel and replace
+  the current one.
+- Use `low` for ordinary turn-based decisions. Use `medium` or `high` only when waiting harms time-sensitive gameplay.
+  Reserve `critical` for expiring hard-real-time decisions because it interrupts Neuro mid-sentence.
+- Write `query` and `state` as concise Markdown. Set `ephemeral_context: true` for bulky state repeated every turn so
+  it applies only to that decision.
+- Chained forces are valid but each adds a full response round-trip. Prefer one action with two or three parameters
+  when those choices form one decision.
+
+### Reconnection
+
+- After reconnecting, immediately send `startup` again and re-register the complete current action set.
+- Previously sent context survives a disconnect. Do not replay old context unless the game state makes repetition
+  useful.
+
 ## Polling and Ownership
 
 `NeuroSDK::MainLoop()` is the main-thread boundary:
@@ -104,11 +170,11 @@ struct Definition {
 
 `PreparedAction::Failure(message)` rejects without execution. A forced window remains available so Neuro can retry.
 
-`PreparedAction::Success(message, execute, revalidate)` carries:
+`PreparedAction::Success(execute, revalidate)` carries:
 
-- A short result message.
 - A deferred execution callback.
 - An optional fresh-state revalidation callback.
+- No result message: no game state has changed before dispatch sends the successful result.
 
 Validation must not mutate game state. Parse and validate into owned typed values, then capture those values in the
 prepared execution callback.
@@ -154,8 +220,7 @@ Building -> Registered -> Forced -> Closing -> Ended
 Typical menu setup:
 
 ```cpp
-window.SetContext(context)
-    .Add(std::make_unique<Actions::Menu::SomeAction>())
+window.Add(std::make_unique<Actions::Menu::SomeAction>())
     .SetForce(query, state, NeuroSDK::ActionPriority::High);
 
 if (!window.Register()) {
@@ -166,14 +231,16 @@ if (!window.Register()) {
 Registration performs:
 
 ```text
-send optional context
--> bind actions locally
+bind actions locally
 -> send actions/register
--> send optional actions/force
+-> send optional actions/force with decision-scoped ephemeral state
 ```
 
 `End()` locally unbinds first, sends `actions/unregister`, and remains `Closing` if the send fails. `Abandon()` is for
 local reset during disconnect/load when server notification cannot be trusted.
+
+Only one `ActionWindow` may own a force at a time. The process-wide coordinator in `ActionWindow.cpp` rejects a second
+forced window until the current owner ends or abandons its force.
 
 An action belongs to one owning window object. The window must outlive registered actions and any in-flight dispatch.
 Menu handlers currently own windows through `std::unique_ptr`.
@@ -317,8 +384,6 @@ Checklist:
 ## Current Limitations
 
 - `ActionData` currently supports strict integer properties only; add typed accessors as new actions require them.
-- The registry currently binds window-owned actions. A persistent gameplay-action ownership surface is not built yet.
-- There is no global force coordinator yet. Add one before two independent systems can force concurrently.
 - Action success is acceptance-before-execution. Long-running execution failures must be communicated through later
   context and state recovery, not by pretending the original result represented completion.
 - Menu support is incomplete. Preserve generic menu blocking and add handlers incrementally.

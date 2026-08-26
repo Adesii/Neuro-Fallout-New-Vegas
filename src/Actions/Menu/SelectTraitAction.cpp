@@ -47,14 +47,13 @@ PreparedAction SelectTraitAction::Validate(const Request &request) {
   Menus::TraitsHandler::SelectionSnapshot snapshot;
   if (!Menus::TraitsHandler::ValidateSelection(select, unselect, snapshot, error))
     return PreparedAction::Failure(std::move(error));
-  return PreparedAction::Success(
-      "Trait selection accepted.", [snapshot]() { Menus::TraitsHandler::StartSelection(snapshot); },
-      [snapshot]() -> std::optional<std::string> {
-        std::string revalidationError;
-        if (!Menus::TraitsHandler::RevalidateSelection(snapshot, revalidationError))
-          return revalidationError;
-        return std::nullopt;
-      });
+  return PreparedAction::Success([snapshot]() { Menus::TraitsHandler::StartSelection(snapshot); },
+                                 [snapshot]() -> std::optional<std::string> {
+                                   std::string revalidationError;
+                                   if (!Menus::TraitsHandler::RevalidateSelection(snapshot, revalidationError))
+                                     return revalidationError;
+                                   return std::nullopt;
+                                 });
 }
 
 } // namespace Actions::Menu

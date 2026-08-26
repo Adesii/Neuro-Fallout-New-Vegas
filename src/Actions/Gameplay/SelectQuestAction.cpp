@@ -41,14 +41,13 @@ PreparedAction SelectQuestAction::Validate(const Request &request) {
   GameplayHandler::QuestSelection selection;
   if (!GameplayHandler::ValidateQuestSelection(id, selection, error))
     return PreparedAction::Failure(std::move(error));
-  return PreparedAction::Success(
-      "Selected " + selection.description + ".", [selection]() { GameplayHandler::SelectQuest(selection); },
-      [selection]() -> std::optional<std::string> {
-        std::string revalidationError;
-        if (!GameplayHandler::RevalidateQuestSelection(selection, revalidationError))
-          return revalidationError;
-        return std::nullopt;
-      });
+  return PreparedAction::Success([selection]() { GameplayHandler::SelectQuest(selection); },
+                                 [selection]() -> std::optional<std::string> {
+                                   std::string revalidationError;
+                                   if (!GameplayHandler::RevalidateQuestSelection(selection, revalidationError))
+                                     return revalidationError;
+                                   return std::nullopt;
+                                 });
 }
 
 } // namespace Actions::Gameplay

@@ -42,15 +42,13 @@ PreparedAction SelectDialogAction::Validate(const Request &request) {
   if (!Menus::DialogHandler::ValidateSelection(index, snapshot, error))
     return PreparedAction::Failure(std::move(error));
 
-  return PreparedAction::Success(
-      "Dialog option " + std::to_string(index) + " accepted.",
-      [snapshot]() { Menus::DialogHandler::StartExecution(snapshot); },
-      [snapshot]() -> std::optional<std::string> {
-        std::string revalidationError;
-        if (!Menus::DialogHandler::RevalidateSelection(snapshot, revalidationError))
-          return revalidationError;
-        return std::nullopt;
-      });
+  return PreparedAction::Success([snapshot]() { Menus::DialogHandler::StartExecution(snapshot); },
+                                 [snapshot]() -> std::optional<std::string> {
+                                   std::string revalidationError;
+                                   if (!Menus::DialogHandler::RevalidateSelection(snapshot, revalidationError))
+                                     return revalidationError;
+                                   return std::nullopt;
+                                 });
 }
 
 } // namespace Actions::Menu

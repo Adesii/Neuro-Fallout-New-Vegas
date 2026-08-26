@@ -34,7 +34,7 @@ void Flush(ScopedState::Clock::time_point now) {
   if (g_pending.empty() || !g_flushScheduled || now < g_flushAt)
     return;
 
-  std::string message = "Recent subtitles:";
+  std::string message = "## Recent subtitles";
   for (const auto &subtitle : g_pending)
     message += "\n- \"" + subtitle.text + "\"";
 

@@ -1,5 +1,7 @@
 #include "QueryQuestsAction.hpp"
+#include "Actions/ActionData.hpp"
 #include "GameplayHandler.hpp"
+#include <utility>
 
 namespace Actions::Gameplay {
 
@@ -11,8 +13,11 @@ QueryQuestsAction::QueryQuestsAction()
 
 const Definition &QueryQuestsAction::GetDefinition() const { return m_definition; }
 
-PreparedAction QueryQuestsAction::Validate(const Request &) {
-  return PreparedAction::Success("Quest list requested.", []() { GameplayHandler::QueryQuests(); });
+PreparedAction QueryQuestsAction::Validate(const Request &request) {
+  std::string error;
+  if (!ActionData::ValidateNoParameters(request.data, error) || !GameplayHandler::ValidateGameplayAction(error))
+    return PreparedAction::Failure(std::move(error));
+  return PreparedAction::Success([]() { GameplayHandler::QueryQuests(); });
 }
 
 } // namespace Actions::Gameplay

@@ -120,16 +120,18 @@ std::string BuildSignature(MenuData *menu, const std::vector<SkillOption> &optio
 std::string BuildState(MenuData *menu, const std::vector<SkillOption> &options) {
   const bool canFinish =
       GetMenuTrait(menu, "_CurrPoints") >= 0 && GetMenuTrait(menu, "_CurrPoints") == GetMenuTrait(menu, "_MaxPoints");
-  std::string state = "Tagged skill slots: " + std::to_string(GetMenuTrait(menu, "_CurrPoints")) + " of " +
-                      std::to_string(GetMenuTrait(menu, "_MaxPoints")) + ".";
-  state += canFinish ? " done_char_gen_menu is currently available to keep the tagged skills and finish now."
-                     : " done_char_gen_menu is unavailable until every tag slot is assigned.";
-  state += " select_skill requires select and unselect indexes. unselect is ignored while a free slot exists or no "
-           "skill is selected, but it must still be a valid skill index.";
-  state += "\nSkills:";
+  std::string state = "## Tag skills\nTagged slots: **" + std::to_string(GetMenuTrait(menu, "_CurrPoints")) + " of " +
+                      std::to_string(GetMenuTrait(menu, "_MaxPoints")) + "**.";
+  state += canFinish ? " `done_char_gen_menu` is available to keep these skills and finish."
+                     : " `done_char_gen_menu` is unavailable until every slot is assigned.";
+  state +=
+      " `select_skill` requires `select` and `unselect` indexes. `unselect` is ignored while a free slot exists or no "
+      "skill is selected, but it must still be a valid skill index.";
+  state += "\n\n## Skills";
   for (size_t index = 0; index < options.size(); ++index) {
-    state += "\n" + std::to_string(index) + (options[index].selected ? " [selected] " : " [not selected] ") +
-             options[index].name + ": " + options[index].description;
+    state += "\n- `" + std::to_string(index) + "` - **" +
+             std::string(options[index].selected ? "selected" : "not selected") + "** - " + options[index].name + ": " +
+             options[index].description;
   }
   return state;
 }
@@ -446,8 +448,7 @@ bool Process(bool unobstructed) {
                                 : "Change one tagged skill with select_skill. done_char_gen_menu is unavailable until "
                                   "all tag slots are assigned.";
   g_window = std::make_unique<Actions::ActionWindow>();
-  g_window->SetContext("Tag-skill choice required. " + state)
-      .Add(std::make_unique<Actions::Menu::SelectSkillAction>(options.size()));
+  g_window->Add(std::make_unique<Actions::Menu::SelectSkillAction>(options.size()));
   if (canFinish)
     g_window->Add(std::make_unique<Actions::Menu::DoneCharGenMenuAction>());
   g_window->SetForce(query, state, NeuroSDK::ActionPriority::Medium);

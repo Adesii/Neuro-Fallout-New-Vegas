@@ -55,6 +55,7 @@ struct ObjectiveObservation {
 Actions::PersistentActionSet g_actions;
 bool g_actionsBuilt = false;
 bool g_ready = false;
+bool g_gameplayBlocked = true;
 std::vector<QuestEntry> g_quests;
 std::vector<ObjectEntry> g_objects;
 std::optional<QuestSelection> g_currentQuestRoute;
@@ -400,11 +401,9 @@ void ObserveQuests() {
   g_observationInitialized = true;
   if (!notifications.empty()) {
     std::ostringstream context;
-    for (size_t index = 0; index < notifications.size(); ++index) {
-      if (index)
-        context << '\n';
-      context << notifications[index];
-    }
+    context << "## Quest updates";
+    for (const auto &notification : notifications)
+      context << "\n- " << notification;
     NeuroSDK::SendContext(context.str().c_str(), false);
   }
 }
@@ -481,14 +480,13 @@ void ContinueCurrentQuest() {
 void Process(bool gameplayBlocked) {
   if (!g_ready)
     return;
+  g_gameplayBlocked = gameplayBlocked;
   BuildActions();
   ProcessWalkerEvents();
-  if (gameplayBlocked) {
-    g_actions.Unregister();
-    return;
-  }
   if (!g_actions.IsRegistered() && PlayerCharacter::GetSingleton())
     g_actions.Register();
+  if (gameplayBlocked)
+    return;
   ObserveQuests();
   ContinueCurrentQuest();
 }
@@ -499,8 +497,21 @@ void SetReady(bool ready) {
     Reset();
 }
 
+bool ValidateGameplayAction(std::string &error) {
+  if (!g_ready || !PlayerCharacter::GetSingleton()) {
+    error = "Gameplay actions are unavailable until a game is loaded.";
+    return false;
+  }
+  if (g_gameplayBlocked) {
+    error = "Gameplay actions are unavailable while a menu is open. Finish or close the current menu first.";
+    return false;
+  }
+  return true;
+}
+
 void Reset() {
   g_actions.Abandon();
+  g_gameplayBlocked = true;
   g_quests.clear();
   g_objects.clear();
   ClearCurrentQuestRoute();
@@ -513,22 +524,24 @@ void Reset() {
 void QueryQuests() {
   BuildQuestCatalog();
   std::ostringstream context;
-  context << "Current selectable quest targets:";
+  context << "## Current quest objectives";
   if (g_quests.empty()) {
-    context << " none.";
+    context << "\n- None.";
   } else {
     for (const auto &entry : g_quests) {
-      context << "\n[id " << entry.id << "] " << entry.description;
+      context << "\n- `" << entry.id << "` - " << entry.description;
       if (entry.sameTravelSpace)
-        context << " (about " << static_cast<int>(entry.distance) << " game units away)";
+        context << " - about " << static_cast<int>(entry.distance) << " game units away";
       else
-        context << " (requires travel through another area)";
+        context << " - requires travel through another area";
     }
   }
   NeuroSDK::SendContext(context.str().c_str(), true);
 }
 
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto entry = std::find_if(g_quests.begin(), g_quests.end(), [id](const QuestEntry &quest) { return quest.id == id; });
   if (entry == g_quests.end()) {
     error = ValidQuestIds();
@@ -539,6 +552,8 @@ bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &erro
 }
 
 bool RevalidateQuestSelection(const QuestSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto *objective = FindObjective(selection.questFormId, selection.objectiveId);
   auto *target = LookupReference(selection.targetFormId);
   auto *quest = LookupQuest(selection.questFormId);
@@ -559,11 +574,13 @@ void SelectQuest(const QuestSelection &selection) {
     Walker::Stop();
   ClearCurrentQuestRoute();
   ActivateQuest(quest);
-  const std::string context = "Selected quest: " + selection.description + ".";
+  const std::string context = "## Selected quest\n" + selection.description;
   NeuroSDK::SendContext(context.c_str(), true);
 }
 
 bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto *player = PlayerCharacter::GetSingleton();
   auto *quest = player ? player->activeQuest : nullptr;
   if (!quest) {
@@ -597,6 +614,8 @@ bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
 }
 
 bool RevalidateCurrentQuest(const QuestSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto *player = PlayerCharacter::GetSingleton();
   auto *quest = LookupQuest(selection.questFormId);
   if (!player || !quest || player->activeQuest != quest) {
@@ -636,19 +655,21 @@ void QueryNearby() {
     g_objects[index].id = static_cast<int>(index + 1);
 
   std::ostringstream context;
-  context << "Nearby interactable objects and loot:";
+  context << "## Nearby objects";
   if (g_objects.empty()) {
-    context << " none found in the loaded area.";
+    context << "\n- None found in the loaded area.";
   } else {
     for (const auto &entry : g_objects) {
       const char *range = entry.distance < 450.0f ? "very close" : entry.distance < 1500.0f ? "nearby" : "farther away";
-      context << "\n[id " << entry.id << "] [" << entry.category << "] " << entry.name << " (" << range << ", "
-              << static_cast<int>(entry.distance) << " game units)";
+      context << "\n- `" << entry.id << "` - **" << entry.category << "** - " << entry.name << " - " << range << ", "
+              << static_cast<int>(entry.distance) << " game units";
     }
   }
   NeuroSDK::SendContext(context.str().c_str(), true);
 }
 bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto entry =
       std::find_if(g_objects.begin(), g_objects.end(), [id](const ObjectEntry &object) { return object.id == id; });
   if (entry == g_objects.end()) {
@@ -660,6 +681,8 @@ bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &er
 }
 
 bool RevalidateObjectSelection(const ObjectSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto *player = PlayerCharacter::GetSingleton();
   auto *ref = LookupReference(selection.referenceFormId);
   if (!player || !ref || !ref->GetParentCell() || ref->GetParentCell()->GetFormID() != selection.cellFormId ||
@@ -676,6 +699,8 @@ void StartObjectAction(const ObjectSelection &selection, Walker::Intent intent) 
 }
 
 bool PrepareExploration(ObjectSelection &selection, std::string &error) {
+  if (!ValidateGameplayAction(error))
+    return false;
   auto candidates = ScanObjects(kExploreRadius);
   std::erase_if(candidates, [](const ObjectEntry &entry) {
     return entry.distance < kExploreMinimumDistance || std::find(g_recentExploration.begin(), g_recentExploration.end(),

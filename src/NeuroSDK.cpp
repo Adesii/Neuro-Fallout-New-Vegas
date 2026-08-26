@@ -55,20 +55,33 @@ bool NeuroSDK::Initialize() {
   }
 
   isConnected = true;
-
-  StartupMessage();
-
-  return isConnected;
+  if (neurosdk_context_connected(&ctx))
+    connectionReady = StartupMessage();
+  return true;
 }
 
 void NeuroSDK::MainLoop() {
-  if (!isConnected || !neurosdk_context_connected(&ctx)) {
-    ResetAutomation();
-    _WARNING("NeuroSDK is not connected. Skipping MainLoop.");
+  if (!isConnected)
+    return;
+
+  if (!neurosdk_context_connected(&ctx)) {
+    if (connectionReady) {
+      connectionReady = false;
+      ResetAutomation();
+      _WARNING("NeuroSDK disconnected; local automation state was reset");
+    }
     return;
   }
 
+  if (!connectionReady) {
+    if (!StartupMessage())
+      return;
+    connectionReady = true;
+    _MESSAGE("NeuroSDK connected; startup and action registration are being restored");
+  }
+
   if (!PollMessages()) {
+    connectionReady = false;
     ResetAutomation();
     return;
   }
@@ -91,10 +104,10 @@ void NeuroSDK::ResetAutomation() {
   Walker::Stop();
 }
 
-void NeuroSDK::StartupMessage() {
-  neurosdk_message_t startup_message{};
-  startup_message.kind = NeuroSDK_MessageKind_Startup;
-  SendSDKMessage(startup_message);
+bool NeuroSDK::StartupMessage() {
+  neurosdk_message_t startupMessage{};
+  startupMessage.kind = NeuroSDK_MessageKind_Startup;
+  return SendSDKMessage(startupMessage);
 }
 
 bool NeuroSDK::SendContext(const char *message, bool silent) {
@@ -104,7 +117,7 @@ bool NeuroSDK::SendContext(const char *message, bool silent) {
   }
   auto sdk = &NeuroSDK::GetSingleton();
   // _MESSAGE("Sending context message to NeuroSDK: %s and it is Silent: %b", message, silent);
-  if (!sdk->isConnected) {
+  if (!sdk->connectionReady) {
     _WARNING("NeuroSDK is not connected. Cannot send context message.");
     return false;
   }
@@ -217,6 +230,8 @@ bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::
 }
 
 bool NeuroSDK::SendSDKMessage(neurosdk_message_t &message) {
+  if (!isConnected || !neurosdk_context_connected(&ctx))
+    return false;
   const auto error = neurosdk_context_send(&ctx, &message);
   if (error != NeuroSDK_None) {
     _WARNING("Failed to send NeuroSDK message kind %d: %s", message.kind, neurosdk_error_string(error));

@@ -10,6 +10,7 @@ namespace Actions {
 class ActionData {
 public:
   static std::optional<ActionData> Parse(std::string_view source, std::string &error);
+  static bool ValidateNoParameters(std::string_view source, std::string &error);
 
   ActionData(ActionData &&other) noexcept;
   ActionData &operator=(ActionData &&other) noexcept;

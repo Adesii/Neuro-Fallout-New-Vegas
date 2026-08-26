@@ -20,7 +20,6 @@ public:
   void Dispatch(std::vector<Request> requests);
   void Reset();
   bool HasPendingResult(const std::string &actionName) const;
-  void CancelPendingResults(const std::vector<std::string> &actionNames, std::string message);
 
 private:
   struct Entry {
@@ -31,10 +30,8 @@ private:
   struct PendingResult {
     std::string id;
     std::string actionName;
-    std::string message;
     std::function<void()> execute;
     std::function<std::optional<std::string>()> revalidate;
-    std::string cancellation;
   };
 
   std::unordered_map<std::string, Entry> m_entries;

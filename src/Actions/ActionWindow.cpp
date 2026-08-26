@@ -21,25 +21,19 @@ bool IsValidActionName(const std::string &name) {
 
 } // namespace
 
-ActionWindow &ActionWindow::SetContext(std::string context, bool silent) {
-  if (m_state == State::Building) {
-    m_context = std::move(context);
-    m_contextSilent = silent;
-  }
-  return *this;
-}
-
 ActionWindow &ActionWindow::Add(std::unique_ptr<IAction> action) {
   if (m_state == State::Building && action)
     m_actions.push_back(std::move(action));
   return *this;
 }
 
-ActionWindow &ActionWindow::SetForce(std::string query, std::string state, NeuroSDK::ActionPriority priority) {
+ActionWindow &ActionWindow::SetForce(std::string query, std::string state, NeuroSDK::ActionPriority priority,
+                                     bool ephemeralContext) {
   if (m_state == State::Building) {
     m_forceQuery = std::move(query);
     m_forceState = std::move(state);
     m_forcePriority = priority;
+    m_forceEphemeralContext = ephemeralContext;
   }
   return *this;
 }
@@ -82,12 +76,6 @@ bool ActionWindow::Register() {
     m_ownsForce = true;
   }
 
-  if (!m_context.empty() && !NeuroSDK::SendContext(m_context.c_str(), m_contextSilent)) {
-    _WARNING("ActionWindow failed to send context");
-    releaseForce();
-    m_state = State::Faulted;
-    return false;
-  }
   if (!ActionRegistry::Get().Bind(*this)) {
     _WARNING("ActionWindow failed to bind actions locally");
     releaseForce();
@@ -105,7 +93,7 @@ bool ActionWindow::Register() {
   _MESSAGE("ActionWindow registered %zu action(s)", m_actions.size());
 
   if (!m_forceQuery.empty()) {
-    if (!NeuroSDK::ForceActions(names, m_forceQuery, m_forceState, m_forcePriority)) {
+    if (!NeuroSDK::ForceActions(names, m_forceQuery, m_forceState, m_forcePriority, m_forceEphemeralContext)) {
       _WARNING("ActionWindow failed to force actions");
       End();
       return false;

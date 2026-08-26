@@ -145,13 +145,10 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
 
 #if RUNTIME
   if (!nvse->isEditor) {
-    bool initialized = NeuroSDK::GetSingleton().Initialize();
-    if (!initialized) {
-      _MESSAGE("Failed to Connect. Ignoring for now.");
-    } else {
-      _MESSAGE("NeuroSDK Connected to FNVSE");
-      NeuroSDK::GetSingleton().SendContext("NeuroSDK Connected to FNVSE", true);
-    }
+    if (!NeuroSDK::GetSingleton().Initialize())
+      _MESSAGE("Failed to initialize NeuroSDK transport.");
+    else
+      _MESSAGE("NeuroSDK transport initialized.");
   }
 #endif
   // Register commands

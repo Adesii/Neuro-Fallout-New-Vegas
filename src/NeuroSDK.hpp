@@ -29,9 +29,10 @@ public:
 private:
   neurosdk_context_t ctx{};
   bool isConnected = false;
+  bool connectionReady = false;
   std::vector<Actions::Request> actionInbox;
 
-  void StartupMessage();
+  bool StartupMessage();
   bool SendSDKMessage(neurosdk_message_t &message);
   bool PollMessages();
   std::vector<Actions::Request> TakeActionInbox();

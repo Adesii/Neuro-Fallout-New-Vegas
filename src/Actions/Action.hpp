@@ -26,7 +26,7 @@ struct PreparedAction {
   std::function<std::optional<std::string>()> revalidate;
 
   static PreparedAction Failure(std::string message);
-  static PreparedAction Success(std::string message, std::function<void()> execute,
+  static PreparedAction Success(std::function<void()> execute,
                                 std::function<std::optional<std::string>()> revalidate = {});
 };
 

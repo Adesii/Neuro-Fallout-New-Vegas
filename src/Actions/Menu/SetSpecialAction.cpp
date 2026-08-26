@@ -58,7 +58,7 @@ PreparedAction SetSpecialAction::Validate(const Request &request) {
   const int page = LoveTester::GetData()->currentPage;
   const int total = LoveTester::GetData()->totalPoints;
   return PreparedAction::Success(
-      "SPECIAL allocation accepted.", [values]() { Menus::SpecialAllocationHandler::StartExecution(values); },
+      [values]() { Menus::SpecialAllocationHandler::StartExecution(values); },
       [values, owner, page, total]() -> std::optional<std::string> {
         std::string revalidationError;
         if (!Menus::SpecialAllocationHandler::RevalidateAllocation(values, owner, page, total, revalidationError))

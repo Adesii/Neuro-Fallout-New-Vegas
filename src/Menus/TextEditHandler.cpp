@@ -17,7 +17,7 @@ ScopedState::Observation g_context;
 void SendContextOnce(TextEditMenu *menu, const std::string &prompt) {
   if (g_context.IsCurrent(menu, prompt))
     return;
-  if (NeuroSDK::SendContext(("Text input: " + prompt).c_str()))
+  if (NeuroSDK::SendContext(("## Text input\n" + prompt).c_str()))
     g_context.Commit(menu, prompt);
 }
 
