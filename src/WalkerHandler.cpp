@@ -20,7 +20,7 @@
 namespace Walker {
 namespace {
 
-constexpr float kInteractionDistance = 80.0f;
+constexpr float kInteractionDistance = 100.0f;
 constexpr float kStuckDistance = 1.0f;
 constexpr float kStuckDelay = 3.0f;
 constexpr float kRecoveryDuration = 1.0f;
@@ -59,7 +59,6 @@ struct WalkerState {
   bool positionInitialized = false;
   bool recovering = false;
   bool hasCommand = false;
-  bool pitchControlled = false;
   Command command;
   UINT8 heldMovementKeys[4] = {kUnboundKey, kUnboundKey, kUnboundKey, kUnboundKey};
 };
@@ -122,14 +121,6 @@ void SetPitch(PlayerCharacter *player, float pitch) {
   kSetPitchWithClamp(player, pitch);
   player->rot.x = pitch;
   *kCameraPitch = pitch;
-  g_state.pitchControlled = true;
-}
-
-void ResetPitch(PlayerCharacter *player) {
-  if (!g_state.pitchControlled)
-    return;
-  SetPitch(player, 0.0f);
-  g_state.pitchControlled = false;
 }
 
 float EffectiveYaw(PlayerCharacter *player) { return kGetEffectiveYaw(player, 0); }
@@ -190,7 +181,6 @@ void ResetRouteState() {
 void ClearCommand(PlayerCharacter *player) {
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
-  ResetPitch(player);
   ResetRouteState();
   g_state.hasCommand = false;
   g_state.command = {};
@@ -494,7 +484,6 @@ void Pause() {
   auto *player = PlayerCharacter::GetSingleton();
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
-  ResetPitch(player);
 }
 
 void Stop() {
