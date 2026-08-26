@@ -48,59 +48,65 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
 
   for (const auto &request : requests) {
     _MESSAGE("ActionRegistry received action '%s' (id: %s)", request.name.c_str(), request.id.c_str());
+    auto reject = [&](std::string message) {
+      DeliverOrQueue({.id = request.id,
+                      .actionName = request.name,
+                      .success = false,
+                      .message = std::move(message),
+                      .execute = {},
+                      .revalidate = {}});
+    };
+
     auto entry = m_entries.find(request.name);
     if (entry == m_entries.end()) {
       _WARNING("ActionRegistry rejected unavailable action: %s", request.name.c_str());
-      NeuroSDK::SendActionResult(request.id, false,
-                                 "Unknown or unavailable action `" + request.name +
-                                     "`. Choose from the currently registered actions.");
+      reject("Unknown or unavailable action `" + request.name + "`. Choose from the currently registered actions.");
       continue;
     }
     if (HasPendingResult(request.name)) {
-      NeuroSDK::SendActionResult(request.id, false,
-                                 "A previous request for `" + request.name +
-                                     "` is still awaiting its result. Wait before retrying.");
+      reject("A previous request for `" + request.name +
+             "` is still awaiting its result. Wait before retrying.");
       continue;
     }
 
     PreparedAction prepared = entry->second.action->Validate(request);
     if (!prepared.valid) {
       _WARNING("Action '%s' failed validation: %s", request.name.c_str(), prepared.message.c_str());
-      NeuroSDK::SendActionResult(request.id, false, prepared.message);
+      reject(std::move(prepared.message));
       continue;
     }
     if (prepared.revalidate) {
       auto error = prepared.revalidate();
       if (error) {
         _WARNING("Action '%s' failed revalidation: %s", request.name.c_str(), error->c_str());
-        NeuroSDK::SendActionResult(request.id, false, *error);
+        reject(std::move(*error));
         continue;
       }
     }
 
     if (entry->second.window && !entry->second.window->End()) {
-      NeuroSDK::SendActionResult(request.id, false,
-                                 "The decision changed while the action was being accepted. Choose again.");
+      reject("The decision changed while the action was being accepted. Choose again.");
       continue;
     }
-    if (!NeuroSDK::SendActionResult(request.id, true, {})) {
-      _WARNING("Action '%s' result send deferred", request.name.c_str());
-      m_pendingResults.push_back({.id = request.id,
-                                  .actionName = request.name,
-                                  .execute = std::move(prepared.execute),
-                                  .revalidate = std::move(prepared.revalidate)});
-      continue;
-    }
-
-    if (prepared.execute)
-      prepared.execute();
-    _MESSAGE("Action '%s' accepted and execution started", request.name.c_str());
+    DeliverOrQueue({.id = request.id,
+                    .actionName = request.name,
+                    .success = true,
+                    .message = {},
+                    .execute = std::move(prepared.execute),
+                    .revalidate = std::move(prepared.revalidate)});
   }
 }
 
 void ActionRegistry::Reset() {
   m_entries.clear();
-  m_pendingResults.clear();
+  for (auto &pending : m_pendingResults) {
+    if (pending.success) {
+      pending.success = false;
+      pending.message = "Game state changed before the action could execute.";
+    }
+    pending.execute = {};
+    pending.revalidate = {};
+  }
 }
 
 bool ActionRegistry::HasPendingResult(const std::string &actionName) const {
@@ -108,27 +114,45 @@ bool ActionRegistry::HasPendingResult(const std::string &actionName) const {
                      [&](const PendingResult &pending) { return pending.actionName == actionName; });
 }
 
+void ActionRegistry::DeliverOrQueue(PendingResult result) {
+  if (result.id.empty()) {
+    _WARNING("Cannot deliver action result for '%s': request id is empty", result.actionName.c_str());
+    return;
+  }
+  if (!NeuroSDK::SendActionResult(result.id, result.success, result.message)) {
+    _WARNING("Action '%s' result send deferred", result.actionName.c_str());
+    m_pendingResults.push_back(std::move(result));
+    return;
+  }
+
+  if (result.success && result.execute)
+    result.execute();
+  _MESSAGE("Action '%s' result delivered", result.actionName.c_str());
+}
+
 void ActionRegistry::RetryPendingResults() {
   for (auto iter = m_pendingResults.begin(); iter != m_pendingResults.end();) {
-    if (iter->revalidate) {
+    if (iter->success && iter->revalidate) {
       auto error = iter->revalidate();
       if (error) {
-        if (!NeuroSDK::SendActionResult(iter->id, false, *error)) {
-          ++iter;
-          continue;
-        }
-        iter = m_pendingResults.erase(iter);
-        continue;
+        iter->success = false;
+        iter->message = std::move(*error);
+        iter->execute = {};
+        iter->revalidate = {};
       }
     }
-    if (!NeuroSDK::SendActionResult(iter->id, true, {})) {
+    if (!NeuroSDK::SendActionResult(iter->id, iter->success, iter->message)) {
       ++iter;
       continue;
     }
-    auto execute = std::move(iter->execute);
+
+    const bool executeAccepted = iter->success;
+    const std::string actionName = iter->actionName;
+    auto execute = executeAccepted ? std::move(iter->execute) : std::function<void()>{};
     iter = m_pendingResults.erase(iter);
     if (execute)
       execute();
+    _MESSAGE("Deferred action '%s' result delivered", actionName.c_str());
   }
 }
 

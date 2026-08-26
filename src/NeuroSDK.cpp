@@ -21,6 +21,8 @@ CREATE_PLUGINSCRIPT(SetGameSpeed, float, speed);
 
 neurosdk_severity_e logSeverity = neurosdk_severity_e::NeuroSDK_Severity_Debug;
 
+char DEFAULT_EMPTY[] = "";
+
 bool NeuroSDK::Initialize() {
   // Initialize the NeuroSDK context
   neurosdk_context_create_desc desc = {
@@ -225,7 +227,7 @@ bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::
   message.value.action_result = {.id = const_cast<char *>(id.c_str()),
                                  .success = success,
                                  .message =
-                                     resultMessage.empty() ? nullptr : const_cast<char *>(resultMessage.c_str())};
+                                     resultMessage.empty() ? DEFAULT_EMPTY : const_cast<char *>(resultMessage.c_str())};
   return NeuroSDK::GetSingleton().SendSDKMessage(message);
 }
 
@@ -238,8 +240,8 @@ bool NeuroSDK::SendSDKMessage(neurosdk_message_t &message) {
     return false;
   }
 
-  // send() polls internally; drain any messages it received into plugin-owned storage.
-  return PollMessages();
+  // libneurosdk polls its socket while enqueueing. Incoming actions stay in its queue and are drained by MainLoop.
+  return true;
 }
 
 bool NeuroSDK::PollMessages() {

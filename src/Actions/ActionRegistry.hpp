@@ -30,6 +30,8 @@ private:
   struct PendingResult {
     std::string id;
     std::string actionName;
+    bool success = false;
+    std::string message;
     std::function<void()> execute;
     std::function<std::optional<std::string>()> revalidate;
   };
@@ -37,6 +39,7 @@ private:
   std::unordered_map<std::string, Entry> m_entries;
   std::vector<PendingResult> m_pendingResults;
 
+  void DeliverOrQueue(PendingResult result);
   void RetryPendingResults();
 };
 
