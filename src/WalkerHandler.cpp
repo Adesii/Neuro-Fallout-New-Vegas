@@ -101,8 +101,9 @@ bool IsInteractable(TESObjectREFR *ref) {
     return true;
 
   const UINT8 type = ref->baseForm->eFormType;
-  if (type == _FormType::TESObjectDOOR || type == _FormType::TESObjectCONT || type == _FormType::BGSTerminal ||
-      type == _FormType::TESFlora || type == _FormType::TESFurniture)
+  if (type == _FormType::TESObjectACTI || type == _FormType::BGSTalkingActivator || type == _FormType::TESObjectDOOR ||
+      type == _FormType::TESObjectCONT || type == _FormType::BGSTerminal || type == _FormType::TESFlora ||
+      type == _FormType::TESFurniture)
     return true;
   if (ref->extraDataList.GetExtraData(_ExtraDataType::ExtraPrimitive))
     return false;
@@ -389,6 +390,8 @@ float GetTargetAimHeight(TESObjectREFR *target) {
   if (target->IsActor())
     return 100.0f;
   switch (target->baseForm->eFormType) {
+  case _FormType::TESObjectACTI:
+  case _FormType::BGSTalkingActivator:
   case _FormType::TESObjectDOOR:
   case _FormType::TESObjectCONT:
   case _FormType::BGSTerminal:

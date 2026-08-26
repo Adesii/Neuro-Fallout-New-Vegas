@@ -188,6 +188,9 @@ std::string CategoryFor(TESObjectREFR *ref) {
     return actor->GetDead() ? "corpse" : "actor";
   }
   switch (ref->baseForm->eFormType) {
+  case _FormType::TESObjectACTI:
+  case _FormType::BGSTalkingActivator:
+    return "activator";
   case _FormType::TESObjectCONT:
     return "container";
   case _FormType::TESObjectDOOR:
