@@ -52,7 +52,8 @@ struct ObjectiveObservation {
   std::string description;
 };
 
-Actions::PersistentActionSet g_actions;
+Actions::PersistentActionSet g_worldActions;
+Actions::PersistentActionSet g_questActions;
 bool g_actionsBuilt = false;
 bool g_ready = false;
 bool g_gameplayBlocked = true;
@@ -70,9 +71,9 @@ std::unordered_map<uint32_t, uint8_t> g_questFlags;
 void BuildActions() {
   if (g_actionsBuilt)
     return;
-  g_actions.Add(std::make_unique<Actions::Gameplay::QueryQuestsAction>())
-      .Add(std::make_unique<Actions::Gameplay::SelectQuestAction>())
-      .Add(std::make_unique<Actions::Gameplay::DoCurrentQuestAction>())
+  g_questActions.Add(std::make_unique<Actions::Gameplay::QueryQuestsAction>())
+      .Add(std::make_unique<Actions::Gameplay::SelectQuestAction>());
+  g_worldActions.Add(std::make_unique<Actions::Gameplay::DoCurrentQuestAction>())
       .Add(std::make_unique<Actions::Gameplay::QueryNearbyAction>())
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(false))
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(true))
@@ -481,13 +482,21 @@ void ContinueCurrentQuest() {
 } // namespace
 
 void Process(bool gameplayBlocked) {
-  if (!g_ready)
-    return;
   g_gameplayBlocked = gameplayBlocked;
+  if (!g_ready || !PlayerCharacter::GetSingleton()) {
+    g_worldActions.Unregister();
+    g_questActions.Unregister();
+    return;
+  }
   BuildActions();
+  // Menus are meaningful availability boundaries, not a reason to expose unusable world actions.
+  // Quest inspection/selection remains useful in menus; unchanged frames send no registration messages.
+  if (gameplayBlocked)
+    g_worldActions.Unregister();
+  else
+    g_worldActions.Register();
+  g_questActions.Register();
   ProcessWalkerEvents();
-  if (!g_actions.IsRegistered() && PlayerCharacter::GetSingleton())
-    g_actions.Register();
   if (gameplayBlocked)
     return;
   ObserveQuests();
@@ -500,11 +509,17 @@ void SetReady(bool ready) {
     Reset();
 }
 
-bool ValidateGameplayAction(std::string &error) {
+bool ValidateQuestAction(std::string &error) {
   if (!g_ready || !PlayerCharacter::GetSingleton()) {
-    error = "Gameplay actions are unavailable until a game is loaded.";
+    error = "Quest actions are unavailable until a game is loaded.";
     return false;
   }
+  return true;
+}
+
+bool ValidateGameplayAction(std::string &error) {
+  if (!ValidateQuestAction(error))
+    return false;
   if (g_gameplayBlocked) {
     error = "Gameplay actions are unavailable while a menu is open. Finish or close the current menu first.";
     return false;
@@ -513,7 +528,9 @@ bool ValidateGameplayAction(std::string &error) {
 }
 
 void Reset() {
-  g_actions.Abandon();
+  // Unbind immediately and retain failed unregisters for retry, including across reconnects.
+  g_worldActions.Unregister();
+  g_questActions.Unregister();
   g_gameplayBlocked = true;
   g_quests.clear();
   g_objects.clear();
@@ -543,7 +560,7 @@ void QueryQuests() {
 }
 
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error) {
-  if (!ValidateGameplayAction(error))
+  if (!ValidateQuestAction(error))
     return false;
   auto entry = std::find_if(g_quests.begin(), g_quests.end(), [id](const QuestEntry &quest) { return quest.id == id; });
   if (entry == g_quests.end()) {
@@ -555,7 +572,7 @@ bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &erro
 }
 
 bool RevalidateQuestSelection(const QuestSelection &selection, std::string &error) {
-  if (!ValidateGameplayAction(error))
+  if (!ValidateQuestAction(error))
     return false;
   auto *objective = FindObjective(selection.questFormId, selection.objectiveId);
   auto *target = LookupReference(selection.targetFormId);

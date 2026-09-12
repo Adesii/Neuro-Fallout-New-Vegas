@@ -21,13 +21,15 @@ bool IsValidActionName(const std::string &name) {
 } // namespace
 
 PersistentActionSet &PersistentActionSet::Add(std::unique_ptr<IAction> action) {
-  if (!m_registered && action)
+  if (m_state == State::Unregistered && action)
     m_actions.push_back(std::move(action));
   return *this;
 }
 
 bool PersistentActionSet::Register() {
-  if (m_registered)
+  if (m_state == State::Closing && !Unregister())
+    return false;
+  if (m_state == State::Registered)
     return true;
   if (m_actions.empty())
     return false;
@@ -61,17 +63,31 @@ bool PersistentActionSet::Register() {
     return false;
   }
 
-  m_registered = true;
+  m_state = State::Registered;
   _MESSAGE("PersistentActionSet registered %zu action(s)", m_actions.size());
   return true;
 }
 
-void PersistentActionSet::Abandon() {
-  for (const auto &action : m_actions)
-    ActionRegistry::Get().Unbind(*action);
-  m_registered = false;
-}
+bool PersistentActionSet::Unregister() {
+  if (m_state == State::Unregistered)
+    return true;
 
-bool PersistentActionSet::IsRegistered() const { return m_registered; }
+  if (m_state != State::Closing) {
+    for (const auto &action : m_actions)
+      ActionRegistry::Get().Unbind(*action);
+    m_state = State::Closing;
+  }
+
+  std::vector<std::string> names;
+  names.reserve(m_actions.size());
+  for (const auto &action : m_actions)
+    names.push_back(action->GetDefinition().name);
+  if (!NeuroSDK::UnregisterActions(names))
+    return false;
+
+  m_state = State::Unregistered;
+  _MESSAGE("PersistentActionSet unregistered %zu action(s)", names.size());
+  return true;
+}
 
 } // namespace Actions

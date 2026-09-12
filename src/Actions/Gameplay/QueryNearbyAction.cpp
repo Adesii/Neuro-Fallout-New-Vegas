@@ -1,6 +1,7 @@
 #include "QueryNearbyAction.hpp"
 #include "Actions/ActionData.hpp"
 #include "GameplayHandler.hpp"
+#include <optional>
 #include <utility>
 
 namespace Actions::Gameplay {
@@ -18,7 +19,13 @@ PreparedAction QueryNearbyAction::Validate(const Request &request) {
   std::string error;
   if (!ActionData::ValidateNoParameters(request.data, error) || !GameplayHandler::ValidateGameplayAction(error))
     return PreparedAction::Failure(std::move(error));
-  return PreparedAction::Success([]() { GameplayHandler::QueryNearby(); });
+  return PreparedAction::Success([]() { GameplayHandler::QueryNearby(); },
+                                 []() -> std::optional<std::string> {
+                                   std::string revalidationError;
+                                   if (!GameplayHandler::ValidateGameplayAction(revalidationError))
+                                     return revalidationError;
+                                   return std::nullopt;
+                                 });
 }
 
 } // namespace Actions::Gameplay

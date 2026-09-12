@@ -10,12 +10,12 @@ class PersistentActionSet {
 public:
   PersistentActionSet &Add(std::unique_ptr<IAction> action);
   bool Register();
-  void Abandon();
-  bool IsRegistered() const;
+  bool Unregister();
 
 private:
   std::vector<std::unique_ptr<IAction>> m_actions;
-  bool m_registered = false;
+  enum class State { Unregistered, Registered, Closing };
+  State m_state = State::Unregistered;
 };
 
 } // namespace Actions
