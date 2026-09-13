@@ -494,6 +494,12 @@ bool Start(uint32_t targetFormId, Intent intent, Owner owner, std::string descri
   ClearCommand(PlayerCharacter::GetSingleton());
   g_state.command = {targetFormId, intent, owner, std::move(description)};
   g_state.hasCommand = true;
+  const char *activity = owner == Owner::Exploration  ? "Exploring toward "
+                         : owner == Owner::Quest      ? "Following "
+                         : intent == Intent::Interact ? "Moving to interact with "
+                                                      : "Moving to ";
+  g_events.push_back(
+      {EventType::Started, owner, targetFormId, std::string(activity) + g_state.command.description + "."});
   _MESSAGE("Walker started target %08X with intent %d and owner %d", targetFormId, static_cast<int>(intent),
            static_cast<int>(owner));
   return true;

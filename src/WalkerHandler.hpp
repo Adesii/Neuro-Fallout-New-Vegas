@@ -8,7 +8,7 @@ namespace Walker {
 
 enum class Intent { Move, Interact };
 enum class Owner { None, Quest, Object, Exploration };
-enum class EventType { Completed, Failed };
+enum class EventType { Completed, Failed, Started };
 
 struct Event {
   EventType type = EventType::Failed;

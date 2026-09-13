@@ -28,9 +28,13 @@ constexpr int kMaxSteps = 120;
 
 enum class ExecutionPhase { Reduce, Rewind, Allocate };
 
+constexpr std::array<const char *, 7> kSpecialNames = {"Strength",     "Perception", "Endurance", "Charisma",
+                                                       "Intelligence", "Agility",    "Luck"};
+
 struct ExecutionState {
   Menu *owner = nullptr;
   SpecialValues targets{};
+  std::string completionSummary;
   Clock::time_point startedAt;
   Clock::time_point nextStepAt;
   Clock::time_point recoveryStartedAt;
@@ -39,6 +43,7 @@ struct ExecutionState {
   bool reviewed = false;
   bool waitingForClose = false;
   bool aborting = false;
+  bool confirmationClicked = false;
 };
 
 std::unique_ptr<Actions::ActionWindow> g_window;
@@ -50,13 +55,18 @@ int GetSpecialValue(int index) {
 }
 
 std::string BuildState(int totalPoints) {
-  static constexpr const char *names[] = {"Strength",     "Perception", "Endurance", "Charisma",
-                                          "Intelligence", "Agility",    "Luck"};
   std::string state =
       "## SPECIAL allocation\nAvailable total: **" + std::to_string(totalPoints) + "**\n\n## Current values";
   for (int index = 0; index < 7; ++index)
-    state += "\n- **" + std::string(names[index]) + ":** " + std::to_string(GetSpecialValue(index));
+    state += "\n- **" + std::string(kSpecialNames[index]) + ":** " + std::to_string(GetSpecialValue(index));
   return state;
+}
+
+std::string BuildCompletionSummary(const SpecialValues &values) {
+  std::string summary = "## Character build: SPECIAL";
+  for (int index = 0; index < 7; ++index)
+    summary += "\n- " + std::string(kSpecialNames[index]) + ": " + std::to_string(values[index]);
+  return summary;
 }
 
 bool IsTopMenu() {
@@ -86,6 +96,7 @@ void AbortExecution(const std::string &reason) {
   NeuroSDK::SendContext(("SPECIAL allocation stopped: " + reason).c_str());
   g_execution->aborting = true;
   g_execution->waitingForClose = false;
+  g_execution->confirmationClicked = false;
   g_execution->recoveryStartedAt = Clock::now();
   g_execution->nextStepAt = g_execution->recoveryStartedAt;
 }
@@ -103,6 +114,10 @@ void AdvanceExecution(bool unobstructed) {
   if (!g_execution)
     return;
   if (!menu) {
+    if (g_execution->confirmationClicked) {
+      NeuroSDK::SendContext(g_execution->completionSummary.c_str(), true);
+      _MESSAGE("SPECIAL visual execution completed");
+    }
     g_execution.reset();
     return;
   }
@@ -113,9 +128,12 @@ void AdvanceExecution(bool unobstructed) {
   if (!unobstructed)
     return;
   if (!IsTopMenu()) {
-    if (g_execution->waitingForClose) {
+    if (Menu::IsMenuVisible(Interface::LoveTester))
+      return;
+    if (g_execution->confirmationClicked) {
+      NeuroSDK::SendContext(g_execution->completionSummary.c_str(), true);
       _MESSAGE("SPECIAL visual execution completed");
-    } else {
+    } else if (!g_execution->aborting) {
       _WARNING("SPECIAL execution stopped because the Vitals Tester closed unexpectedly");
     }
     g_execution.reset();
@@ -231,9 +249,12 @@ void AdvanceExecution(bool unobstructed) {
         g_execution->nextStepAt = now + kReviewDelay;
         return;
       }
+      g_execution->completionSummary = BuildCompletionSummary(g_execution->targets);
       clicked = UIUtils::ClickControl(menu, "exit_menu");
-      if (clicked)
+      if (clicked) {
+        g_execution->confirmationClicked = true;
         _VMESSAGE("SPECIAL execution confirmed allocation and requested menu exit");
+      }
       g_execution->waitingForClose = clicked;
       delay = kPageChangeDelay;
     }

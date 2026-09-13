@@ -34,6 +34,7 @@ struct SpokenLine {
 
 struct ExecutionState {
   SelectionSnapshot selection;
+  std::string responseText;
   Clock::time_point startedAt;
   Clock::time_point clickAt;
   bool selected = false;
@@ -45,7 +46,6 @@ std::unique_ptr<ExecutionState> g_execution;
 std::vector<SpokenLine> g_pendingSpeech;
 DialogMenu *g_observedMenu = nullptr;
 std::string g_lastSpokenLine;
-bool g_wasDialogVisible = false;
 bool g_wasShowingText = false;
 
 DialogMenu *GetMenu() { return *reinterpret_cast<DialogMenu **>(0x11D9510); }
@@ -139,19 +139,30 @@ void StopExecution(const std::string &reason) {
   g_execution.reset();
 }
 
-void FlushPendingSpeech() {
+void FlushPendingSpeech(const char *heading) {
   if (g_pendingSpeech.empty())
     return;
-  const std::string context = BuildSpokenDialog("Dialog ended after these spoken lines");
-  if (NeuroSDK::SendContext(context.c_str()))
+  const std::string context = BuildSpokenDialog(heading);
+  if (NeuroSDK::SendContext(context.c_str(), true))
     g_pendingSpeech.clear();
+}
+
+void ReportConfirmedResponse(const ExecutionState &execution) {
+  const std::string context = "## Confirmed dialog response\n- \"" + execution.responseText + "\"";
+  if (!NeuroSDK::SendContext(context.c_str(), true))
+    _WARNING("Could not report the confirmed dialog response.");
 }
 
 void AdvanceExecution() {
   if (!g_execution)
     return;
   auto *menu = GetMenu();
-  if (!menu || !IsTopMenu(menu)) {
+  if (!IsDialogVisible(menu)) {
+    if (!g_execution->clicked) {
+      StopExecution("The dialog menu closed before the selected response was activated.");
+      return;
+    }
+    ReportConfirmedResponse(*g_execution);
     _MESSAGE("Dialog visual selection completed after the dialog menu closed");
     g_execution.reset();
     return;
@@ -160,6 +171,8 @@ void AdvanceExecution() {
     StopExecution("The dialog menu changed unexpectedly.");
     return;
   }
+  if (!IsTopMenu(menu))
+    return;
 
   const auto now = Clock::now();
   if (now - g_execution->startedAt > kExecutionTimeout) {
@@ -169,6 +182,7 @@ void AdvanceExecution() {
   if (g_execution->clicked) {
     const auto options = GetOptions(menu);
     if (IsShowingText(menu) || BuildSignature(menu, options) != g_execution->selection.signature) {
+      ReportConfirmedResponse(*g_execution);
       _MESSAGE("Dialog visual selection completed");
       g_execution.reset();
     }
@@ -212,11 +226,9 @@ void Observe() {
   auto *menu = GetMenu();
   const bool visible = IsDialogVisible(menu);
   if (!visible) {
-    if (g_wasDialogVisible || !g_pendingSpeech.empty())
-      FlushPendingSpeech();
+    FlushPendingSpeech("Dialog ended after these spoken lines");
     g_observedMenu = nullptr;
     g_lastSpokenLine.clear();
-    g_wasDialogVisible = false;
     g_wasShowingText = false;
     return;
   }
@@ -241,7 +253,6 @@ void Observe() {
       _DMESSAGE("Buffered dialog line from '%s': %s", speaker.c_str(), text.c_str());
     }
   }
-  g_wasDialogVisible = true;
   g_wasShowingText = showingText;
 }
 
@@ -277,9 +288,10 @@ void StartExecution(const SelectionSnapshot &snapshot) {
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(
-      ExecutionState{.selection = snapshot, .startedAt = now, .clickAt = now + kSelectionDelay});
-  _MESSAGE("Dialog visual selection started for option %d", snapshot.index);
+  g_execution = std::make_unique<ExecutionState>(ExecutionState{.selection = snapshot,
+                                                                .responseText = UIUtils::GetTileString(snapshot.tile),
+                                                                .startedAt = now,
+                                                                .clickAt = now + kSelectionDelay});
 }
 
 void Reset() {
@@ -291,7 +303,6 @@ void Reset() {
   g_pendingSpeech.clear();
   g_observedMenu = nullptr;
   g_lastSpokenLine.clear();
-  g_wasDialogVisible = false;
   g_wasShowingText = false;
 }
 
@@ -318,6 +329,7 @@ bool Process(bool automationAllowed) {
     CloseWindow();
     return menuOpen;
   }
+  FlushPendingSpeech("NPC dialog");
 
   const std::string signature = BuildSignature(menu, options);
   static std::string publishedSignature;
@@ -336,7 +348,6 @@ bool Process(bool automationAllowed) {
       g_window.reset();
     return true;
   }
-  g_pendingSpeech.clear();
   publishedSignature = signature;
   _MESSAGE("Opened select_dialog action window with %zu option(s)", options.size());
   return true;

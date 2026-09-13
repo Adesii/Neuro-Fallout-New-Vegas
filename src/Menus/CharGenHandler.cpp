@@ -48,6 +48,7 @@ enum class Phase {
 struct ExecutionState {
   SelectionSnapshot selection;
   DoneSnapshot done;
+  std::string completionSummary;
   Clock::time_point startedAt;
   Clock::time_point nextStepAt;
   Phase phase = Phase::PrepareSelect;
@@ -136,6 +137,15 @@ std::string BuildState(MenuData *menu, const std::vector<SkillOption> &options) 
   return state;
 }
 
+std::string BuildCompletionSummary(const std::vector<SkillOption> &options) {
+  std::string summary = "## Character build: tagged skills";
+  for (const auto &option : options) {
+    if (option.selected)
+      summary += "\n- " + option.name;
+  }
+  return summary;
+}
+
 std::string ValidOptionsMessage(const std::vector<SkillOption> &options) {
   std::string message = "Current skills:";
   for (size_t index = 0; index < options.size(); ++index)
@@ -186,10 +196,12 @@ void AdvanceExecution() {
     return;
   auto *menu = CharacterGeneration::GetMenu();
   if (!menu || !Menu::IsMenuVisible(Interface::CharGen)) {
-    if (g_execution->finishing)
+    if (g_execution->finishing && g_execution->phase == Phase::WaitClose) {
+      NeuroSDK::SendContext(g_execution->completionSummary.c_str(), true);
       _MESSAGE("Tag-skill menu visual execution completed");
-    else
+    } else if (!g_execution->finishing) {
       _WARNING("Tag-skill menu closed during visual execution");
+    }
     g_execution.reset();
     return;
   }
@@ -265,11 +277,12 @@ void AdvanceExecution() {
     _MESSAGE("Tag-skill visual selection completed");
     g_execution.reset();
     return;
-  case Phase::ClickDone:
+  case Phase::ClickDone: {
     if (!MatchesDone(execution.done, menu, options)) {
       StopExecution("The tag-skill menu changed before Done could be activated.");
       return;
     }
+    execution.completionSummary = BuildCompletionSummary(options);
     if (!UIUtils::ClickControl(AsMenu(menu), "NOGLOW_BRANCH\\CGM_MainRect\\CGM_ButtonRect\\CGM_DoneButton")) {
       StopExecution("The tag-skill Done button could not be activated.");
       return;
@@ -278,6 +291,7 @@ void AdvanceExecution() {
     execution.nextStepAt = now + kVisualDelay;
     _VMESSAGE("Tag-skill Done button activated");
     return;
+  }
   case Phase::WaitClose:
     return;
   }

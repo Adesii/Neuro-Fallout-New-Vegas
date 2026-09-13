@@ -423,7 +423,7 @@ void ProcessWalkerEvents() {
     if (event.owner == Walker::Owner::Quest) {
       if (event.type == Walker::EventType::Completed)
         g_completedQuestStep = event.targetFormId;
-      else {
+      else if (event.type == Walker::EventType::Failed) {
         ClearCurrentQuestRoute();
       }
     }
@@ -432,7 +432,7 @@ void ProcessWalkerEvents() {
       if (g_recentExploration.size() > kRecentExplorationLimit)
         g_recentExploration.erase(g_recentExploration.begin());
     }
-    NeuroSDK::SendContext(event.message.c_str(), event.type == Walker::EventType::Completed);
+    NeuroSDK::SendContext(event.message.c_str(), event.type != Walker::EventType::Failed);
   }
 }
 
