@@ -57,6 +57,38 @@ size_t ActionData::Size() const {
   return object ? object->length : 0;
 }
 
+bool ActionData::HasProperty(std::string_view key) const {
+  auto *root = static_cast<json_value_s *>(m_root);
+  auto *object = root ? json_value_as_object(root) : nullptr;
+  if (!object)
+    return false;
+  for (auto *element = object->start; element; element = element->next) {
+    if (element->name && element->name->string_size == key.size() &&
+        std::string_view(element->name->string, element->name->string_size) == key)
+      return true;
+  }
+  return false;
+}
+
+bool ActionData::GetString(std::string_view key, std::string &value) const {
+  auto *root = static_cast<json_value_s *>(m_root);
+  auto *object = root ? json_value_as_object(root) : nullptr;
+  if (!object)
+    return false;
+
+  for (auto *element = object->start; element; element = element->next) {
+    if (!element->name || element->name->string_size != key.size() ||
+        std::string_view(element->name->string, element->name->string_size) != key)
+      continue;
+    auto *string = json_value_as_string(element->value);
+    if (!string)
+      return false;
+    value.assign(string->string, string->string_size);
+    return true;
+  }
+  return false;
+}
+
 bool ActionData::GetInteger(std::string_view key, int &value) const {
   auto *root = static_cast<json_value_s *>(m_root);
   auto *object = root ? json_value_as_object(root) : nullptr;

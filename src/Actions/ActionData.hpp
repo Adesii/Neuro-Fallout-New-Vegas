@@ -18,7 +18,9 @@ public:
 
   bool IsObject() const;
   size_t Size() const;
+  bool HasProperty(std::string_view key) const;
   bool GetInteger(std::string_view key, int &value) const;
+  bool GetString(std::string_view key, std::string &value) const;
 
 private:
   explicit ActionData(void *root);

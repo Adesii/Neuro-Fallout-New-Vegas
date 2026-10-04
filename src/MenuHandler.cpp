@@ -2,6 +2,7 @@
 #include "GameUI.h"
 #include "Menus/CharGenHandler.hpp"
 #include "Menus/CharacterEditorHandler.hpp"
+#include "Menus/ContainerHandler.hpp"
 #include "Menus/DialogHandler.hpp"
 #include "Menus/MessagePopupHandler.hpp"
 #include "Menus/SpecialAllocationHandler.hpp"
@@ -17,6 +18,7 @@ void Reset() {
   Menus::DialogHandler::Reset();
   Menus::CharGenHandler::Reset();
   Menus::TraitsHandler::Reset();
+  Menus::ContainerHandler::Reset();
   Menus::TextEditHandler::Reset();
   Menus::CharacterEditorHandler::Reset();
 }
@@ -41,6 +43,7 @@ bool Process() {
   const bool specialBlocksGameplay =
       Menus::SpecialAllocationHandler::Process(!popupPresent && !textEditPresent && !characterEditorPresent &&
                                                !dialogPresent && !charGenPresent && !traitsPresent);
+  const bool containerBlocksGameplay = Menus::ContainerHandler::Process();
 
   if (Menus::MessagePopupHandler::Process()) {
     Menus::TextEditHandler::Reset();
@@ -61,6 +64,8 @@ bool Process() {
                                     !Menus::CharGenHandler::IsExecuting()))
     return true;
   if (specialBlocksGameplay)
+    return true;
+  if (containerBlocksGameplay)
     return true;
 
   // Unknown menus are not automated yet, but they still pause gameplay automation.
