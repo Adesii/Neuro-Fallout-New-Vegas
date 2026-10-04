@@ -1,0 +1,74 @@
+{
+  "references": [
+    {
+      "name": "FalloutNVAccess",
+      "url": "https://github.com/FalloutAccess/FalloutNVAccess.git",
+      "revision": "d24c62ef30394241d8b4920415acd1367fd0c776",
+      "purpose": "Reverse-engineered Fallout: New Vegas engine classes, layouts, and offsets.",
+      "license": "MIT (LICENSE)",
+      "caveat": "GitHub mirror contains the requested revision; retain MIT notice for copied substantial portions."
+    },
+    {
+      "name": "itr-nvse",
+      "url": "https://github.com/Into-The-Rough/itr-nvse.git",
+      "revision": "4aad925802432ffb759db9d8c020840e24404263",
+      "purpose": "Plugin examples and pathfinding-related implementation patterns.",
+      "license": "MIT (LICENSE)",
+      "caveat": "Preserve copyright and permission notices in copied substantial portions."
+    },
+    {
+      "name": "JIP-LN-NVSE",
+      "url": "https://github.com/jazzisparis/JIP-LN-NVSE.git",
+      "revision": "5a30ac4356ea0e93b9ff357b5031b1e420240a4d",
+      "purpose": "JIP-LN NVSE plugin source, commands, and engine integration patterns.",
+      "license": "GPL-3.0-or-later (LICENSE)",
+      "caveat": "Copyleft obligations apply to redistribution of derivative works; review full license before adapting."
+    },
+    {
+      "name": "JohnnyGuitarNVSE",
+      "url": "https://github.com/carxt/JohnnyGuitarNVSE.git",
+      "revision": "de352b278e2452abcf95cb96c6328983923b09ec",
+      "purpose": "JohnnyGuitar NVSE plugin source and command/API implementation patterns.",
+      "license": "LGPL-2.1 (LICENSE)",
+      "caveat": "Preserve notices and comply with LGPL conditions when adapting or distributing."
+    },
+    {
+      "name": "neuro-sdk",
+      "url": "https://github.com/VedalAI/neuro-sdk.git",
+      "revision": "0cad33ac692f6cc90d36747fea9bbc53ca34b97a",
+      "purpose": "Official Neuro SDK protocol and integration reference.",
+      "license": "MIT (LICENSE.md)",
+      "caveat": "Preserve copyright and permission notices in copied substantial portions."
+    },
+    {
+      "name": "NVSE",
+      "url": "https://github.com/xNVSE/NVSE.git",
+      "revision": "05f6d4f28370dedb1b9b10edf3fcdf750ae3de4e",
+      "purpose": "xNVSE runtime, plugin API, and example plugin source.",
+      "license": "No top-level license file found in the inspected local checkout",
+      "caveat": "Treat source as reference-only; do not redistribute/adapt unless file-level licensing is established."
+    },
+    {
+      "name": "yUI-NVSE",
+      "url": "https://github.com/yvileapsis/yUI-NVSE.git",
+      "revision": "074e5e45286e4dfa8813a0fd58a11a78df8f9a67",
+      "purpose": "UI-focused NVSE plugin implementation and menu-facing behaviors.",
+      "license": "No top-level license file found in the inspected local checkout",
+      "caveat": "Treat source as reference-only; do not redistribute/adapt unless file-level licensing is established."
+    },
+    {
+      "name": "sup",
+      "url": "https://github.com/TommInfinite/SUP-NVSE-PLUGIN.git",
+      "revision": "bd66533170df7235b913bbd6a421d6835578d34a",
+      "purpose": "SUP NVSE plugin source; UI helper declarations including Tomm_fn_UI.h.",
+      "license": "Unknown (no repository license metadata)",
+      "caveat": "The public GitHub repo is the older New2 branch snapshot (2021); the supplied local extraction may be newer and is unversioned. Nexus lists this upstream, but license is absent: reference-only; do not redistribute/adapt without permission."
+    }
+  ],
+  "menu_data": {
+    "environment": "NEURO_FNV_MENU_ARCHIVE",
+    "local_root_environment": "NEURO_FNV_MENU_ROOT",
+    "archive_policy": "ZIP must contain only menus/**/*.xml files; total uncompressed payload <= 64 MiB, each XML <= 4 MiB and compression ratio <= 200; traversal, backslashes, symlinks and invalid ZIP structure are rejected.",
+    "privacy": "Private menu archives and extracted XML are local-only and are not committed."
+  }
+}

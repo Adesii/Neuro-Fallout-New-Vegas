@@ -3,11 +3,13 @@
 ## Build and verification
 
 - Initialize the SDK submodule with `git submodule update --init --recursive`.
-- This is a 32-bit Windows DLL built on Linux with the MSVC-compatible wrapper and `/opt/msvc/bin/x86/cl`; ordinary host CMake configurations are rejected.
-- Use `just rebuild` for a clean Debug configure/build. It deletes `build/`. Use `just debug` for an incremental build of an existing tree.
-- Do not use `CMakePresets.json`: its presets reference the absent `cmake/toolchains/windows-i686-mingw.cmake` and do not match the MSVC-only flags in the root CMake file.
+- This is a 32-bit Windows DLL built on Linux with real MSVC over Wine; ordinary host CMake configurations are rejected. Portable entry point: `bash tools/build.sh Debug` (CMake 3.30+, x86 toolchain at `NEURO_FNV_MSVC_ROOT` or `/opt/msvc`).
+- Use `just debug` for incremental Debug compilation and `just rebuild` for a clean-first Debug build. Both use `build/cloud/` without deleting the existing local build tree; override with `NEURO_FNV_BUILD_DIR`. `just release` builds Release.
+- Supported CMake presets use the repository's Windows x86 MSVC toolchain. Do not substitute MinGW or host GCC for compiler verification.
 - Set `FalloutNVNeuroPlugin` before configuring to deploy `neuro-fnv.dll` and its PDB after each build to `$FalloutNVNeuroPlugin/nvse/plugins`. The ESM is not deployed by CMake.
 - There are no automated tests, CTest targets, CI checks, or lint targets. Format changed C/C++ files with `clang-format -i <files>` (LLVM style, 120 columns), then build.
+- For Cloud setup, private menu data, optional compiler provisioning and environment publication, read `docs/cloud-development.md`. Run `bash tools/cloud-setup.sh`; offline readiness: `bash tools/cloud-setup.sh --check`.
+- Cloud cannot run FNV or prove engine/menu behavior. After relevant changes, report evidence and checks actually run, unresolved assumptions, and a concrete manual in-game checklist. Compilation is not runtime verification; no mock engine or fabricated addresses to claim completion.
 
 ## Runtime architecture
 
@@ -21,7 +23,7 @@
 - Keep one concrete action module under `src/Actions/<scope>/`; keep menu observation/window ownership/frame-driven execution under `src/Menus/`. Do not embed raw JSON schemas: use `Actions::Json::JsonSchema` and validate incoming `ActionData` locally.
 - Required successful window-action order is validate, revalidate, locally close/unregister the window, send `action/result`, then execute. Invalid forced actions send `success: false` and remain available for Neuro's retry.
 - Action windows are client-only and visual menu execution must lock out window regeneration and Walker until actual completion. Do not infer menu-open state from retained engine singleton pointers; use top/active menu state.
-- Neuro supports only one active action force. The current implementation has no global force coordinator, so add coordination before introducing independently forceable systems.
+- Neuro supports only one active action force. Preserve the process-wide force ownership guard in `src/Actions/ActionWindow.cpp` when adding independently forceable systems.
 
 ### Container inventory scope
 
@@ -34,9 +36,11 @@
 
 ## External plugin references
 
-- Read `.references` for local directories containing other Fallout: New Vegas plugin sources. These directories are reference material, not part of this repository.
-- Search the current repository and included NVSE/JG definitions first. If an engine definition, function, or behavior is missing or incomplete, search the referenced plugins for compatible declarations and proven implementation patterns.
-- Before copying or adapting code, inspect the source plugin's license and provenance. Follow its license terms, preserve required notices, credit the plugin and exact source file near the adapted code or in the required license file, and place copied license text where that license requires it. Do not copy code whose license is absent or incompatible.
+- Read `docs/reference-research.md` before researching unknown engine/menu behavior. Search the project and included NVSE/JG definitions first, then compatible reference implementations and private menu XML; prefer verified behavior over inference.
+- `python3 tools/references.py setup` populates pinned public sources or reuses existing local roots. Read ignored `.references` for resolved roots; stable paths are `.reference-data/repos/` and optional `.reference-data/extracts/menus/`. Purpose/upstream/revision metadata lives in `tools/reference-manifest.json`.
+- External repositories and private extracts are read-only research material, not editable project dependencies. Never reset/format them, commit copies, or commit copyrighted extracts, credentials, local configuration or binaries.
+- Never invent engine addresses, layouts, offsets, menu IDs, control names or undocumented behavior. Match FNV 1.4.0.525 and distinguish source/XML-backed facts from assumptions needing runtime testing.
+- Before copying or adapting code, inspect the exact source license/provenance; preserve required notices and credit the plugin, revision and source file. Public availability is not permission; no license or incompatible terms means no copying.
 
 ## Hard constraints and boundaries
 

@@ -1,11 +1,14 @@
-debug: 
-  msvc-x86-cmake --build build --parallel
+default:
+  @just --list
+
+debug:
+  bash tools/build.sh Debug
+
 rebuild:
-  rm -rf build
-  msvc-x86-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/opt/msvc/bin/x86/cl 
-  msvc-x86-cmake --build build --parallel
+  bash tools/build.sh Debug --clean-first
 
 rebuild-debug:
-  rm -rf build
-  msvc-x86-cmake -B build -DDEBUG=true -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/opt/msvc/bin/x86/cl 
-  msvc-x86-cmake --build build --parallel
+  bash tools/build.sh Debug --clean-first
+
+release:
+  bash tools/build.sh Release

@@ -1,3 +1,15 @@
 build
 /CMakeCache.txt
 /compile_commands.json
+
+# Locally acquired development references and private menu assets.
+/.references
+/.reference-data/
+/.cloud-tools/
+# Legacy local extract link and machine-specific launcher are not portable assets.
+/extracts
+/launch_mo
+/private-menu*.zip
+/.private-menu*.zip
+/.menu-archive*.zip
+/menu-archive*.zip

@@ -29,6 +29,8 @@ Read these files before editing:
 - `src/NeuroSDK.*`: the only layer that should call the libneurosdk poll/send/destroy API.
 - `src/MenuHandler.cpp` and `src/Menus/`: menu observation, precedence, gameplay blocking, and visual executors.
 - `src/Actions/Menu/SetSpecialAction.*` and `src/Menus/SpecialAllocationHandler.*`: first complete reference action.
+- `docs/reference-research.md`: evidence-first engine/menu research, private XML paths, provenance and manual verification handoff.
+- In Cloud, `docs/cloud-development.md`: source/reference setup and optional compilation; FNV runtime verification remains manual.
 
 ## Neuro Protocol Constraints
 
@@ -53,15 +55,14 @@ Important invariants:
 - Send an action result immediately after validation/revalidation and before game execution.
 - A successful pre-execution result means "accepted for execution", not "completed".
 - `success: false` retries an active action force. Return a useful correction message with current valid options.
-- Neuro can process only one action force at a time. The current project has one forced window; add explicit global
-  coordination before introducing concurrently forceable systems.
+- Neuro can process only one action force at a time. Preserve the global force ownership guard in `ActionWindow.cpp`
+  before introducing additional forceable systems.
 - Action windows do not exist on the server or in libneurosdk. They are entirely client-side.
 - Keep stable action names as state changes. Put current choices in context, force state/query, and action arguments.
 - Project action names currently enforce lowercase letters and underscores with no leading/trailing underscore.
 
-libneurosdk is intentionally a thin C transport. Do not expand it unless a wire bug cannot be worked around. The local
-submodule currently contains one required critical fix: `NeuroSDK_MessageKind_ActionResult` must serialize
-`action/result`, not `action:result`.
+libneurosdk is intentionally a thin C transport. Do not expand it unless a wire bug cannot be worked around. The pinned
+submodule serializes `NeuroSDK_MessageKind_ActionResult` as `action/result`; preserve that wire command, not `action:result`.
 
 ## Official SDK Integration Practices
 
@@ -326,7 +327,7 @@ then applies popup/text/character-editor precedence. Unknown menu mode still blo
 - Concrete action: `src/Actions/Menu/SetSpecialAction.*`.
 - Menu/window/execution owner: `src/Menus/SpecialAllocationHandler.*`.
 - Verified FNV overlay: `src/defs/LoveTesterMenu.hpp`.
-- XML reference: `/mnt/1tbssd/FalloutModding/extracts/menus/chargen/love_tester_menu.xml`.
+- XML reference: `.reference-data/extracts/menus/chargen/love_tester_menu.xml` when optional private data is supplied; read `.references` for the resolved extracts root.
 - Adapted offset provenance: FalloutNVAccess, with `src/defs/FalloutNVAccess-license.md` preserved.
 
 LoveTester facts for runtime `1.4.0.525`:
