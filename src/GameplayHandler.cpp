@@ -6,8 +6,10 @@
 #include "Actions/Gameplay/SelectQuestAction.hpp"
 #include "Actions/Gameplay/TargetObjectAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
+#include "Actions/PipBoy/OpenInventoryAction.hpp"
 #include "GameData.h"
 #include "GameObjects.h"
+#include "Menus/PipBoyHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
@@ -77,7 +79,8 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Gameplay::QueryNearbyAction>())
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(false))
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(true))
-      .Add(std::make_unique<Actions::Gameplay::ExploreAction>());
+      .Add(std::make_unique<Actions::Gameplay::ExploreAction>())
+      .Add(std::make_unique<Actions::PipBoy::OpenInventoryAction>());
   g_actionsBuilt = true;
 }
 
@@ -520,7 +523,7 @@ bool ValidateQuestAction(std::string &error) {
 bool ValidateGameplayAction(std::string &error) {
   if (!ValidateQuestAction(error))
     return false;
-  if (g_gameplayBlocked) {
+  if (g_gameplayBlocked || Menus::PipBoyHandler::IsExecuting()) {
     error = "Gameplay actions are unavailable while a menu is open. Finish or close the current menu first.";
     return false;
   }
