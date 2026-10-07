@@ -4,6 +4,7 @@
 #include "CachedScripts.hpp"
 #include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
+#include "Menus/PipBoyHandler.hpp"
 #include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
 #include "common.hpp"
@@ -92,7 +93,9 @@ void NeuroSDK::MainLoop() {
   GameplayHandler::Process(menuBlocksGameplay);
   Actions::ActionRegistry::Get().Dispatch(TakeActionInbox());
 
-  if (menuBlocksGameplay)
+  // Opening is accepted after menu observation. Pause Walker on that same frame,
+  // including the short delay before the native opening animation begins.
+  if (menuBlocksGameplay || Menus::PipBoyHandler::IsExecuting())
     Walker::Pause();
   else
     Walker::Process();

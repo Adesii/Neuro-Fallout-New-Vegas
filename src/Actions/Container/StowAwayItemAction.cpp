@@ -1,5 +1,6 @@
 #include "StowAwayItemAction.hpp"
 #include "Actions/ActionData.hpp"
+#include "Inventory/ItemQuery.hpp"
 #include "Menus/ContainerHandler.hpp"
 #include <utility>
 
@@ -10,13 +11,7 @@ const Definition kDefinition = {
     .name = "stow_away_item",
     .description = "Stow the entire listed stack using its one-based stable index from the last own-items listing. "
                    "Query your items first to obtain current indexes.",
-    .schema = [] {
-      auto schema = Json::JsonSchema::Object();
-      auto index = Json::JsonSchema::Integer();
-      index.Minimum(1);
-      schema.Property("index", std::move(index));
-      return schema;
-    }()};
+    .schema = Inventory::BuildItemIndexSchema()};
 
 } // namespace
 
@@ -28,10 +23,8 @@ PreparedAction StowAwayItemAction::Validate(const Request &request) {
   if (!data)
     return PreparedAction::Failure(std::move(error));
   int index = 0;
-  if (!data->IsObject() || data->Size() != 1 || !data->HasProperty("index") || !data->GetInteger("index", index))
-    return PreparedAction::Failure("Expected exactly one integer field: index.");
-  if (index < 1)
-    return PreparedAction::Failure("index must be a one-based item index of at least 1.");
+  if (!Inventory::ParseItemIndex(*data, index, error))
+    return PreparedAction::Failure(std::move(error));
   return Menus::ContainerHandler::PrepareTransfer(true, index);
 }
 

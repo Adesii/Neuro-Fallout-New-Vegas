@@ -15,6 +15,8 @@ bool ParseItemQueryType(std::string_view name, ItemQueryType &type);
 std::string_view ItemQueryTypeName(ItemQueryType type);
 bool ParseItemQuery(const Actions::ActionData &data, int &page, ItemQueryType &type, std::string &error);
 Actions::Json::JsonSchema BuildItemQuerySchema();
+bool ParseItemIndex(const Actions::ActionData &data, int &index, std::string &error);
+Actions::Json::JsonSchema BuildItemIndexSchema();
 ItemQueryType ClassifyItem(const TESForm &form);
 bool MatchesQuery(const TESForm *form, ItemQueryType type);
 
