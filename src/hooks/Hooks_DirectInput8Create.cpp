@@ -15,6 +15,24 @@ static CreateDInputProc DICreate_RealFunc;
 // Keys that must never be filtered or injected. Currently none: every key may be held, tapped or disabled.
 static bool ShouldIgnoreKey(DWORD code) { return false; }
 
+// DirectInput stops delivering a foreground-cooperative device while the game window is unfocused (alt-tab, another
+// window active). Neuro still plays then, so those two results must not discard injected input.
+static bool IsDeviceUnavailable(HRESULT hr) { return hr == DIERR_NOTACQUIRED || hr == DIERR_INPUTLOST; }
+
+// Reads the immediate device state. When the device is unavailable it tries to reacquire it, so real input resumes the
+// moment focus returns even though the game never sees an error to react to; if that fails, the state is reported as
+// empty (no real keys or buttons) and the caller applies its injected input on top. Other errors pass through.
+static HRESULT ReadDeviceState(IDirectInputDevice8 *device, DWORD size, void *data) {
+  HRESULT hr = device->GetDeviceState(size, data);
+  if (IsDeviceUnavailable(hr) && SUCCEEDED(device->Acquire()))
+    hr = device->GetDeviceState(size, data);
+  if (IsDeviceUnavailable(hr)) {
+    memset(data, 0, size);
+    return DI_OK;
+  }
+  return hr;
+}
+
 class FakeDirectInputDevice : public IDirectInputDevice8 {
 public:
   FakeDirectInputDevice(IDirectInputDevice8 *device, DWORD type) : m_device(device), m_deviceType(type), m_refs(1) {
@@ -57,7 +75,7 @@ public:
 
       // get raw data
       UINT8 rawData[kMaxMacros];
-      HRESULT hr = m_device->GetDeviceState(256, rawData);
+      HRESULT hr = ReadDeviceState(m_device, 256, rawData);
       if (hr != DI_OK)
         return hr;
 
@@ -76,7 +94,7 @@ public:
       DIMOUSESTATE2 *mouseState = (DIMOUSESTATE2 *)outData;
 
       // get raw data
-      HRESULT hr = m_device->GetDeviceState(sizeof(DIMOUSESTATE2), mouseState);
+      HRESULT hr = ReadDeviceState(m_device, sizeof(DIMOUSESTATE2), mouseState);
       if (hr != DI_OK)
         return hr;
 
@@ -404,6 +422,15 @@ HRESULT DIHookControl::ProcessBufferedData(IDirectInputDevice8 *device, DWORD da
   // pass down to the device; it reports how many real events it produced through numRealEvents
   DWORD numRealEvents = eventsRequested;
   HRESULT hr = device->GetDeviceData(dataSize, outData, &numRealEvents, flags);
+  if (IsDeviceUnavailable(hr) && SUCCEEDED(device->Acquire())) {
+    numRealEvents = eventsRequested;
+    hr = device->GetDeviceData(dataSize, outData, &numRealEvents, flags);
+  }
+  if (IsDeviceUnavailable(hr)) {
+    // unfocused: no real events, but the injected ones must still be delivered
+    numRealEvents = 0;
+    hr = DI_OK;
+  }
   if ((hr != DI_OK) && (hr != DI_BUFFEROVERFLOW)) {
     *outDataLen = numRealEvents;
     return hr;
