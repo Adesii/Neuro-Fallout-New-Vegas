@@ -83,6 +83,8 @@ bool g_gameplayBlocked = true;
 std::vector<QuestEntry> g_quests;
 std::vector<ObjectEntry> g_objects;
 std::optional<QuestSelection> g_currentQuestRoute;
+// What select_quest last chose: do_current_quest follows this objective, not merely the first one of the quest.
+std::optional<QuestSelection> g_selectedObjective;
 uint32_t g_completedQuestStep = 0;
 float g_questResolveTime = 0.0f;
 std::vector<uint32_t> g_recentExploration;
@@ -132,6 +134,22 @@ bool IsInSameTravelSpace(TESObjectREFR *a, TESObjectREFR *b) {
   if (!aCell || !bCell)
     return false;
   return aCell == bCell || (aCell->worldSpace && aCell->worldSpace == bCell->worldSpace);
+}
+
+std::string DoorLabel(TESObjectREFR *door) {
+  const char *name = door ? door->GetFullName() : nullptr;
+  return name && name[0] ? std::string("the door \"") + name + "\"" : "a door";
+}
+
+// The route's first step is a door whenever the objective lies in another area; the door is not the objective.
+bool IsDoorStep(uint32_t stepFormId, const QuestSelection &route) { return stepFormId != route.targetFormId; }
+
+// What Walker is told it is heading for. Naming the objective for a door step made Neuro believe the objective
+// itself had been reached.
+std::string StepDescription(TESObjectREFR *step, const QuestSelection &route) {
+  if (!step || !IsDoorStep(step->GetFormID(), route))
+    return route.description;
+  return DoorLabel(step) + " that leads toward " + route.description;
 }
 
 // The door the engine's quest route says to take first to reach a target in another area.
@@ -464,7 +482,18 @@ void ProcessWalkerEvents() {
       if (g_recentExploration.size() > kRecentExplorationLimit)
         g_recentExploration.erase(g_recentExploration.begin());
     }
-    NeuroSDK::SendContext(event.message.c_str(), event.type != Walker::EventType::Failed);
+    std::string message = std::move(event.message);
+    if (event.owner == Walker::Owner::Quest && g_currentQuestRoute &&
+        IsDoorStep(event.targetFormId, *g_currentQuestRoute) && event.type != Walker::EventType::Failed) {
+      const std::string door = DoorLabel(LookupReference(event.targetFormId));
+      if (event.type == Walker::EventType::Started)
+        message = "Heading to " + door + " to enter another area. The objective itself, " +
+                  g_currentQuestRoute->description + ", is beyond it.";
+      else
+        message = "Reached and used " + door + ". That was only the door on the way: the objective " +
+                  g_currentQuestRoute->description + " is NOT done yet, and the route continues on its own.";
+    }
+    NeuroSDK::SendContext(message.c_str(), event.type != Walker::EventType::Failed);
   }
 }
 
@@ -503,7 +532,8 @@ void ContinueCurrentQuest() {
     g_completedQuestStep = 0;
     const Walker::Intent intent =
         Walker::CanInteract(target->GetFormID()) ? Walker::Intent::Interact : Walker::Intent::Move;
-    if (!Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest, g_currentQuestRoute->description)) {
+    if (!Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest,
+                       StepDescription(target, *g_currentQuestRoute))) {
       NeuroSDK::SendContext(
           ("Could not start the next route step for " + g_currentQuestRoute->description + ".").c_str(), false);
       ClearCurrentQuestRoute();
@@ -576,6 +606,7 @@ void Reset() {
   g_objects.clear();
   ClearCurrentQuestRoute();
   g_recentExploration.clear();
+  g_selectedObjective.reset();
   g_objectiveObservations.clear();
   g_questFlags.clear();
   g_observationInitialized = false;
@@ -631,6 +662,7 @@ void SelectQuest(const QuestSelection &selection) {
   if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Quest)
     Walker::Stop();
   ClearCurrentQuestRoute();
+  g_selectedObjective = selection;
   ActivateQuest(quest);
   const std::string context = "## Selected quest\n" + selection.description;
   NeuroSDK::SendContext(context.c_str(), true);
@@ -650,20 +682,28 @@ bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
     return false;
   }
 
+  // A quest can have several displayed objectives; the one Neuro picked with select_quest comes first.
+  const bool hasChosen = g_selectedObjective && g_selectedObjective->questFormId == quest->GetFormID();
   bool hasActiveObjective = false;
-  for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
-    auto *objective = objectiveIter.Get();
-    if (!objective || objective->quest != quest ||
-        (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed)
-      continue;
-    hasActiveObjective = true;
-    for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
-      auto *target = targetIter.Get();
-      if (!target || !target->target || !ResolveQuestTarget(objective, target->target->GetFormID()))
+  for (int pass = hasChosen ? 0 : 1; pass < 2; ++pass) {
+    for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
+      auto *objective = objectiveIter.Get();
+      if (!objective || objective->quest != quest ||
+          (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed)
         continue;
-      selection = {quest->GetFormID(), objective->objectiveId, target->target->GetFormID(),
-                   QuestName(quest) + ": " + ObjectiveText(objective)};
-      return true;
+      if (pass == 0 && objective->objectiveId != g_selectedObjective->objectiveId)
+        continue;
+      hasActiveObjective = true;
+      for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
+        auto *target = targetIter.Get();
+        if (!target || !target->target || !ResolveQuestTarget(objective, target->target->GetFormID()))
+          continue;
+        if (pass == 0 && target->target->GetFormID() != g_selectedObjective->targetFormId)
+          continue;
+        selection = {quest->GetFormID(), objective->objectiveId, target->target->GetFormID(),
+                     QuestName(quest) + ": " + ObjectiveText(objective)};
+        return true;
+      }
     }
   }
 
@@ -700,7 +740,8 @@ void DoCurrentQuest(const QuestSelection &selection) {
   auto *target = ResolveQuestTarget(objective, selection.targetFormId);
   const Walker::Intent intent =
       target && Walker::CanInteract(target->GetFormID()) ? Walker::Intent::Interact : Walker::Intent::Move;
-  if (!target || !Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest, selection.description)) {
+  if (!target ||
+      !Walker::Start(target->GetFormID(), intent, Walker::Owner::Quest, StepDescription(target, selection))) {
     NeuroSDK::SendContext(("Could not begin following " + selection.description + ".").c_str(), false);
     ClearCurrentQuestRoute();
   }
