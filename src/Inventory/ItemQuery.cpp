@@ -12,6 +12,11 @@ constexpr std::array kQueryTypes = {ItemQueryType::All,          ItemQueryType::
 } // namespace
 
 bool ParseItemQueryType(std::string_view name, ItemQueryType &type) {
+  // The advertised spelling is "Consumerable" (kept for Neuro); the correct spelling is accepted too.
+  if (name == "Consumable") {
+    type = ItemQueryType::Consumerable;
+    return true;
+  }
   for (const auto candidate : kQueryTypes) {
     if (ItemQueryTypeName(candidate) == name) {
       type = candidate;

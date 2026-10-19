@@ -9,17 +9,13 @@ namespace {
 
 ActionWindow *g_forcedWindow = nullptr;
 
-bool IsValidActionName(const std::string &name) {
-  if (name.empty() || name.front() == '_' || name.back() == '_')
-    return false;
-  for (char character : name) {
-    if ((character < 'a' || character > 'z') && character != '_')
-      return false;
-  }
-  return true;
-}
-
 } // namespace
+
+ActionWindow::~ActionWindow() {
+  // Only the force guard is released: the registry may already be gone during static destruction.
+  if (m_ownsForce && g_forcedWindow == this)
+    g_forcedWindow = nullptr;
+}
 
 ActionWindow &ActionWindow::Add(std::unique_ptr<IAction> action) {
   if (m_state == State::Building && action)
@@ -107,7 +103,8 @@ bool ActionWindow::Register() {
 bool ActionWindow::End() {
   if (m_state == State::Ended)
     return true;
-  if (m_state == State::Building) {
+  if (m_state == State::Building || m_state == State::Faulted) {
+    // Nothing was bound or registered (or registration already rolled back).
     m_state = State::Ended;
     return true;
   }
@@ -138,6 +135,11 @@ void ActionWindow::Abandon() {
     g_forcedWindow = nullptr;
   m_ownsForce = false;
   m_state = State::Ended;
+}
+
+void ActionWindow::Release() {
+  if (!End())
+    Abandon();
 }
 
 ActionWindow::State ActionWindow::GetState() const { return m_state; }

@@ -1,4 +1,3 @@
-#pragma once
 #include "GameplayHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
@@ -105,10 +104,22 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
 }
 
 extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info) {
-  _MESSAGE("neuro-fnv plugin query successful.");
   info->infoVersion = PluginInfo::kInfoVersion;
   info->name = "neuro-fnv";
   info->version = 1;
+
+  // Hooks and structure overlays use absolute addresses of one runtime build, and the DirectInput
+  // hook patches the game's import table. Never load into the GECK or another game version.
+  if (nvse->isEditor) {
+    _ERROR("neuro-fnv does not support the GECK editor; plugin not loaded.");
+    return false;
+  }
+  if (nvse->runtimeVersion != RUNTIME_VERSION) {
+    _ERROR("neuro-fnv requires Fallout: New Vegas 1.4.0.525 (runtime %08X expected, %08X found); plugin not loaded.",
+           static_cast<unsigned>(RUNTIME_VERSION), static_cast<unsigned>(nvse->runtimeVersion));
+    return false;
+  }
+  _MESSAGE("neuro-fnv plugin query successful.");
   return true;
 }
 
@@ -118,6 +129,10 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
   g_nvseInterface = nvse;
   g_messagingInterface = (NVSEMessagingInterface *)nvse->QueryInterface(kInterface_Messaging);
   g_commandTableInterface = static_cast<NVSECommandTableInterface *>(nvse->QueryInterface(kInterface_CommandTable));
+  if (!g_messagingInterface) {
+    _ERROR("xNVSE messaging interface is unavailable; plugin not loaded.");
+    return false;
+  }
   g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
 
   if (!nvse->isEditor) {
@@ -133,6 +148,10 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
     g_consoleInterface = static_cast<NVSEConsoleInterface *>(nvse->QueryInterface(kInterface_Console));
     g_togglePlayerControlsInterface =
         static_cast<NVSETogglePlayerControlsInterface *>(nvse->QueryInterface(kInterface_PlayerControls));
+    if (!g_script) {
+      _ERROR("xNVSE script interface is unavailable; plugin not loaded.");
+      return false;
+    }
     ExtractArgsEx = g_script->ExtractArgsEx;
 #endif
   }
@@ -155,7 +174,8 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
   NeuroSDK::GetSingleton().RegisterCommands(nvse);
 // HOOKS
 #if RUNTIME
-  Hook_DirectInput8Create_Init();
+  if (!nvse->isEditor)
+    Hook_DirectInput8Create_Init();
 #endif
   return true;
 }

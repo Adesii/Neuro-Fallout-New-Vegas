@@ -11,6 +11,7 @@
 #include "itr/PathingCommands.h"
 #include "nvse/GameForms.h"
 #include "nvse/GameUI.h"
+#include "utils/WorldUtils.hpp"
 #include "utils/math.h"
 #include <algorithm>
 #include <cfloat>
@@ -19,6 +20,9 @@
 
 namespace Walker {
 namespace {
+
+using WorldUtils::Distance3D;
+using WorldUtils::LookupReference;
 
 constexpr float kInteractionDistance = 100.0f;
 constexpr float kStuckDistance = 1.0f;
@@ -29,6 +33,12 @@ constexpr float kOscillationDirectionThreshold = 2.0f;
 constexpr int kOscillationReversalLimit = 6;
 constexpr float kRecoveryDuration = 1.0f;
 constexpr float kInteractionDelay = 1.0f;
+// Unaligned this long within reach: interact anyway and let the game accept or reject it.
+constexpr float kAlignmentGiveUpDelay = 5.0f;
+// The engine path search is expensive, so the next waypoint is reused between these refreshes.
+constexpr float kRepathInterval = 0.25f;
+constexpr float kWaypointReachedDistance = 60.0f;
+constexpr float kDestinationMoveTolerance = 50.0f;
 constexpr float kCloseLookDistance = 400.0f;
 constexpr float kLookAlignmentTolerance = 0.12f;
 constexpr float kPlayerEyeHeight = 100.0f;
@@ -61,6 +71,8 @@ struct WalkerState {
   float stationaryTime = 0.0f;
   float recoveryTime = 0.0f;
   float interactionTime = 0.0f;
+  float unalignedTime = 0.0f;
+  float navigationAge = 0.0f;
   float turnVelocity = 0.0f;
   int recoveryAttempts = 0;
   int oscillationDirection = 0;
@@ -69,6 +81,10 @@ struct WalkerState {
   bool positionInitialized = false;
   bool targetDistanceInitialized = false;
   bool recovering = false;
+  bool alignmentGaveUp = false;
+  bool navigationValid = false;
+  PathPoint3 navigationPoint{};
+  NiPoint3 navigationDestination = {0.0f, 0.0f, 0.0f};
   bool hasCommand = false;
   Command command;
   UINT8 heldMovementKeys[4] = {kUnboundKey, kUnboundKey, kUnboundKey, kUnboundKey};
@@ -84,14 +100,6 @@ void ResetDistanceOscillation() {
   g_state.oscillationDirection = 0;
   g_state.oscillationReversals = 0;
   g_state.targetDistanceInitialized = false;
-}
-
-TESObjectREFR *LookupReference(uint32_t formId) {
-  auto *form = TESForm::GetFormByNumericID(formId);
-  if (!form || !form->IsReference())
-    return nullptr;
-  auto *ref = static_cast<TESObjectREFR *>(form);
-  return ref->GetDeleted() || ref->GetDisabled() ? nullptr : ref;
 }
 
 bool IsInteractable(TESObjectREFR *ref) {
@@ -166,13 +174,6 @@ float GetFrameTime() {
   return time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
 }
 
-float Distance3D(const NiPoint3 &left, const NiPoint3 &right) {
-  const float x = left.x - right.x;
-  const float y = left.y - right.y;
-  const float z = left.z - right.z;
-  return std::sqrt(x * x + y * y + z * z);
-}
-
 bool IsValidPoint(const PathPoint3 &point) {
   return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
 }
@@ -192,6 +193,10 @@ void ResetRouteState() {
   g_state.stationaryTime = 0.0f;
   g_state.recoveryTime = 0.0f;
   g_state.interactionTime = 0.0f;
+  g_state.unalignedTime = 0.0f;
+  g_state.alignmentGaveUp = false;
+  g_state.navigationValid = false;
+  g_state.navigationAge = 0.0f;
   g_state.turnVelocity = 0.0f;
   g_state.recoveryAttempts = 0;
   g_state.lookTargetInitialized = false;
@@ -256,6 +261,31 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, TESObjectREFR *target
     }
   }
   return {destination.x, destination.y, destination.z};
+}
+
+PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, float deltaTime) {
+  const NiPoint3 destination = target->GetPos();
+  const NiPoint3 playerPosition = player->GetPos();
+  if (Distance3D(playerPosition, destination) < kInteractionDistance) {
+    g_state.navigationValid = false;
+    return {destination.x, destination.y, destination.z};
+  }
+
+  g_state.navigationAge += deltaTime;
+  bool refresh = !g_state.navigationValid || g_state.navigationAge >= kRepathInterval ||
+                 Distance3D(destination, g_state.navigationDestination) > kDestinationMoveTolerance;
+  if (!refresh) {
+    const float dx = playerPosition.x - g_state.navigationPoint.x;
+    const float dy = playerPosition.y - g_state.navigationPoint.y;
+    refresh = std::sqrt(dx * dx + dy * dy) < kWaypointReachedDistance;
+  }
+  if (refresh) {
+    g_state.navigationPoint = ResolveNavigationPoint(player, target);
+    g_state.navigationDestination = destination;
+    g_state.navigationAge = 0.0f;
+    g_state.navigationValid = true;
+  }
+  return g_state.navigationPoint;
 }
 
 bool UpdateDistanceOscillation(float targetDistance, float deltaTime) {
@@ -452,6 +482,7 @@ void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, 
 void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance, bool aligned, float deltaTime) {
   if (distance >= kInteractionDistance) {
     g_state.interactionTime = 0.0f;
+    g_state.unalignedTime = 0.0f;
     return;
   }
   ReleaseMovementKeys();
@@ -460,9 +491,17 @@ void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance,
     return;
   }
 
-  if (!aligned) {
+  if (aligned) {
+    g_state.unalignedTime = 0.0f;
+  } else {
     g_state.interactionTime = 0.0f;
-    return;
+    g_state.unalignedTime += deltaTime;
+    if (g_state.unalignedTime < kAlignmentGiveUpDelay)
+      return;
+    if (!g_state.alignmentGaveUp) {
+      _WARNING("Walker could not line up with %s; interacting without alignment", g_state.command.description.c_str());
+      g_state.alignmentGaveUp = true;
+    }
   }
   g_state.interactionTime += deltaTime;
   if (g_state.interactionTime < kInteractionDelay)
@@ -537,7 +576,7 @@ void Process() {
   const float deltaTime = GetFrameTime();
   const float distance = Distance3D(player->GetPos(), target->GetPos());
   const bool shouldMove = distance >= kInteractionDistance;
-  const PathPoint3 navigationPoint = ResolveNavigationPoint(player, target);
+  const PathPoint3 navigationPoint = GetNavigationPoint(player, target, deltaTime);
   if (!UpdateStuckState(player, distance, shouldMove, deltaTime)) {
     FinishCommand(player, EventType::Failed, "Could not reach " + g_state.command.description + ".");
     return;

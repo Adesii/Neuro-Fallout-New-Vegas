@@ -20,6 +20,15 @@ std::string GetTileString(Tile *tile) {
   return value && value->str ? value->str : "";
 }
 
+bool IsTopMenu(Menu *menu, uint32_t menuId) {
+  if (!menu)
+    return false;
+  if (Interface::GetTopMenuID() == menuId)
+    return true;
+  auto *manager = InterfaceManager::GetSingleton();
+  return manager && manager->IsInMenuMode() && manager->activeMenu == menu;
+}
+
 bool ClickTile(Menu *menu, Tile *tile) {
   if (!menu || !tile)
     return false;

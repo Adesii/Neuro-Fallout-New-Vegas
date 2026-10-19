@@ -8,7 +8,9 @@
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "defs/LoveTesterMenu.hpp"
+#include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
+#include <array>
 #include <chrono>
 #include <memory>
 #include <numeric>
@@ -46,7 +48,11 @@ struct ExecutionState {
   bool confirmationClicked = false;
 };
 
+constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
+
 std::unique_ptr<Actions::ActionWindow> g_window;
+// A registration that fails persistently must not be retried (and logged) every frame.
+ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 std::unique_ptr<ExecutionState> g_execution;
 
 int GetSpecialValue(int index) {
@@ -316,9 +322,10 @@ bool IsExecuting() { return g_execution != nullptr; }
 
 void Reset() {
   if (g_window) {
-    g_window->Abandon();
+    g_window->Release();
     g_window.reset();
   }
+  g_registerRetry.Reset();
   g_execution.reset();
 }
 
@@ -370,7 +377,7 @@ bool Process(bool unobstructed) {
     CloseWindow();
     return menuOpen;
   }
-  if (g_window)
+  if (g_window || !g_registerRetry.Ready())
     return true;
 
   const std::string state = BuildState(data->totalPoints);
@@ -381,6 +388,7 @@ bool Process(bool unobstructed) {
   g_window->Add(std::make_unique<Actions::Menu::SetSpecialAction>())
       .SetForce(query, state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
+    g_registerRetry.Fail();
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();
     return true;

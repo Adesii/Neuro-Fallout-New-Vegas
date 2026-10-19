@@ -12,3 +12,6 @@ rebuild-debug:
 
 release:
   bash tools/build.sh Release
+
+test *filter:
+  bash tools/test.sh {{filter}}

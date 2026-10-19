@@ -6,6 +6,7 @@
 #include "GameUI.h"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
+#include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
 #include <chrono>
 #include <memory>
@@ -41,7 +42,12 @@ struct ExecutionState {
   bool clicked = false;
 };
 
+constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
+
 std::unique_ptr<Actions::ActionWindow> g_window;
+// A registration that fails persistently must not be retried (and logged) every frame.
+ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
+std::string g_publishedSignature;
 std::unique_ptr<ExecutionState> g_execution;
 std::vector<SpokenLine> g_pendingSpeech;
 DialogMenu *g_observedMenu = nullptr;
@@ -296,9 +302,11 @@ void StartExecution(const SelectionSnapshot &snapshot) {
 
 void Reset() {
   if (g_window) {
-    g_window->Abandon();
+    g_window->Release();
     g_window.reset();
   }
+  g_registerRetry.Reset();
+  g_publishedSignature.clear();
   g_execution.reset();
   g_pendingSpeech.clear();
   g_observedMenu = nullptr;
@@ -332,11 +340,10 @@ bool Process(bool automationAllowed) {
   FlushPendingSpeech("NPC dialog");
 
   const std::string signature = BuildSignature(menu, options);
-  static std::string publishedSignature;
-  if (g_window && signature == publishedSignature)
+  if (g_window && signature == g_publishedSignature)
     return true;
   CloseWindow();
-  if (g_window)
+  if (g_window || !g_registerRetry.Ready())
     return true;
 
   const std::string state = BuildState(menu, options);
@@ -344,11 +351,12 @@ bool Process(bool automationAllowed) {
   g_window->Add(std::make_unique<Actions::Menu::SelectDialogAction>(options.size()))
       .SetForce("Choose the dialog response to say by its index.", state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
+    g_registerRetry.Fail();
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();
     return true;
   }
-  publishedSignature = signature;
+  g_publishedSignature = signature;
   _MESSAGE("Opened select_dialog action window with %zu option(s)", options.size());
   return true;
 }

@@ -64,8 +64,7 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
       continue;
     }
     if (HasPendingResult(request.name)) {
-      reject("A previous request for `" + request.name +
-             "` is still awaiting its result. Wait before retrying.");
+      reject("A previous request for `" + request.name + "` is still awaiting its result. Wait before retrying.");
       continue;
     }
 
@@ -108,6 +107,8 @@ void ActionRegistry::Reset() {
     pending.revalidate = {};
   }
 }
+
+void ActionRegistry::DropPendingResults() { m_pendingResults.clear(); }
 
 bool ActionRegistry::HasPendingResult(const std::string &actionName) const {
   return std::any_of(m_pendingResults.begin(), m_pendingResults.end(),

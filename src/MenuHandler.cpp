@@ -21,6 +21,7 @@ void Reset() {
   Menus::TraitsHandler::Reset();
   Menus::ContainerHandler::Reset();
   Menus::PipBoyHandler::Reset();
+  Menus::MessagePopupHandler::Reset();
   Menus::TextEditHandler::Reset();
   Menus::CharacterEditorHandler::Reset();
 }

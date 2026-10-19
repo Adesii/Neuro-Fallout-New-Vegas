@@ -7,7 +7,8 @@
 - Use `just debug` for incremental Debug compilation and `just rebuild` for a clean-first Debug build. Both use `build/cloud/` without deleting the existing local build tree; override with `NEURO_FNV_BUILD_DIR`. `just release` builds Release.
 - Supported CMake presets use the repository's Windows x86 MSVC toolchain. Do not substitute MinGW or host GCC for compiler verification.
 - Set `FalloutNVNeuroPlugin` before configuring to deploy `neuro-fnv.dll` and its PDB after each build to `$FalloutNVNeuroPlugin/nvse/plugins`. The ESM is not deployed by CMake.
-- There are no automated tests, CTest targets, CI checks, or lint targets. Format changed C/C++ files with `clang-format -i <files>` (LLVM style, 120 columns), then build.
+- `bash tools/test.sh [name-filter]` (or `just test`) builds and runs the host-side unit tests in `tests/` with the host compiler. They cover engine-independent logic only (action registry/window/set state machines, `ActionData`, `JsonSchema`, item query parsing, `ItemListing`, `ScopedState`) against a fake NeuroSDK transport in `tests/stubs/` and `tests/FakeNeuro.*`; they prove nothing about engine, menu or in-game behaviour. Add a test beside any change to that logic; new engine-free sources must be added to `tests/CMakeLists.txt`.
+- There are no CI checks or lint targets. Format changed C/C++ files with `clang-format -i <files>` (LLVM style, 120 columns), then build.
 - For Cloud setup, private menu data, optional compiler provisioning and environment publication, read `docs/cloud-development.md`. Run `bash tools/cloud-setup.sh`; offline readiness: `bash tools/cloud-setup.sh --check`.
 - Cloud cannot run FNV or prove engine/menu behavior. After relevant changes, report evidence and checks actually run, unresolved assumptions, and a concrete manual in-game checklist. Compilation is not runtime verification; no mock engine or fabricated addresses to claim completion.
 
@@ -19,28 +20,16 @@
 
 ## Neuro actions and menu automation
 
-- Before adding or changing NeuroSDK actions, action windows, registration/forcing/results, JSON schemas, or menu-backed visual execution, load the `neuro-fnv-actions` skill at `.agents/skills/neuro-fnv-actions/SKILL.md`.
+- Before adding or changing NeuroSDK actions, action windows, registration/forcing/results, JSON schemas, or menu-backed visual execution, invoke the `neuro-fnv-actions` skill (`.claude/skills/neuro-fnv-actions/SKILL.md`).
 - Keep one concrete action module under `src/Actions/<scope>/`; keep menu observation/window ownership/frame-driven execution under `src/Menus/`. Do not embed raw JSON schemas: use `Actions::Json::JsonSchema` and validate incoming `ActionData` locally.
 - Required successful window-action order is validate, revalidate, locally close/unregister the window, send `action/result`, then execute. Invalid forced actions send `success: false` and remain available for Neuro's retry.
 - Action windows are client-only and visual menu execution must lock out window regeneration and Walker until actual completion. Do not infer menu-open state from retained engine singleton pointers; use top/active menu state.
 - Neuro supports only one active action force. Preserve the process-wide force ownership guard in `src/Actions/ActionWindow.cpp` when adding independently forceable systems.
 
-### Container inventory scope
+### Menu inventory scopes
 
-- `src/Menus/ContainerHandler.*` owns the five actions in `src/Actions/Container/`: `loot_item`, `query_items`, `loot_all`, `query_own_items`, and `stow_away_item`. They are registered only while ContainerMenu is the top menu, not in the Pip-Boy or barter menu. No container action force is issued.
-- Opening a container publishes at most 15 stacks, or an explicit empty message. Query `index` is a zero-based page; item-transfer `index` is one-based (page 0 lists 1–15, page 1 lists 16–30). Optional `type` defaults locally to `All`; the shared `Inventory::ItemQueryType` values are `All`, `Weapons`, `Equipment`, `Consumerable`, `WeaponMods`, `Keys`, and `Misc`.
-- Categories use engine form types, not item names: `Weapons` includes weapons and ammunition; `Equipment` includes armor and clothing; `Consumerable` includes aid items (food, drinks, chems) and ingredients; `WeaponMods` includes weapon attachments; `Keys` includes keys. Books, notes, bottles, junk, miscellaneous crafting components, currency and other remaining inventory forms fall under `Misc`. Native form classification lives in `src/Inventory/ItemClassification.cpp`; shared query parsing/schema construction lives in `src/Inventory/ItemQuery.cpp`.
-- Container and own-inventory listings are independent, last-published-page snapshots. Transfers tombstone accepted indexes rather than compacting them; only a new query for that source replaces its bindings. Stowing requires `query_own_items` first. Opening supplies the initial loot bindings; indexes outside that listing require `query_items`.
-- Transfers capture source pane, form ID, extra-data identity and stack count, then resolve against live menu rows before visual selection and activation. Ambiguous, removed, or changed stacks fail rather than substituting another item. Accepted different-index transfers run FIFO, using native quantity controls for whole stacks; queries and Take All wait until queued transfers finish.
-- Take All uses the native `CM_TakeAllButton`, not direct inventory mutation. Popup handling remains native; the executor only confirms a quantity prompt after its own item activation. Menu closure, container replacement, disconnect and load reset both snapshots and queued work. Engine UI behavior still requires manual in-game verification.
-
-### Pip-Boy inventory scope
-
-- `src/Menus/PipBoyHandler.*` owns shared Stats/Items/Data identification, native opening/closing, 350 ms step pacing and navigation lockout. Reuse `PrepareOpen(Tab)` and add future tab handlers alongside `InventoryHandler`, rather than adding their operations to the inventory executor. The Pip-Boy can report `Interface::MainFour`; use active-menu and visibility state to resolve the main tab and exclude repair/mod popups.
-- `open_inventory` is a loaded-gameplay action. `src/Menus/InventoryHandler.*` owns Items-only `query_own_items`, `equip_item`, `unequip_item`, `use_item` and `drop_item`. Shared `close_pipboy` is available on ready main tabs after accepted inventory work finishes. No inventory force is issued.
-- Pip-Boy queries reuse the container query schema, filters and 15-stack pages. Query indexes are zero-based pages; mutation indexes are one-based bindings to the last successfully published page. `src/Inventory/MenuItems.*` shares native stack reading and identity resolution with containers. The two menus keep independent snapshots; accepted item indexes are tombstoned and different indexes execute FIFO. Queries and close wait for queued work.
-- Inventory navigation, selection, activation and completion observation are separate frame steps. Equip/unequip are explicit desired states, use consumes one aid item, and drop uses native controls for the whole stack. Never confirm an unrelated quantity prompt or choose a different stack by base form alone. Closing/switching tabs, replacement, disconnect and load invalidate inventory work and bindings. Walker pauses on opening acceptance, before the native animation begins.
-- Read `docs/inventory-management.md` for evidence, extension points, native stack split/merge observation and the concrete manual in-game checklist. Compilation cannot verify native menu effects or UI-mod compatibility.
+- Container looting/stowing (`ContainerHandler`, `src/Actions/Container/`) and Pip-Boy inventory (`PipBoyHandler`, `InventoryHandler`) have detailed rules in `.claude/rules/container-inventory.md` and `.claude/rules/pipboy-inventory.md`. They load automatically when you read files under the matching `src/` paths; read them explicitly before designing changes elsewhere.
+- Shared item query/classification code lives in `src/Inventory/`; both rules apply there.
 
 ## External plugin references
 

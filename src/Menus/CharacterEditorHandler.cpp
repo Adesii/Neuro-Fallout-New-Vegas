@@ -16,7 +16,7 @@ void Reset() { g_advanceDelay.Reset(); }
 
 bool Process() {
   auto *menu = RaceSexMenu::Get();
-  if (!menu || !menu->tile) {
+  if (!menu || !menu->tile || !UIUtils::IsTopMenu(menu, Interface::RaceMenu)) {
     Reset();
     return false;
   }

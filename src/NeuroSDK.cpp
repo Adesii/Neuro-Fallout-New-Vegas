@@ -12,6 +12,9 @@
 #include "nvse/CommandTable.h"
 #include "nvse/GameObjects.h"
 #include "nvse/PluginAPI.h"
+#include <cstring>
+#include <mutex>
+#include <utility>
 
 CREATE_PLUGINSCRIPT(GetHeadingAngleBetweenPoints, float, callposx, float, callposy, float, callanglez, float, targetx,
                     float, targety);
@@ -20,59 +23,130 @@ CREATE_PLUGINSCRIPT(GetHeadingAngleAlt, float, callposx, float, callposy, float,
 
 CREATE_PLUGINSCRIPT(SetGameSpeed, float, speed);
 
-neurosdk_severity_e logSeverity = neurosdk_severity_e::NeuroSDK_Severity_Debug;
+namespace {
+
+#ifdef _DEBUG
+constexpr neurosdk_severity_e kLogSeverity = neurosdk_severity_e::NeuroSDK_Severity_Debug;
+constexpr int kContextFlags = neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_DebugPrints |
+                              neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_ValidationLayers;
+#else
+constexpr neurosdk_severity_e kLogSeverity = neurosdk_severity_e::NeuroSDK_Severity_Info;
+constexpr int kContextFlags = 0;
+#endif
+
+constexpr auto kReconnectDelay = std::chrono::seconds(10);
 
 char DEFAULT_EMPTY[] = "";
 
-bool NeuroSDK::Initialize() {
-  // Initialize the NeuroSDK context
-  neurosdk_context_create_desc desc = {
-      .url = NULL,
-      .game_name = "Fallout: New Vegas",
-      .poll_ms = 1, // This is blocking for somereason.. resulting in low fps. TODO: Figure out how to not have it block
-      .flags =
-          (neurosdk_context_create_flags_e)(neurosdk_context_create_flags_e::NeuroSDK_ContextCreateFlags_DebugPrints |
-                                            neurosdk_context_create_flags_e::
-                                                NeuroSDK_ContextCreateFlags_ValidationLayers),
-      .callback_log =
-          [](neurosdk_severity_e severity, char *message, void *user_data) {
-            if (severity >= logSeverity) {
-              if (severity == NeuroSDK_Severity_Error) {
-                _ERROR("[NeuroSDK] %s", message);
-              } else if (severity == NeuroSDK_Severity_Warn) {
-                _WARNING("[NeuroSDK] %s", message);
-              } else if (severity == NeuroSDK_Severity_Info) {
-                _MESSAGE("[NeuroSDK] %s", message);
-              } else if (severity == NeuroSDK_Severity_Debug) {
-                _DMESSAGE("[NeuroSDK] %s", message);
-              }
-            }
-          },
-      // #ifdef DEBUG
-      // #endif
-  };
-  neurosdk_error_e err;
-  if ((err = neurosdk_context_create(&ctx, &desc)) != NeuroSDK_None) {
-    _MESSAGE("Failed to create NeuroSDK context: %d", err);
-    return false;
-  }
+DWORD g_mainThreadId = 0;
+std::mutex g_deferredLogMutex;
+std::vector<std::pair<neurosdk_severity_e, std::string>> g_deferredLogs;
 
-  isConnected = true;
-  if (neurosdk_context_connected(&ctx))
-    connectionReady = StartupMessage();
+void EmitLog(neurosdk_severity_e severity, const char *message) {
+  if (severity == NeuroSDK_Severity_Error) {
+    _ERROR("[NeuroSDK] %s", message);
+  } else if (severity == NeuroSDK_Severity_Warn) {
+    _WARNING("[NeuroSDK] %s", message);
+  } else if (severity == NeuroSDK_Severity_Info) {
+    _MESSAGE("[NeuroSDK] %s", message);
+  } else if (severity == NeuroSDK_Severity_Debug) {
+    _DMESSAGE("[NeuroSDK] %s", message);
+  }
+}
+
+// libneurosdk logs from whichever thread called it; the game log is only written from the game thread.
+void LogCallback(neurosdk_severity_e severity, char *message, void *) {
+  if (!message || severity < kLogSeverity)
+    return;
+  // Emitted once per frame by libneurosdk's poll; it drowns every other line.
+  if (std::strstr(message, "Polling context for new messages"))
+    return;
+  if (GetCurrentThreadId() == g_mainThreadId) {
+    EmitLog(severity, message);
+    return;
+  }
+  std::lock_guard lock(g_deferredLogMutex);
+  g_deferredLogs.emplace_back(severity, message);
+}
+
+void FlushDeferredLogs() {
+  std::vector<std::pair<neurosdk_severity_e, std::string>> logs;
+  {
+    std::lock_guard lock(g_deferredLogMutex);
+    logs.swap(g_deferredLogs);
+  }
+  for (const auto &[severity, message] : logs)
+    EmitLog(severity, message.c_str());
+}
+
+} // namespace
+
+bool NeuroSDK::Initialize() {
+  g_mainThreadId = GetCurrentThreadId();
+  BeginConnect();
   return true;
 }
 
-void NeuroSDK::MainLoop() {
-  if (!isConnected)
+void NeuroSDK::BeginConnect() {
+  pendingConnect = std::async(std::launch::async, []() {
+    neurosdk_context_create_desc desc = {
+        .url = NULL,
+        .game_name = "Fallout: New Vegas",
+        .poll_ms = 0, // Non-blocking: every poll and send would otherwise stall the frame.
+        .flags = static_cast<neurosdk_context_create_flags_e>(kContextFlags),
+        .callback_log = LogCallback,
+    };
+    ConnectResult result;
+    result.error = neurosdk_context_create(&result.context, &desc);
+    return result;
+  });
+}
+
+void NeuroSDK::UpdateConnection() {
+  if (pendingConnect.valid()) {
+    if (pendingConnect.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+      return;
+    auto result = pendingConnect.get();
+    FlushDeferredLogs();
+    if (result.error != NeuroSDK_None || !result.context) {
+      if (!connectFailureLogged)
+        _WARNING("Could not connect to NeuroSDK (%s); retrying every %lld s", neurosdk_error_string(result.error),
+                 static_cast<long long>(kReconnectDelay.count()));
+      connectFailureLogged = true;
+      nextConnectAttempt = std::chrono::steady_clock::now() + kReconnectDelay;
+      return;
+    }
+    connectFailureLogged = false;
+    ctx = result.context;
+    connectionReady = false;
     return;
+  }
+  if (std::chrono::steady_clock::now() >= nextConnectAttempt)
+    BeginConnect();
+}
+
+void NeuroSDK::DropContext() {
+  if (ctx)
+    neurosdk_context_destroy(&ctx);
+  ctx = {};
+  nextConnectAttempt = std::chrono::steady_clock::now() + kReconnectDelay;
+}
+
+void NeuroSDK::MainLoop() {
+  FlushDeferredLogs();
+  if (!ctx) {
+    UpdateConnection();
+    return;
+  }
 
   if (!neurosdk_context_connected(&ctx)) {
+    // libneurosdk never reconnects a closed socket; a fresh context is the only way back.
     if (connectionReady) {
       connectionReady = false;
-      ResetAutomation();
-      _WARNING("NeuroSDK disconnected; local automation state was reset");
+      ResetAutomation(true);
     }
+    _WARNING("NeuroSDK disconnected; local automation state was reset and a reconnect will be attempted");
+    DropContext();
     return;
   }
 
@@ -85,7 +159,8 @@ void NeuroSDK::MainLoop() {
 
   if (!PollMessages()) {
     connectionReady = false;
-    ResetAutomation();
+    ResetAutomation(true);
+    DropContext();
     return;
   }
 
@@ -101,10 +176,12 @@ void NeuroSDK::MainLoop() {
     Walker::Process();
 }
 
-void NeuroSDK::ResetAutomation() {
+void NeuroSDK::ResetAutomation(bool connectionLost) {
   MenuHandler::Reset();
   GameplayHandler::Reset();
   Actions::ActionRegistry::Get().Reset();
+  if (connectionLost)
+    Actions::ActionRegistry::Get().DropPendingResults();
   actionInbox.clear();
   Walker::Stop();
 }
@@ -235,7 +312,7 @@ bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::
 }
 
 bool NeuroSDK::SendSDKMessage(neurosdk_message_t &message) {
-  if (!isConnected || !neurosdk_context_connected(&ctx))
+  if (!ctx || !neurosdk_context_connected(&ctx))
     return false;
   const auto error = neurosdk_context_send(&ctx, &message);
   if (error != NeuroSDK_None) {
@@ -281,10 +358,15 @@ std::vector<Actions::Request> NeuroSDK::TakeActionInbox() {
 std::string NeuroSDK::GetCharacterDisplayName() {
   auto &sdk = NeuroSDK::GetSingleton();
   auto name = neurosdk_context_character_display_name(&sdk.ctx);
+  static bool warned = false;
   if (!name) {
-    _WARNING("Failed to get character display name from NeuroSDK.");
+    // Callers poll this every frame while a prompt is open.
+    if (!warned)
+      _WARNING("Failed to get character display name from NeuroSDK.");
+    warned = true;
     return "";
   }
+  warned = false;
   return std::string(name);
 }
 
@@ -295,7 +377,7 @@ bool Cmd_NSendContext_Execute(COMMAND_ARGS) {
   char message[2048] = {};
   BOOL silent = FALSE;
   ExtractArgsEx(EXTRACT_ARGS_EX, &message, &silent);
-  NeuroSDK *neurosdk = &NeuroSDK::GetSingleton();
+  NeuroSDK *neurosdk = NeuroSDK::GetSingletonPtr();
   if (!neurosdk) {
     _WARNING("NeuroSDK singleton is not initialized. Cannot send context message.");
     return false;

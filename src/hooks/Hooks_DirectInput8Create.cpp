@@ -1,6 +1,7 @@
 #include "Hooks_DirectInput8Create.h"
 #include "SafeWrite/SafeWrite.hpp"
-#include <queue>
+#include <algorithm>
+#include <deque>
 
 static const GUID GUID_SysMouse = {0x6F1D2B60, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
 static const GUID GUID_SysKeyboard = {0x6F1D2B61, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
@@ -11,10 +12,8 @@ DIHookControl g_diHookData;
 FramerateTracker g_framerateTracker;
 static CreateDInputProc DICreate_RealFunc;
 
-// don't allow modification of these keys
-static bool ShouldIgnoreKey(DWORD code) {
-  return false; // whatever, mods can be malicious in easier ways
-}
+// Keys that must never be filtered or injected. Currently none: every key may be held, tapped or disabled.
+static bool ShouldIgnoreKey(DWORD code) { return false; }
 
 class FakeDirectInputDevice : public IDirectInputDevice8 {
 public:
@@ -321,11 +320,11 @@ void DIHookControl::BufferedKeyTap(UINT32 key) {
   data.dwData = 0x80;
 
   // key down
-  m_bufferedPresses.push(data);
+  m_bufferedPresses.push_back(data);
 
   // key up
   data.dwData = 0x00;
-  m_bufferedPresses.push(data);
+  m_bufferedPresses.push_back(data);
 }
 
 void DIHookControl::BufferedKeyPress(UINT32 key) {
@@ -337,7 +336,7 @@ void DIHookControl::BufferedKeyPress(UINT32 key) {
   data.dwOfs = key;
   data.dwData = 0x80;
 
-  m_bufferedPresses.push(data);
+  m_bufferedPresses.push_back(data);
 }
 
 void DIHookControl::BufferedKeyRelease(UINT32 key) {
@@ -349,7 +348,7 @@ void DIHookControl::BufferedKeyRelease(UINT32 key) {
   data.dwOfs = key;
   data.dwData = 0x00;
 
-  m_bufferedPresses.push(data);
+  m_bufferedPresses.push_back(data);
 }
 
 void DIHookControl::ProcessKeyboardData(UINT8 *data) {
@@ -400,45 +399,33 @@ HRESULT DIHookControl::ProcessBufferedData(IDirectInputDevice8 *device, DWORD da
   if (m_bufferedPresses.empty())
     return device->GetDeviceData(dataSize, outData, outDataLen, flags);
 
-  UINT32 eventsRequested = *outDataLen;
+  const DWORD eventsRequested = *outDataLen;
 
-  // pass down to the device
-  UINT32 numRealEvents = eventsRequested;
-  HRESULT hr = device->GetDeviceData(dataSize, outData, (LPDWORD)numRealEvents, flags);
+  // pass down to the device; it reports how many real events it produced through numRealEvents
+  DWORD numRealEvents = eventsRequested;
+  HRESULT hr = device->GetDeviceData(dataSize, outData, &numRealEvents, flags);
   if ((hr != DI_OK) && (hr != DI_BUFFEROVERFLOW)) {
     *outDataLen = numRealEvents;
     return hr;
   }
 
-  // move pointer down and update count
-  DIDEVICEOBJECTDATA *virtualOutData = (DIDEVICEOBJECTDATA *)(((UINT8 *)outData) + (dataSize * numRealEvents));
-  UINT32 virtualEventsRequested = eventsRequested - numRealEvents;
+  // injected events fill the space the real events left; a null buffer only counts or discards events
+  const DWORD virtualEventsRequested = eventsRequested - (std::min)(numRealEvents, eventsRequested);
+  DIDEVICEOBJECTDATA *virtualOutData = outData ? outData + numRealEvents : nullptr;
 
-  UINT32 numVirtualEvents = 0;
-
+  DWORD numVirtualEvents = 0;
   if (flags & DIGDD_PEEK) {
-    if (outData) {
-      // todo: switch from queue to list so we can handle this
-      HALT("DIHookControl::ProcessBufferedData: can't handle non-NULL data in peek mode");
-    } else {
-      UINT32 virtualEventsAvail = m_bufferedPresses.size();
-
-      if (virtualEventsAvail > virtualEventsRequested)
-        numVirtualEvents = virtualEventsRequested;
-      else
-        numVirtualEvents = virtualEventsAvail;
+    // peeking reports the events without consuming them
+    numVirtualEvents = (std::min)(static_cast<DWORD>(m_bufferedPresses.size()), virtualEventsRequested);
+    if (virtualOutData) {
+      for (DWORD i = 0; i < numVirtualEvents; i++)
+        virtualOutData[i] = m_bufferedPresses[i];
     }
   } else {
-    for (UINT32 i = 0; i < virtualEventsRequested; i++) {
-      if (m_bufferedPresses.empty())
-        break;
-
-      if (outData) {
-        *virtualOutData = m_bufferedPresses.front();
-        virtualOutData = (DIDEVICEOBJECTDATA *)(((UINT8 *)outData) + dataSize);
-      }
-
-      m_bufferedPresses.pop();
+    while (numVirtualEvents < virtualEventsRequested && !m_bufferedPresses.empty()) {
+      if (virtualOutData)
+        virtualOutData[numVirtualEvents] = m_bufferedPresses.front();
+      m_bufferedPresses.pop_front();
       numVirtualEvents++;
     }
   }

@@ -15,8 +15,10 @@
 #include "common.hpp"
 #include "decoding.h"
 #include "nvse/GameForms.h"
+#include "utils/WorldUtils.hpp"
 #include "utils/math.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -29,15 +31,26 @@
 namespace GameplayHandler {
 namespace {
 
+using WorldUtils::Distance3D;
+using WorldUtils::LookupReference;
+
 constexpr float kNearbyRadius = 2500.0f;
 constexpr float kExploreRadius = 5000.0f;
 constexpr float kExploreMinimumDistance = 300.0f;
 constexpr size_t kNearbyLimit = 30;
 constexpr size_t kRecentExplorationLimit = 8;
 constexpr float kQuestResolveTimeout = 10.0f;
+constexpr auto kQuestObservationInterval = std::chrono::milliseconds(500);
+
+// TESQuest::flags bits and the BGSQuestObjective::status display mask.
+constexpr uint8_t kQuestFlagCompleted = 0x02;
+constexpr uint8_t kQuestFlagFailed = 0x40;
+constexpr uint8_t kQuestFlagFinished = kQuestFlagCompleted | kQuestFlagFailed;
+constexpr uint32_t kObjectiveDisplayMask = 3;
 
 struct QuestEntry : QuestSelection {
   int id = 0;
+  int priority = 0;
   float distance = 0.0f;
   bool sameTravelSpace = false;
 };
@@ -67,6 +80,7 @@ float g_questResolveTime = 0.0f;
 std::vector<uint32_t> g_recentExploration;
 uint32_t g_randomState = 0x6D2B79F5;
 bool g_observationInitialized = false;
+std::chrono::steady_clock::time_point g_nextQuestObservation{};
 std::unordered_map<uint64_t, ObjectiveObservation> g_objectiveObservations;
 std::unordered_map<uint32_t, uint8_t> g_questFlags;
 
@@ -82,14 +96,6 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Gameplay::ExploreAction>())
       .Add(std::make_unique<Actions::PipBoy::OpenInventoryAction>());
   g_actionsBuilt = true;
-}
-
-TESObjectREFR *LookupReference(uint32_t formId) {
-  auto *form = TESForm::GetFormByNumericID(formId);
-  if (!form || !form->IsReference())
-    return nullptr;
-  auto *ref = static_cast<TESObjectREFR *>(form);
-  return ref->GetDeleted() || ref->GetDisabled() ? nullptr : ref;
 }
 
 TESQuest *LookupQuest(uint32_t formId) {
@@ -226,13 +232,6 @@ std::string CategoryFor(TESObjectREFR *ref) {
   }
 }
 
-float Distance3D(const NiPoint3 &left, const NiPoint3 &right) {
-  const float x = left.x - right.x;
-  const float y = left.y - right.y;
-  const float z = left.z - right.z;
-  return std::sqrt(x * x + y * y + z * z);
-}
-
 std::vector<ObjectEntry> ScanObjects(float radius) {
   std::vector<ObjectEntry> objects;
   auto *player = PlayerCharacter::GetSingleton();
@@ -295,8 +294,9 @@ void BuildQuestCatalog() {
 
   for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
     auto *objective = objectiveIter.Get();
-    if (!objective || !objective->quest || (objective->status & 3) != BGSQuestObjective::eQObjStatus_displayed ||
-        (objective->quest->flags & (2 | 0x40)))
+    if (!objective || !objective->quest ||
+        (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed ||
+        (objective->quest->flags & kQuestFlagFinished))
       continue;
     const std::string description = QuestName(objective->quest) + ": " + ObjectiveText(objective);
     for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
@@ -311,18 +311,15 @@ void BuildQuestCatalog() {
       g_quests.push_back(
           {{objective->quest->GetFormID(), objective->objectiveId, target->target->GetFormID(), description},
            0,
+           objective->quest->priority,
            distance,
            sameSpace});
     }
   }
 
   std::sort(g_quests.begin(), g_quests.end(), [](const QuestEntry &left, const QuestEntry &right) {
-    auto *leftQuest = LookupQuest(left.questFormId);
-    auto *rightQuest = LookupQuest(right.questFormId);
-    const int leftPriority = leftQuest ? leftQuest->priority : 0;
-    const int rightPriority = rightQuest ? rightQuest->priority : 0;
-    if (leftPriority != rightPriority)
-      return leftPriority > rightPriority;
+    if (left.priority != right.priority)
+      return left.priority > right.priority;
     if (left.questFormId != right.questFormId)
       return left.questFormId < right.questFormId;
     if (left.objectiveId != right.objectiveId)
@@ -384,7 +381,7 @@ void ObserveQuests() {
       continue;
     auto previous = g_objectiveObservations.find(key);
     if (previous == g_objectiveObservations.end()) {
-      if ((observation.status & 3) == BGSQuestObjective::eQObjStatus_displayed)
+      if ((observation.status & kObjectiveDisplayMask) == BGSQuestObjective::eQObjStatus_displayed)
         notifications.push_back("New quest objective: " + observation.description);
     } else if (!(previous->second.status & BGSQuestObjective::eQObjStatus_completed) &&
                (observation.status & BGSQuestObjective::eQObjStatus_completed)) {
@@ -396,9 +393,9 @@ void ObserveQuests() {
     for (const auto &[questId, flags] : currentQuestFlags) {
       const uint8_t previous = g_questFlags.contains(questId) ? g_questFlags[questId] : flags;
       auto *quest = LookupQuest(questId);
-      if (!(previous & 2) && (flags & 2))
+      if (!(previous & kQuestFlagCompleted) && (flags & kQuestFlagCompleted))
         notifications.push_back("Quest completed: " + QuestName(quest));
-      if (!(previous & 0x40) && (flags & 0x40))
+      if (!(previous & kQuestFlagFailed) && (flags & kQuestFlagFailed))
         notifications.push_back("Quest failed: " + QuestName(quest));
     }
   }
@@ -449,8 +446,8 @@ void ContinueCurrentQuest() {
     return;
   }
   auto *objective = FindObjective(g_currentQuestRoute->questFormId, g_currentQuestRoute->objectiveId);
-  if (!objective || (quest->flags & (2 | 0x40)) ||
-      (objective->status & 3) != BGSQuestObjective::eQObjStatus_displayed) {
+  if (!objective || (quest->flags & kQuestFlagFinished) ||
+      (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed) {
     ClearCurrentQuestRoute();
     return;
   }
@@ -502,7 +499,12 @@ void Process(bool gameplayBlocked) {
   ProcessWalkerEvents();
   if (gameplayBlocked)
     return;
-  ObserveQuests();
+  // Quest state is compared against the previous snapshot, so a sparse sample loses no transitions.
+  const auto now = std::chrono::steady_clock::now();
+  if (now >= g_nextQuestObservation) {
+    ObserveQuests();
+    g_nextQuestObservation = now + kQuestObservationInterval;
+  }
   ContinueCurrentQuest();
 }
 
@@ -542,6 +544,7 @@ void Reset() {
   g_objectiveObservations.clear();
   g_questFlags.clear();
   g_observationInitialized = false;
+  g_nextQuestObservation = {};
 }
 
 void QueryQuests() {
@@ -580,9 +583,9 @@ bool RevalidateQuestSelection(const QuestSelection &selection, std::string &erro
   auto *objective = FindObjective(selection.questFormId, selection.objectiveId);
   auto *target = LookupReference(selection.targetFormId);
   auto *quest = LookupQuest(selection.questFormId);
-  if (!quest || (quest->flags & (2 | 0x40)) || !objective || !target ||
+  if (!quest || (quest->flags & kQuestFlagFinished) || !objective || !target ||
       !FindObjectiveTarget(objective, selection.targetFormId) ||
-      (objective->status & 3) != BGSQuestObjective::eQObjStatus_displayed) {
+      (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed) {
     error = "That quest target is no longer active. Run query_quests again.";
     return false;
   }
@@ -610,7 +613,7 @@ bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
     error = "No quest is currently selected. Use query_quests and select_quest first.";
     return false;
   }
-  if (quest->flags & (2 | 0x40)) {
+  if (quest->flags & kQuestFlagFinished) {
     error = "The currently selected quest is already completed or failed.";
     return false;
   }
@@ -618,7 +621,8 @@ bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
   bool hasActiveObjective = false;
   for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
     auto *objective = objectiveIter.Get();
-    if (!objective || objective->quest != quest || (objective->status & 3) != BGSQuestObjective::eQObjStatus_displayed)
+    if (!objective || objective->quest != quest ||
+        (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed)
       continue;
     hasActiveObjective = true;
     for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {

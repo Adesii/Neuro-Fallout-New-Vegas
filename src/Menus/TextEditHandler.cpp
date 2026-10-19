@@ -30,7 +30,8 @@ void Reset() {
 
 bool Process() {
   auto *menu = TextEditMenu::Get();
-  if (!menu || !menu->tile || !menu->currTextTile || !menu->isActive) {
+  if (!menu || !menu->tile || !menu->currTextTile || !menu->isActive ||
+      !UIUtils::IsTopMenu(menu, Interface::TextEdit)) {
     Reset();
     return false;
   }

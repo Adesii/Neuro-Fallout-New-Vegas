@@ -13,3 +13,6 @@ build
 /.private-menu*.zip
 /.menu-archive*.zip
 /menu-archive*.zip
+
+# Claude Code per-user settings.
+/.claude/settings.local.json

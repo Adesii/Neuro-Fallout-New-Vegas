@@ -1,7 +1,6 @@
 ---
 name: neuro-fnv-actions
 description: Use when changing NeuroSDK context, actions, action registration/forcing/results, JSON schemas, menu automation, or frame-driven visual action execution in neuro-FNV.
-compatibility: OpenCode project skill for the neuro-FNV 32-bit xNVSE plugin
 metadata:
   project: neuro-FNV
   domain: actions-and-menu-automation

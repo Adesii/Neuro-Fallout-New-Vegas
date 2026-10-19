@@ -6,19 +6,6 @@
 #include <utility>
 
 namespace Actions {
-namespace {
-
-bool IsValidActionName(const std::string &name) {
-  if (name.empty() || name.front() == '_' || name.back() == '_')
-    return false;
-  for (char character : name) {
-    if ((character < 'a' || character > 'z') && character != '_')
-      return false;
-  }
-  return true;
-}
-
-} // namespace
 
 PersistentActionSet &PersistentActionSet::Add(std::unique_ptr<IAction> action) {
   if (m_state == State::Unregistered && action)

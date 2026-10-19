@@ -7,6 +7,17 @@
 
 namespace Actions {
 
+// Project action names: lowercase letters and underscores, no leading/trailing underscore.
+inline bool IsValidActionName(const std::string &name) {
+  if (name.empty() || name.front() == '_' || name.back() == '_')
+    return false;
+  for (char character : name) {
+    if ((character < 'a' || character > 'z') && character != '_')
+      return false;
+  }
+  return true;
+}
+
 struct Definition {
   std::string name;
   std::string description;

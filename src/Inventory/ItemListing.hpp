@@ -49,8 +49,11 @@ public:
   }
 
   void Consume(int index) {
-    if (auto *item = const_cast<ListedItem *>(Find(index)))
-      item->consumed = true;
+    if (!m_available || index < 1 || static_cast<size_t>(index) < m_firstIndex)
+      return;
+    const size_t offset = static_cast<size_t>(index) - m_firstIndex;
+    if (offset < m_items.size())
+      m_items[offset].consumed = true;
   }
 
   bool Available() const { return m_available; }

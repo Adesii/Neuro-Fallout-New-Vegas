@@ -10,6 +10,7 @@
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "defs/CharGenMenu.hpp"
+#include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
 #include <algorithm>
 #include <chrono>
@@ -55,7 +56,12 @@ struct ExecutionState {
   bool finishing = false;
 };
 
+constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
+
 std::unique_ptr<Actions::ActionWindow> g_window;
+// A registration that fails persistently must not be retried (and logged) every frame.
+ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
+std::string g_publishedSignature;
 std::unique_ptr<ExecutionState> g_execution;
 
 Menu *AsMenu(MenuData *menu) { return reinterpret_cast<Menu *>(menu); }
@@ -409,9 +415,11 @@ bool IsExecuting() { return g_execution != nullptr; }
 
 void Reset() {
   if (g_window) {
-    g_window->Abandon();
+    g_window->Release();
     g_window.reset();
   }
+  g_registerRetry.Reset();
+  g_publishedSignature.clear();
   g_execution.reset();
 }
 
@@ -445,11 +453,10 @@ bool Process(bool unobstructed) {
     return true;
   }
   const std::string signature = BuildSignature(menu, options);
-  static std::string publishedSignature;
-  if (g_window && signature == publishedSignature)
+  if (g_window && signature == g_publishedSignature)
     return true;
   CloseWindow();
-  if (g_window)
+  if (g_window || !g_registerRetry.Ready())
     return true;
 
   const auto describedOptions = GetOptions(menu, true);
@@ -467,11 +474,12 @@ bool Process(bool unobstructed) {
     g_window->Add(std::make_unique<Actions::Menu::DoneCharGenMenuAction>());
   g_window->SetForce(query, state, NeuroSDK::ActionPriority::Medium);
   if (!g_window->Register()) {
+    g_registerRetry.Fail();
     if (g_window->GetState() != Actions::ActionWindow::State::Closing)
       g_window.reset();
     return true;
   }
-  publishedSignature = signature;
+  g_publishedSignature = signature;
   _MESSAGE("Opened tag-skill action window with %zu skill(s)", options.size());
   return true;
 }

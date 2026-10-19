@@ -3,7 +3,7 @@
 #include "ISingleton.h"
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
-#include <queue>
+#include <deque>
 
 void Hook_DirectInput8Create_Init();
 
@@ -76,7 +76,7 @@ private:
 
   KeyInfo m_keys[kMaxMacros];
 
-  typedef std::queue<DIDEVICEOBJECTDATA> BufferedPressQueue;
+  typedef std::deque<DIDEVICEOBJECTDATA> BufferedPressQueue;
   BufferedPressQueue m_bufferedPresses;
 };
 

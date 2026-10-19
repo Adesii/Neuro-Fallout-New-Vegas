@@ -38,7 +38,8 @@ void Flush(ScopedState::Clock::time_point now) {
   for (const auto &subtitle : g_pending)
     message += "\n- \"" + subtitle.text + "\"";
 
-  if (NeuroSDK::SendContext(message.c_str())) {
+  // Overheard subtitles are background knowledge; dialog lines the player takes part in come from DialogHandler.
+  if (NeuroSDK::SendContext(message.c_str(), true)) {
     g_pending.clear();
     g_flushScheduled = false;
   } else {

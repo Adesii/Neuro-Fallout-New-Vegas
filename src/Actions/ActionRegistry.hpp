@@ -19,6 +19,8 @@ public:
   void Unbind(ActionWindow &window);
   void Dispatch(std::vector<Request> requests);
   void Reset();
+  // Results owed for request ids of a dead connection can never be delivered usefully.
+  void DropPendingResults();
   bool HasPendingResult(const std::string &actionName) const;
 
 private:
