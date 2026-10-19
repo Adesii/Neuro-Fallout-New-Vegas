@@ -7,7 +7,7 @@
 namespace Walker {
 
 enum class Intent { Move, Interact };
-enum class Owner { None, Quest, Object, Exploration };
+enum class Owner { None, Quest, Object, Exploration, Combat };
 enum class EventType { Completed, Failed, Started };
 
 struct Event {
@@ -25,6 +25,8 @@ void Stop();
 bool IsActive();
 Owner GetOwner();
 uint32_t GetTargetFormId();
+// While set, Walker keeps moving the player but leaves yaw and pitch alone (combat owns the aim).
+void SetLookSuppressed(bool suppressed);
 std::vector<Event> TakeEvents();
 
 } // namespace Walker

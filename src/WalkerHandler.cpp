@@ -11,6 +11,7 @@
 #include "itr/PathingCommands.h"
 #include "nvse/GameForms.h"
 #include "nvse/GameUI.h"
+#include "utils/AimUtils.hpp"
 #include "utils/WorldUtils.hpp"
 #include "utils/math.h"
 #include <algorithm>
@@ -41,7 +42,6 @@ constexpr float kWaypointReachedDistance = 60.0f;
 constexpr float kDestinationMoveTolerance = 50.0f;
 constexpr float kCloseLookDistance = 400.0f;
 constexpr float kLookAlignmentTolerance = 0.12f;
-constexpr float kPlayerEyeHeight = 100.0f;
 constexpr int kMaxRecoveryAttempts = 3;
 constexpr float kLookTargetResponse = 4.0f;
 constexpr float kMaxTurnRate = 3.0f;
@@ -92,6 +92,11 @@ struct WalkerState {
 
 WalkerState g_state;
 std::vector<Event> g_events;
+bool g_lookSuppressed = false;
+
+using AimUtils::EffectiveYaw;
+using AimUtils::SetPitch;
+using AimUtils::SetYaw;
 void ResetDistanceOscillation() {
   g_state.lastTargetDistance = 0.0f;
   g_state.oscillationWindowTime = 0.0f;
@@ -130,43 +135,6 @@ bool IsInteractable(TESObjectREFR *ref) {
   default:
     return false;
   }
-}
-
-// FNV's clamped pitch, effective yaw, and camera rotation path. Proven by
-// FalloutNVAccess/src/AimUtil.cpp (MIT; notice preserved in src/defs/FalloutNVAccess-license.md).
-using SetPitchWithClamp = void(__thiscall *)(Actor *, float);
-using AddDeltaYaw = void(__thiscall *)(Actor *, float);
-using GetEffectiveYaw = float(__thiscall *)(PlayerCharacter *, int);
-const auto kSetPitchWithClamp = reinterpret_cast<SetPitchWithClamp>(0x931D90);
-const auto kAddDeltaYaw = reinterpret_cast<AddDeltaYaw>(0x931D30);
-const auto kGetEffectiveYaw = reinterpret_cast<GetEffectiveYaw>(0x953F20);
-auto *const kCameraPitch = reinterpret_cast<float *>(0x11E0764);
-auto *const kCameraYaw = reinterpret_cast<float *>(0x11E076C);
-
-void SetPitch(PlayerCharacter *player, float pitch) {
-  if (!player)
-    return;
-  pitch = std::clamp(pitch, -1.5533f, 1.5533f);
-  kSetPitchWithClamp(player, pitch);
-  player->rot.x = pitch;
-  *kCameraPitch = pitch;
-}
-
-float EffectiveYaw(PlayerCharacter *player) { return kGetEffectiveYaw(player, 0); }
-
-void SetYaw(PlayerCharacter *player, float yaw) {
-  while (yaw > static_cast<float>(Math::PI))
-    yaw -= static_cast<float>(Math::PI * 2.0);
-  while (yaw < -static_cast<float>(Math::PI))
-    yaw += static_cast<float>(Math::PI * 2.0);
-  float delta = yaw - EffectiveYaw(player);
-  while (delta > static_cast<float>(Math::PI))
-    delta -= static_cast<float>(Math::PI * 2.0);
-  while (delta < -static_cast<float>(Math::PI))
-    delta += static_cast<float>(Math::PI * 2.0);
-  kAddDeltaYaw(player, delta);
-  player->rot.z = yaw;
-  *kCameraYaw = yaw;
 }
 
 float GetFrameTime() {
@@ -439,11 +407,11 @@ float UpdatePitch(PlayerCharacter *player, TESObjectREFR *target, bool closeToTa
   if (closeToTarget) {
     const float x = target->pos.x - player->pos.x;
     const float y = target->pos.y - player->pos.y;
-    const float z = target->pos.z + GetTargetAimHeight(target) - (player->pos.z + kPlayerEyeHeight);
+    const float z = target->pos.z + GetTargetAimHeight(target) - (player->pos.z + AimUtils::kEyeHeight);
     desiredPitch = -std::atan2(z, std::sqrt(x * x + y * y));
   }
   const float alpha = 1.0f - std::exp(-kLookTargetResponse * deltaTime);
-  const float pitch = *kCameraPitch + (desiredPitch - *kCameraPitch) * alpha;
+  const float pitch = AimUtils::CameraPitch() + (desiredPitch - AimUtils::CameraPitch()) * alpha;
   SetPitch(player, pitch);
   return std::abs(desiredPitch - pitch);
 }
@@ -535,6 +503,7 @@ bool Start(uint32_t targetFormId, Intent intent, Owner owner, std::string descri
   g_state.hasCommand = true;
   const char *activity = owner == Owner::Exploration  ? "Exploring toward "
                          : owner == Owner::Quest      ? "Following "
+                         : owner == Owner::Combat     ? "Closing in on "
                          : intent == Intent::Interact ? "Moving to interact with "
                                                       : "Moving to ";
   g_events.push_back(
@@ -589,10 +558,13 @@ void Process() {
     if (cell && Pathing::GetPointNavMesh(cell, g_state.waypointMarker->GetPos(), false, 0.0f, closest))
       movementPoint = {closest.x, closest.y, closest.z};
   }
-  const NiPoint3 lookTarget = shouldMove ? UpdateSmoothedLookTarget(movementPoint, deltaTime) : target->GetPos();
-  UpdateLook(player, lookTarget, deltaTime);
-  const bool closeToTarget = distance < kCloseLookDistance;
-  const float pitchError = UpdatePitch(player, target, closeToTarget, deltaTime);
+  float pitchError = 0.0f;
+  if (!g_lookSuppressed) {
+    const NiPoint3 lookTarget = shouldMove ? UpdateSmoothedLookTarget(movementPoint, deltaTime) : target->GetPos();
+    UpdateLook(player, lookTarget, deltaTime);
+    const bool closeToTarget = distance < kCloseLookDistance;
+    pitchError = UpdatePitch(player, target, closeToTarget, deltaTime);
+  }
   const float headingError = Math::GetHeadingBetweenPoints(
       player->pos.x, player->pos.y, Math::ToDegrees(EffectiveYaw(player)), target->pos.x, target->pos.y);
   const bool aligned = std::abs(headingError) <= kLookAlignmentTolerance && pitchError <= kLookAlignmentTolerance;
@@ -616,6 +588,8 @@ bool IsActive() { return g_state.hasCommand; }
 Owner GetOwner() { return g_state.hasCommand ? g_state.command.owner : Owner::None; }
 
 uint32_t GetTargetFormId() { return g_state.hasCommand ? g_state.command.targetFormId : 0; }
+
+void SetLookSuppressed(bool suppressed) { g_lookSuppressed = suppressed; }
 
 std::vector<Event> TakeEvents() {
   std::vector<Event> events;

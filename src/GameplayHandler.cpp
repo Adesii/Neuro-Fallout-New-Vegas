@@ -24,7 +24,6 @@
 #include <optional>
 #include <sstream>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -237,46 +236,21 @@ std::vector<ObjectEntry> ScanObjects(float radius) {
   auto *player = PlayerCharacter::GetSingleton();
   if (!player)
     return objects;
-  auto *tes = TES::GetSingleton();
-  if (!tes)
-    return objects;
 
-  std::unordered_set<uint32_t> seen;
-  auto scanCell = [&](TESObjectCELL *cell) {
-    if (!cell)
+  WorldUtils::ForEachLoadedReference([&](TESObjectREFR *ref, TESObjectCELL *cell) {
+    if (ref == player)
       return;
-    for (auto *node = cell->objectList.GetHead(); node; node = node->GetNext()) {
-      auto *ref = node->GetItem();
-      if (!ref || ref == player || ref->GetDeleted() || ref->GetDisabled() || !ref->baseForm ||
-          !seen.insert(ref->GetFormID()).second)
-        continue;
-      const char *name = ref->GetFullName();
-      if (!name || !name[0])
-        continue;
-      std::string category = CategoryFor(ref);
-      if (category.empty())
-        continue;
-      const float distance = Distance3D(player->GetPos(), ref->GetPos());
-      if (!std::isfinite(distance) || distance > radius)
-        continue;
-      objects.push_back({{ref->GetFormID(), cell->GetFormID(), name}, 0, distance, std::move(category)});
-    }
-  };
-
-  if (tes->currentInterior) {
-    scanCell(tes->currentInterior);
-  } else if (tes->gridCellArray && tes->gridCellArray->pGridCells) {
-    const int dimension = tes->gridCellArray->iDimension;
-    for (int y = 0; y < dimension; ++y) {
-      for (int x = 0; x < dimension; ++x) {
-        auto *gridCell = tes->gridCellArray->GetCell(x, y);
-        if (gridCell)
-          scanCell(gridCell->pCell);
-      }
-    }
-  } else {
-    scanCell(player->GetParentCell());
-  }
+    const char *name = ref->GetFullName();
+    if (!name || !name[0])
+      return;
+    std::string category = CategoryFor(ref);
+    if (category.empty())
+      return;
+    const float distance = Distance3D(player->GetPos(), ref->GetPos());
+    if (!std::isfinite(distance) || distance > radius)
+      return;
+    objects.push_back({{ref->GetFormID(), cell->GetFormID(), name}, 0, distance, std::move(category)});
+  });
 
   std::sort(objects.begin(), objects.end(), [](const ObjectEntry &left, const ObjectEntry &right) {
     if (left.distance != right.distance)
@@ -420,6 +394,9 @@ void ClearCurrentQuestRoute() {
 
 void ProcessWalkerEvents() {
   for (auto &event : Walker::TakeEvents()) {
+    // CombatHandler closes in on melee targets constantly; only a failed approach is worth telling Neuro about.
+    if (event.owner == Walker::Owner::Combat && event.type != Walker::EventType::Failed)
+      continue;
     if (event.owner == Walker::Owner::Quest) {
       if (event.type == Walker::EventType::Completed)
         g_completedQuestStep = event.targetFormId;
