@@ -39,4 +39,12 @@ Tile *GetControl(Menu *menu, const char *name) {
 }
 
 bool ClickControl(Menu *menu, const char *name) { return UIUtils::ClickTile(menu, GetControl(menu, name)); }
+
+bool IsControlAvailable(Tile *tile) {
+  if (!tile)
+    return false;
+  auto *visible = tile->GetValue(kTileValue_visible);
+  auto *enabled = tile->GetValue(kTileValue_target);
+  return (!visible || visible->num != 0.0f) && (!enabled || enabled->num != 0.0f);
+}
 } // namespace UIUtils

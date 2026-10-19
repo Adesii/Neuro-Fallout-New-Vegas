@@ -18,6 +18,7 @@ struct Transition {
   Tab tab = Tab::Items;
   bool closing = false;
   bool activated = false;
+  bool observedOpening = false;
   Clock::time_point startedAt;
   Clock::time_point nextStepAt;
 };
@@ -60,23 +61,36 @@ void AdvanceTransition() {
     return;
   transition.nextStepAt = now + kStepDelay;
 
+  const bool closed = manager->pipBoyMode == 0 && !IsOpen();
+  const auto tab = CurrentTab();
+  const bool ready = tab && IsActive(*tab);
   if (transition.closing) {
-    if (transition.activated) {
-      if (manager->pipBoyMode == 0 && !IsOpen()) {
-        NeuroSDK::SendContext("## Pip-Boy\nClosed. Gameplay controls are available again.", true);
-        _MESSAGE("Pip-Boy visibly closed");
-        g_transition.reset();
-      }
+    // The player may close the Pip-Boy or switch tabs before our activation;
+    // completion follows the observed menu state, not the tab accepted on.
+    if (closed) {
+      NeuroSDK::SendContext("## Pip-Boy\nClosed. Gameplay controls are available again.", true);
+      _MESSAGE("Pip-Boy visibly closed");
+      g_transition.reset();
       return;
     }
-    if (!IsActive(transition.tab))
+    if (transition.activated)
+      return;
+    if (!ready)
       return; // Popups retain their own controls; never close through them.
     manager->ClosePipboy(nullptr);
   } else {
     if (transition.activated) {
-      if (IsActive(transition.tab)) {
-        _MESSAGE("Pip-Boy requested tab visibly opened");
+      transition.observedOpening |= !closed;
+      if (ready) {
+        if (*tab == transition.tab) {
+          _MESSAGE("Pip-Boy requested tab visibly opened");
+        } else {
+          _WARNING("Pip-Boy opened on a different tab than requested");
+          NeuroSDK::SendContext("## Pip-Boy\nOpened on a different tab than requested.", true);
+        }
         g_transition.reset();
+      } else if (closed && transition.observedOpening) {
+        StopTransition("The Pip-Boy closed before the requested tab opened.");
       }
       return;
     }
@@ -208,9 +222,9 @@ Actions::PreparedAction PrepareClose() {
   if (auto error = revalidate())
     return Actions::PreparedAction::Failure(*error);
   return Actions::PreparedAction::Success(
-      [tab] {
+      [] {
         const auto now = Clock::now();
-        g_transition = Transition{.tab = *tab, .closing = true, .startedAt = now, .nextStepAt = now + kStepDelay};
+        g_transition = Transition{.closing = true, .startedAt = now, .nextStepAt = now + kStepDelay};
       },
       revalidate);
 }

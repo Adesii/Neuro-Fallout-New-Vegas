@@ -10,6 +10,7 @@
 #include "GameUI.h"
 #include "Inventory/ItemListing.hpp"
 #include "Inventory/MenuItems.hpp"
+#include "Inventory/QuantityPrompt.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/UIUtils.hpp"
@@ -36,6 +37,7 @@ struct Transfer {
   enum class Phase { Select, Click, Confirm, Observe } phase = Phase::Select;
   Clock::time_point startedAt{};
   Clock::time_point nextStepAt{};
+  Clock::time_point pausedAt{};
 };
 
 Actions::PersistentActionSet g_actions;
@@ -74,37 +76,19 @@ std::optional<std::string> ValidateSession(uint64_t session) {
 }
 
 std::optional<std::string> ValidatePage(bool own, int page, Inventory::ItemQueryType type) {
-  if (page < 0)
-    return "Page index must be zero or greater.";
-  const size_t count = CountItems(own, type);
-  const size_t pages = std::max(size_t{1}, (count + Inventory::kItemsPerPage - 1) / Inventory::kItemsPerPage);
-  if (static_cast<size_t>(page) >= pages)
-    return "Page index is out of range. Valid pages: 0.." + std::to_string(pages - 1) + ".";
-  return std::nullopt;
+  return Inventory::ValidateMenuPage(Items(own), page, type);
 }
 
 bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool opening = false) {
   const size_t count = CountItems(own, type);
   const size_t first = static_cast<size_t>(page) * Inventory::kItemsPerPage;
   auto listed = ReadPage(own, type, first);
-  const size_t end = first + listed.size();
   std::ostringstream context;
   context << "## " << (own ? "Your inventory" : "Container contents");
   if (!own)
     context << ": "
             << UIUtils::GetTileString(UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ContainerRect/CM_ContainerTitle"));
-  context << "\nType: " << Inventory::ItemQueryTypeName(type) << "; page " << page << "; " << count
-          << " item stacks. Pages start at 0; item indexes start at 1.\n";
-  if (count == 0)
-    context << (type == Inventory::ItemQueryType::All ? "Empty.\n" : "No items match this type.\n");
-  for (size_t offset = 0; offset < listed.size(); ++offset) {
-    context << "\n- `" << first + offset + 1 << "` - " << listed[offset].name << " x" << listed[offset].count;
-    if (listed[offset].equipped)
-      context << " (equipped)";
-  }
-  if (end < count)
-    context << "\nUse " << (own ? "query_own_items" : "query_items") << " with index " << page + 1
-            << " and the same type for the next 15 items.";
+  context << "\n" << Inventory::FormatItemPage(type, page, count, listed, own ? "query_own_items" : "query_items");
   context << "\n"
           << (own ? "stow_away_item" : "loot_item")
           << " uses indexes from this listing and transfers the entire stack. Indexes stay fixed until your next "
@@ -139,14 +123,6 @@ void StopTransfers(const std::string &reason) {
   g_transfers.clear();
 }
 
-bool ControlAvailable(Tile *tile) {
-  if (!tile)
-    return false;
-  auto *visible = tile->GetValue(kTileValue_visible);
-  auto *enabled = tile->GetValue(kTileValue_target);
-  return (!visible || visible->num != 0.0f) && (!enabled || enabled->num != 0.0f);
-}
-
 int ContainerCount() {
   int count = 0;
   for (auto *node = g_owner->rightItems.GetHead(); node; node = node->GetNext()) {
@@ -173,19 +149,24 @@ void AdvanceTransfer() {
   auto &transfer = g_transfers.front();
   const auto now = Clock::now();
   const bool quantityActive = Interface::GetTopMenuID() == Interface::Quantity;
-  if (!IsActive() && !quantityActive)
-    return; // A warning or another popup owns its own controls.
+  if (!IsActive() && !quantityActive) {
+    // A warning or another popup owns its own controls. Time spent waiting for
+    // it does not count toward the transfer timeout.
+    if (transfer.pausedAt == Clock::time_point{})
+      transfer.pausedAt = now;
+    return;
+  }
   if (transfer.startedAt == Clock::time_point{}) {
     transfer.startedAt = now;
     transfer.nextStepAt = now + kStepDelay;
+  } else if (transfer.pausedAt != Clock::time_point{}) {
+    transfer.startedAt += now - transfer.pausedAt;
   }
+  transfer.pausedAt = {};
   if (now - transfer.startedAt > kTransferTimeout) {
-    if (quantityActive) {
-      auto *manager = InterfaceManager::GetSingleton();
-      auto *menu = manager ? manager->activeMenu : nullptr;
-      if (menu && menu->GetID() == Interface::Quantity && transfer.phase == Transfer::Phase::Confirm)
-        UIUtils::ClickControl(menu, "NOGLOW_BRANCH/QM_MainRect/QM_CancelButton");
-    }
+    if (quantityActive && transfer.phase == Transfer::Phase::Confirm)
+      if (auto *quantity = Inventory::ActiveQuantityMenu())
+        Inventory::CancelQuantity(*quantity);
     StopTransfers("The visible transfer timed out or the game refused the item.");
     return;
   }
@@ -196,31 +177,24 @@ void AdvanceTransfer() {
   if (quantityActive) {
     if (transfer.all || transfer.phase != Transfer::Phase::Confirm)
       return; // Never confirm a quantity menu that this transfer did not open.
-    auto *manager = InterfaceManager::GetSingleton();
-    auto *active = manager ? manager->activeMenu : nullptr;
-    if (!active || active->GetID() != Interface::Quantity)
+    auto *quantity = Inventory::ActiveQuantityMenu();
+    if (!quantity)
       return;
-    auto *quantity = static_cast<QuantityMenu *>(active);
-    auto *maximum = quantity->tile28 ? quantity->tile28->GetValue(kTileValue_user0) : nullptr;
-    if (!maximum || maximum->num != static_cast<float>(transfer.count)) {
-      UIUtils::ClickControl(quantity, "NOGLOW_BRANCH/QM_MainRect/QM_CancelButton");
+    switch (Inventory::AdvanceWholeStack(*quantity, transfer.count)) {
+    case Inventory::QuantityStep::Adjusting:
+      transfer.nextStepAt = now + Inventory::kQuantityStepDelay;
+      return;
+    case Inventory::QuantityStep::Confirmed:
+      transfer.phase = Transfer::Phase::Observe;
+      return;
+    case Inventory::QuantityStep::Mismatch:
+      Inventory::CancelQuantity(*quantity);
       StopTransfers("The quantity prompt no longer matches the selected stack.");
       return;
-    }
-    if (quantity->currentQtt < maximum->num) {
-      UIUtils::ClickControl(quantity, "NOGLOW_BRANCH/QM_MainRect/QM_IncreaseArrow");
-      transfer.nextStepAt = now + std::chrono::milliseconds(80);
+    case Inventory::QuantityStep::Failed:
+      StopTransfers("The native quantity controls are unavailable or have an invalid selected amount.");
       return;
     }
-    if (quantity->currentQtt != maximum->num) {
-      StopTransfers("The quantity prompt has an invalid selected amount.");
-      return;
-    }
-    if (!UIUtils::ClickControl(quantity, "NOGLOW_BRANCH/QM_MainRect/QM_OKButton")) {
-      StopTransfers("The quantity confirmation control is unavailable.");
-      return;
-    }
-    transfer.phase = Transfer::Phase::Observe;
     return;
   }
 
@@ -232,7 +206,7 @@ void AdvanceTransfer() {
     }
     // Take All uses the same native control as the keyboard A shortcut.
     auto *control = UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_TakeAllButton");
-    if (!ControlAvailable(control) || !UIUtils::ClickTile(g_owner, control)) {
+    if (!UIUtils::IsControlAvailable(control) || !UIUtils::ClickTile(g_owner, control)) {
       StopTransfers("Take All is unavailable in this container.");
       return;
     }
@@ -293,7 +267,7 @@ void AdvanceTransfer() {
     transfer.phase = Transfer::Phase::Click;
     return;
   }
-  if (!ControlAvailable(row->tile)) {
+  if (!UIUtils::IsControlAvailable(row->tile)) {
     StopTransfers("The selected item is not visible or actionable after scrolling.");
     return;
   }
@@ -430,7 +404,7 @@ Actions::PreparedAction PrepareLootAll() {
       return error;
     if (!g_transfers.empty())
       return "Wait for the accepted item transfers to finish before using loot_all.";
-    if (!ControlAvailable(UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_TakeAllButton")))
+    if (!UIUtils::IsControlAvailable(UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_TakeAllButton")))
       return "Take All is not available in this container.";
     return std::nullopt;
   };

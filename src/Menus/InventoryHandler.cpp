@@ -6,6 +6,7 @@
 #include "Actions/Inventory/UseItemAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
 #include "Inventory/MenuItems.hpp"
+#include "Inventory/QuantityPrompt.hpp"
 #include "Menus/PipBoyHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
@@ -31,7 +32,6 @@ struct StackState {
 struct Execution {
   enum class Phase { Read, Navigate, Select, Activate, Confirm, Observe, Publish } phase = Phase::Navigate;
   bool query = false;
-  bool opening = false;
   bool keyringSelected = false;
   bool quantityObserved = false;
   Menu *quantityOwner = nullptr;
@@ -47,13 +47,14 @@ struct Execution {
   std::vector<StackState> before;
   Clock::time_point startedAt{};
   Clock::time_point nextStepAt{};
+  Clock::time_point pausedAt{};
 };
 
 Actions::PersistentActionSet g_actions;
 bool g_actionsBuilt = false;
 InventoryMenu *g_owner = nullptr;
 uint64_t g_session = 0;
-bool g_initialAttempted = false;
+bool g_announced = false;
 Clock::time_point g_openedAt;
 Inventory::ItemListing g_listing;
 std::deque<Execution> g_queue;
@@ -61,14 +62,6 @@ std::deque<Execution> g_queue;
 bool IsActive() {
   return g_owner && InventoryMenu::GetSingleton() == g_owner && PipBoyHandler::IsActive(PipBoyHandler::Tab::Items) &&
          !PipBoyHandler::IsTransitioning();
-}
-
-bool ControlAvailable(Tile *tile) {
-  if (!tile)
-    return false;
-  auto *visible = tile->GetValue(kTileValue_visible);
-  auto *enabled = tile->GetValue(kTileValue_target);
-  return (!visible || visible->num != 0.0f) && (!enabled || enabled->num != 0.0f);
 }
 
 bool Highlight(Tile *tile) {
@@ -129,13 +122,7 @@ std::optional<std::string> ValidateSession(uint64_t session) {
 }
 
 std::optional<std::string> ValidatePage(int page, Inventory::ItemQueryType type) {
-  if (page < 0)
-    return "Page index must be zero or greater.";
-  const size_t count = Inventory::CountMenuItems(g_owner->itemList, type);
-  const size_t pages = std::max(size_t{1}, (count + Inventory::kItemsPerPage - 1) / Inventory::kItemsPerPage);
-  if (static_cast<size_t>(page) >= pages)
-    return "Page index is out of range. Valid pages: 0.." + std::to_string(pages - 1) + ".";
-  return std::nullopt;
+  return Inventory::ValidateMenuPage(g_owner->itemList, page, type);
 }
 
 std::optional<std::string> ValidateOperation(Operation operation, const ItemChange &item) {
@@ -198,7 +185,7 @@ Navigation Navigate(Execution &execution, std::string &error) {
   const uint32_t category = execution.category == 5 ? 3 : execution.category;
   if (g_owner->filter != category) {
     auto *button = CategoryButton(category);
-    if (!ControlAvailable(button) || !UIUtils::ClickTile(g_owner, button)) {
+    if (!UIUtils::IsControlAvailable(button) || !UIUtils::ClickTile(g_owner, button)) {
       error = "The native inventory category control is unavailable.";
       return Navigation::Failed;
     }
@@ -212,7 +199,7 @@ Navigation Navigate(Execution &execution, std::string &error) {
   Tile *keyring = nullptr;
   for (auto *node = g_owner->itemList.GetHead(); node; node = node->GetNext()) {
     auto *row = node->GetItem();
-    if (!row || row->byte08 || !ControlAvailable(row->tile) || (row->object && row->object->pObject))
+    if (!row || row->byte08 || !UIUtils::IsControlAvailable(row->tile) || (row->object && row->object->pObject))
       continue;
     if (keyring) {
       error = "Multiple inventory groupings are visible; the native keyring cannot be identified uniquely.";
@@ -368,10 +355,38 @@ bool ObserveItem(const Execution &execution) {
   return false;
 }
 
+bool SendListing(int page, Inventory::ItemQueryType type, size_t total, std::vector<Inventory::ListedItem> items,
+                 bool opening) {
+  const size_t first = static_cast<size_t>(page) * Inventory::kItemsPerPage;
+  std::ostringstream context;
+  context << "## Your inventory: Pip-Boy\n" << Inventory::FormatItemPage(type, page, total, items, "query_own_items");
+  context << "\nItem actions use stable indexes from this listing. An accepted index cannot be reused until "
+             "query_own_items refreshes the listing; other indexes stay fixed. Closing inventory or switching "
+             "Pip-Boy tabs clears the listing.";
+  if (opening)
+    context << "\nInventory actions: query_own_items, equip_item, unequip_item, use_item, drop_item, close_pipboy. "
+               "Equip and unequip apply to weapons, armor and clothing; use_item consumes one aid item; drop_item "
+               "drops the whole stack. Query types: All, Weapons, Equipment, Consumerable, WeaponMods, Keys, Misc; "
+               "type defaults to All. Weapons includes ammunition; Consumerable includes food, drinks, chems and "
+               "ingredients. Queries and closing wait for accepted item actions to finish.";
+  if (!NeuroSDK::SendContext(context.str().c_str(), true))
+    return false;
+  g_listing.Replace(std::move(items), first + 1);
+  return true;
+}
+
+bool PublishOpening() {
+  // The player may have opened this tab. The opening listing is read in place
+  // and never moves their category or selection; queries navigate visibly.
+  return SendListing(0, Inventory::ItemQueryType::All,
+                     Inventory::CountMenuItems(g_owner->itemList, Inventory::ItemQueryType::All),
+                     Inventory::ReadMenuItemPage(g_owner->itemList, Inventory::ItemQueryType::All, 0), true);
+}
+
 bool PublishPage(const Execution &execution) {
   auto *selected = execution.items.empty() ? nullptr : FindLive(execution.identity);
   if (g_owner->filter != execution.category ||
-      (!execution.items.empty() && (!selected || selected->byte08 || !ControlAvailable(selected->tile) ||
+      (!execution.items.empty() && (!selected || selected->byte08 || !UIUtils::IsControlAvailable(selected->tile) ||
                                     g_owner->itemList.GetSelectedTile() != selected->tile))) {
     StopExecution("The requested category or visible item selection changed before the page could be published.");
     return false;
@@ -387,43 +402,17 @@ bool PublishPage(const Execution &execution) {
     StopExecution("The inventory changed while the requested page was being shown.");
     return false;
   }
-  std::ostringstream context;
-  context << "## Your inventory: Pip-Boy\nType: " << Inventory::ItemQueryTypeName(execution.type) << "; page "
-          << execution.page << "; " << execution.total << " item stacks. Pages start at 0; item indexes start at 1.\n";
-  if (!execution.total)
-    context << (execution.type == Inventory::ItemQueryType::All ? "Empty.\n" : "No items match this type.\n");
-  for (size_t offset = 0; offset < execution.items.size(); ++offset) {
-    const auto &item = execution.items[offset];
-    context << "\n- `" << first + offset + 1 << "` - " << item.name << " x" << item.count;
-    if (item.equipped)
-      context << " (equipped)";
-  }
-  if (first + execution.items.size() < execution.total)
-    context << "\nUse query_own_items with index " << execution.page + 1 << " and the same type for the next 15 items.";
-  context << "\nItem actions use stable indexes from this listing. An accepted index cannot be reused until "
-             "query_own_items refreshes the listing; other indexes stay fixed. Closing inventory or switching "
-             "Pip-Boy tabs clears the listing.";
-  if (execution.opening)
-    context << "\nInventory actions: query_own_items, equip_item, unequip_item, use_item, drop_item, close_pipboy. "
-               "Equip and unequip apply to weapons, armor and clothing; use_item consumes one aid item; drop_item "
-               "drops the whole stack. Query types: All, Weapons, Equipment, Consumerable, WeaponMods, Keys, Misc; "
-               "type defaults to All. Weapons includes ammunition; Consumerable includes food, drinks, chems and "
-               "ingredients. Queries and closing wait for accepted item actions to finish.";
-  if (!NeuroSDK::SendContext(context.str().c_str(), true))
-    return false;
-  g_listing.Replace(execution.items, first + 1);
-  return true;
+  return SendListing(execution.page, execution.type, execution.total, execution.items, false);
 }
 
 void AdvanceQuantity(Execution &execution, Clock::time_point now) {
   // This phase is reached only after our own native Drop activation.
   if (execution.query || execution.operation != Operation::Drop || execution.phase != Execution::Phase::Confirm)
     return;
-  auto *manager = InterfaceManager::GetSingleton();
-  auto *menu = manager ? manager->activeMenu : nullptr;
-  if (!menu || menu->GetID() != Interface::Quantity)
+  auto *quantity = Inventory::ActiveQuantityMenu();
+  if (!quantity)
     return;
-  if (execution.quantityOwner && execution.quantityOwner != menu) {
+  if (execution.quantityOwner && execution.quantityOwner != quantity) {
     StopExecution("A different quantity prompt replaced the accepted drop prompt.");
     return;
   }
@@ -431,33 +420,32 @@ void AdvanceQuantity(Execution &execution, Clock::time_point now) {
   if (!source || source->object->iNumber != execution.count) {
     // A completed one-item Drop can be followed by an unrelated quantity menu.
     // Observe the result without confirming or cancelling that other prompt.
-    if (!ObserveItem(execution))
-      StopExecution("The selected stack changed before its drop quantity could be confirmed.");
+    if (ObserveItem(execution))
+      return;
+    // Otherwise only our Drop activation opened this prompt. Cancel it rather
+    // than leaving an unowned prompt blocking every inventory action.
+    Inventory::CancelQuantity(*quantity);
+    StopExecution("The selected stack changed before its drop quantity could be confirmed.");
     return;
   }
   execution.quantityObserved = true;
-  execution.quantityOwner = menu;
-  auto *quantity = static_cast<QuantityMenu *>(menu);
-  auto *maximum = quantity->tile28 ? quantity->tile28->GetValue(kTileValue_user0) : nullptr;
-  if (!maximum || maximum->num != static_cast<float>(execution.count)) {
-    UIUtils::ClickControl(quantity, "NOGLOW_BRANCH/QM_MainRect/QM_CancelButton");
+  execution.quantityOwner = quantity;
+  switch (Inventory::AdvanceWholeStack(*quantity, execution.count)) {
+  case Inventory::QuantityStep::Adjusting:
+    execution.nextStepAt = now + Inventory::kQuantityStepDelay;
+    return;
+  case Inventory::QuantityStep::Confirmed:
+    execution.phase = Execution::Phase::Observe;
+    return;
+  case Inventory::QuantityStep::Mismatch:
+    Inventory::CancelQuantity(*quantity);
     StopExecution("The quantity prompt no longer matches the selected whole stack.");
     return;
-  }
-  if (quantity->currentQtt < maximum->num) {
-    if (!UIUtils::ClickControl(quantity, "NOGLOW_BRANCH/QM_MainRect/QM_IncreaseArrow")) {
-      StopExecution("The native quantity control is unavailable.");
-      return;
-    }
-    execution.nextStepAt = now + std::chrono::milliseconds(80);
+  case Inventory::QuantityStep::Failed:
+    Inventory::CancelQuantity(*quantity);
+    StopExecution("The requested drop quantity could not be selected or confirmed.");
     return;
   }
-  if (quantity->currentQtt != maximum->num ||
-      !UIUtils::ClickControl(quantity, "NOGLOW_BRANCH/QM_MainRect/QM_OKButton")) {
-    StopExecution("The requested drop quantity could not be confirmed.");
-    return;
-  }
-  execution.phase = Execution::Phase::Observe;
 }
 
 void AdvanceExecution() {
@@ -465,29 +453,30 @@ void AdvanceExecution() {
     return;
   auto &execution = g_queue.front();
   const auto now = Clock::now();
+  const bool quantityActive = Interface::GetTopMenuID() == Interface::Quantity;
+  if (!IsActive() && !quantityActive) {
+    // Pause for warnings, repairs and other menus without touching their
+    // controls. Time spent paused does not count toward the timeout.
+    if (execution.pausedAt == Clock::time_point{})
+      execution.pausedAt = now;
+    return;
+  }
   if (execution.startedAt == Clock::time_point{}) {
     execution.startedAt = now;
     execution.nextStepAt = now + kStepDelay;
+  } else if (execution.pausedAt != Clock::time_point{}) {
+    execution.startedAt += now - execution.pausedAt;
   }
+  execution.pausedAt = {};
   if (now - execution.startedAt > kExecutionTimeout) {
-    if (Interface::GetTopMenuID() == Interface::Quantity && !execution.query &&
-        execution.operation == Operation::Drop && execution.phase == Execution::Phase::Confirm &&
-        execution.quantityObserved) {
-      auto *manager = InterfaceManager::GetSingleton();
-      auto *menu = manager ? manager->activeMenu : nullptr;
-      auto *source = FindLive(execution.identity);
-      if (menu && menu == execution.quantityOwner && menu->GetID() == Interface::Quantity && source &&
-          source->object->iNumber == execution.count)
-        UIUtils::ClickControl(menu, "NOGLOW_BRANCH/QM_MainRect/QM_CancelButton");
-    }
+    auto *quantity = Inventory::ActiveQuantityMenu();
+    if (quantity && quantity == execution.quantityOwner)
+      Inventory::CancelQuantity(*quantity);
     StopExecution("The visible action timed out or the game refused the selected item.");
     return;
   }
   if (now < execution.nextStepAt)
     return;
-  const bool quantityActive = Interface::GetTopMenuID() == Interface::Quantity;
-  if (!IsActive() && !quantityActive)
-    return; // Pause for warnings, repairs and other menus without touching their controls.
   execution.nextStepAt = now + kStepDelay;
   if (quantityActive) {
     AdvanceQuantity(execution, now);
@@ -564,7 +553,7 @@ void AdvanceExecution() {
     execution.phase = execution.query ? Execution::Phase::Publish : Execution::Phase::Activate;
     return;
   }
-  if (g_owner->itemList.GetSelectedTile() != row->tile || !ControlAvailable(row->tile)) {
+  if (g_owner->itemList.GetSelectedTile() != row->tile || !UIUtils::IsControlAvailable(row->tile)) {
     StopExecution("The visible item selection changed before activation.");
     return;
   }
@@ -616,7 +605,7 @@ void Reset() {
   g_actions.Unregister();
   g_owner = nullptr;
   ++g_session;
-  g_initialAttempted = false;
+  g_announced = false;
   g_listing.Clear();
   g_queue.clear();
 }
@@ -641,10 +630,9 @@ bool Process() {
     g_owner = menu;
     g_openedAt = Clock::now();
   }
-  if (IsActive() && !g_initialAttempted && Clock::now() - g_openedAt >= kStepDelay) {
-    g_initialAttempted = true;
-    g_queue.push_back({.phase = Execution::Phase::Read, .query = true, .opening = true});
-  }
+  // Wait a visible frame for native inventory population before announcing it.
+  if (IsActive() && !g_announced && Clock::now() - g_openedAt >= kStepDelay)
+    g_announced = PublishOpening();
   AdvanceExecution();
   if (!IsActive()) {
     g_actions.Unregister();
@@ -653,7 +641,7 @@ bool Process() {
   BuildActions();
   // A query owns navigation and replacement of the published snapshot. Item
   // actions keep a stable set registered so different listed indexes queue FIFO.
-  if (g_initialAttempted && (g_queue.empty() || !g_queue.front().query))
+  if (g_announced && (g_queue.empty() || !g_queue.front().query))
     g_actions.Register();
   else
     g_actions.Unregister();

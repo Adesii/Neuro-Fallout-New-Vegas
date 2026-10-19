@@ -20,8 +20,10 @@ frame-driven steps.
 `query_own_items` intentionally uses the same name and schema as the container
 feature. Its query `index` is a **zero-based page**, containing at most 15 stacks.
 Item-action `index` is **one-based**: page 0 lists 1–15, page 1 lists 16–30.
-Opening inventory supplies an initial page 0 with `type: All`. A failed initial
-query leaves query and close actions available for recovery.
+Opening inventory supplies an initial page 0 with `type: All`. It is read in
+place without changing the category or selection, because the player may have
+opened the tab; only `query_own_items` navigates visibly. Actions register once
+that listing is published.
 
 Filters are shared with container looting: `All`, `Weapons`, `Equipment`,
 `Consumerable`, `WeaponMods`, `Keys`, and `Misc`; omitted `type` defaults to `All`.
@@ -116,13 +118,22 @@ putting their operations in the inventory executor. Concrete action modules stay
 under `src/Actions/Inventory/` or `src/Actions/PipBoy/`.
 
 The executor switches categories, waits, highlights and scrolls to a live stack,
-waits again, activates its native control, then observes completion. Quantity
-increments use 80 ms steps. Query publication follows visible navigation and
-selection. Walker pauses immediately on opening acceptance, including the delay
-before the native animation starts, and remains paused until menu execution and
-the actual menu close finish. Inventory actions have a 60-second timeout; shared
-navigation has a 15-second timeout. Timeouts clear local work and publish recovery
-context. An owned unconfirmed Drop quantity prompt is cancelled on timeout.
+waits again, activates its native control, then observes completion. A
+whole-stack quantity reaches its maximum in at most 30 visible 80 ms steps;
+large stacks use several native arrow clicks per step. The prompt helpers in
+`src/Inventory/QuantityPrompt.*` are shared with container transfers. Query
+publication follows visible navigation and selection. Walker pauses immediately
+on opening acceptance, including the delay before the native animation starts,
+and remains paused until menu execution and the actual menu close finish.
+Inventory actions have a 60-second timeout that excludes time paused behind
+popups; shared navigation has a 15-second timeout. Timeouts clear local work and
+publish recovery context. An owned unconfirmed Drop quantity prompt is cancelled
+on timeout, or when its stack changes before confirmation.
+
+Pip-Boy transitions complete on observed menu state. A close is reported as
+complete once the Pip-Boy is closed, including when the player closed it first,
+and it proceeds from whichever main tab is active. An open finishes on any ready
+main tab and reports a tab other than the requested one.
 
 Form ID, extra-data identity and stack quantity are revalidated against live
 menu rows before selection and activation. Ambiguous stacks are rejected. After
@@ -208,7 +219,7 @@ equipment, aid, ammo, mods, keys, miscellaneous and quest items. Observe
 
 | Starting state / action | Expected visible result and failure check |
 | --- | --- |
-| Loaded gameplay with Walker moving; `open_inventory` | Movement input pauses on acceptance; native opening animation reaches Items; page 0 is visibly selected and published. A navigation timeout or absent actions indicates ready-state/tab detection failure. |
+| Loaded gameplay with Walker moving; `open_inventory` | Movement input pauses on acceptance; native opening animation reaches Items; page 0 is published without changing category or selection. A navigation timeout or absent actions indicates ready-state/tab detection failure. |
 | Items; query page 0, page 1 and every filter | Category selection and scrolling precede context; at most 15 stacks; page 1 starts at item 16. Weapons includes ammo, Equipment armor/clothing, Keys uses the native keyring. Empty filters report no matches; out-of-range pages fail without clicking. |
 | Stats, Data, container, barter, repair/mod menu or popup | Inventory mutation/query actions are unavailable. Container keeps its original five actions; `close_pipboy` is available on ready main Pip-Boy tabs. |
 | Equipment/weapon listing; equip then query and unequip | Correct stack highlights, pauses, activates once and changes its equipped marker. Already desired states do not toggle. Check both plain stacked equipment and distinct condition/modification instances, including native weapon/slot replacement. |
@@ -216,12 +227,16 @@ equipment, aid, ammo, mods, keys, miscellaneous and quest items. Observe
 | Change/remove a stack after listing; request its old index | Reject changed quantity/identity or ambiguity without activating a neighboring row. Duplicate names must not select a different condition/modded instance. |
 | Aid stack; `use_item` | Exactly one item is used; native confirmation/warning dialogs remain visible; completion context follows observed decrement. Non-aid, quest or unusable items fail without reporting completion. |
 | Multi-item stack; `drop_item` | Correct stack highlights; native Drop opens its own quantity prompt; amount visibly increases to the full count, then confirms. Entire stack disappears before completion context. One-item drop also works. |
+| Large ammunition stack (1000+); `drop_item`, and container loot/stow of the same | Amount rises in larger visible jumps and confirms within a few seconds, exactly at the stack maximum; no overshoot and no timeout. Confirms that several native arrow clicks per frame each increment the prompt. |
+| Open the Pip-Boy manually on Items > Aid, or switch Stats to Items | Page 0 context is published; the category and highlighted item stay where the player left them. |
+| `use_item` or equip that raises a native popup; leave it open for more than 60 seconds | No timeout while the popup is open; after dismissing it, completion is observed and reported. |
 | Quest item/keyring key; drop request | Failed result with a useful reason and no mutation. Ammo and mods also reject equip/unequip. |
 | Cancel an owned Drop prompt or open an unrelated quantity popup | Cancellation must not produce success; unrelated prompts are never confirmed by this executor. On refusal/timeout, local work clears and recovery context requests a new query. |
 | Higher-priority warning/text/repair popup during execution | No inventory clicks through the popup; work resumes if the same inventory is still open. Native warning handling remains with the existing popup handler. |
 | Manually close inventory or change main Pip-Boy tab during work, then reopen | Queue and snapshot clear; old actions/indexes are unavailable; reopening supplies fresh bindings. Retained singleton pointers must not keep Walker locked out. |
 | Disconnect/reconnect or load/new game during work | No queued activation from the old session; current action sets restore and inventory is observed afresh. |
 | `close_pipboy` after work finishes | Native closing animation completes before Walker resumes. Opening/closing refusal, popup obstruction and timeout must not leave an automation lock after the actual menu is closed. |
+| Accept `close_pipboy`, then within 350 ms switch tabs or press Tab to close manually | Switching tabs still closes the Pip-Boy; manual close reports closed immediately. Neither waits 15 seconds or reports an animation failure. |
 
 Also submit malformed JSON, duplicate/unexpected fields, strings/fractional or
 negative indexes, item index 0, unknown type spellings and unlisted indexes.
