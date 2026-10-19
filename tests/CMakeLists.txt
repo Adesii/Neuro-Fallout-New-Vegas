@@ -18,12 +18,14 @@ add_executable(neuro_fnv_tests
     InventoryTests.cpp
     ScopedStateTests.cpp
     PopupPolicyTests.cpp
+    CombatTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
     "${REPO}/src/Actions/ActionWindow.cpp"
     "${REPO}/src/Actions/PersistentActionSet.cpp"
     "${REPO}/src/Actions/Json/JsonSchema.cpp"
+    "${REPO}/src/Combat/CombatLogic.cpp"
     "${REPO}/src/Inventory/ItemQuery.cpp"
     "${REPO}/src/Menus/PopupPolicy.cpp"
     "${REPO}/src/utils/ScopedState.cpp"
