@@ -31,6 +31,10 @@
 - Container looting/stowing (`ContainerHandler`, `src/Actions/Container/`) and Pip-Boy inventory (`PipBoyHandler`, `InventoryHandler`) have detailed rules in `.claude/rules/container-inventory.md` and `.claude/rules/pipboy-inventory.md`. They load automatically when you read files under the matching `src/` paths; read them explicitly before designing changes elsewhere.
 - Shared item query/classification code lives in `src/Inventory/`; both rules apply there.
 
+### Combat and VATS scope
+
+- World combat (`CombatHandler`, `query_enemies`/`attack`/`stop_attack`/`open_vats`), the engine-free rules in `src/Combat/CombatLogic.*` (host-tested), and the VATS menu window (`Menus::VatsHandler`) have detailed rules in `.claude/rules/combat.md` and evidence, unverified assumptions and the manual checklist in `docs/combat.md`. The rule loads automatically for the matching paths.
+
 ## External plugin references
 
 - Read `docs/reference-research.md` before researching unknown engine/menu behavior. Search the project and included NVSE/JG definitions first, then compatible reference implementations and private menu XML; prefer verified behavior over inference.
