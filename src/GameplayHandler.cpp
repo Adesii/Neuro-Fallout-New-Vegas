@@ -4,6 +4,7 @@
 #include "Actions/Gameplay/QueryNearbyAction.hpp"
 #include "Actions/Gameplay/QueryQuestsAction.hpp"
 #include "Actions/Gameplay/SelectQuestAction.hpp"
+#include "Actions/Gameplay/StopMoveAction.hpp"
 #include "Actions/Gameplay/TargetObjectAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
 #include "Actions/PipBoy/OpenInventoryAction.hpp"
@@ -68,6 +69,8 @@ struct ObjectiveObservation {
 
 Actions::PersistentActionSet g_worldActions;
 Actions::PersistentActionSet g_questActions;
+// Walker commands pause across menus rather than ending, so stopping one stays possible while a menu is open.
+Actions::PersistentActionSet g_moveActions;
 bool g_actionsBuilt = false;
 bool g_ready = false;
 bool g_gameplayBlocked = true;
@@ -94,6 +97,7 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(true))
       .Add(std::make_unique<Actions::Gameplay::ExploreAction>())
       .Add(std::make_unique<Actions::PipBoy::OpenInventoryAction>());
+  g_moveActions.Add(std::make_unique<Actions::Gameplay::StopMoveAction>());
   g_actionsBuilt = true;
 }
 
@@ -463,6 +467,7 @@ void Process(bool gameplayBlocked) {
   if (!g_ready || !PlayerCharacter::GetSingleton()) {
     g_worldActions.Unregister();
     g_questActions.Unregister();
+    g_moveActions.Unregister();
     return;
   }
   BuildActions();
@@ -473,6 +478,7 @@ void Process(bool gameplayBlocked) {
   else
     g_worldActions.Register();
   g_questActions.Register();
+  g_moveActions.Register();
   ProcessWalkerEvents();
   if (gameplayBlocked)
     return;
@@ -513,6 +519,7 @@ void Reset() {
   // Unbind immediately and retain failed unregisters for retry, including across reconnects.
   g_worldActions.Unregister();
   g_questActions.Unregister();
+  g_moveActions.Unregister();
   g_gameplayBlocked = true;
   g_quests.clear();
   g_objects.clear();
@@ -725,6 +732,46 @@ bool PrepareExploration(ObjectSelection &selection, std::string &error) {
 void StartExploration(const ObjectSelection &selection) {
   if (!Walker::Start(selection.referenceFormId, Walker::Intent::Move, Walker::Owner::Exploration, selection.name))
     NeuroSDK::SendContext(("Could not begin exploring toward " + selection.name + ".").c_str(), false);
+}
+
+bool PrepareStopMove(MoveStop &stop, std::string &error) {
+  if (!ValidateQuestAction(error))
+    return false;
+  if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Combat) {
+    // The engagement would send her straight back; walking and attacking are separate verbs.
+    error = "You are closing in on a target to fight it. Use stop_attack to stop fighting instead.";
+    return false;
+  }
+  if (!Walker::IsActive() && !g_currentQuestRoute) {
+    error = "You are not moving toward anything right now.";
+    return false;
+  }
+  stop.owner = Walker::IsActive() ? Walker::GetOwner() : Walker::Owner::Quest;
+  stop.targetFormId = Walker::IsActive() ? Walker::GetTargetFormId() : 0;
+  stop.description = Walker::IsActive() ? Walker::GetDescription() : g_currentQuestRoute->description;
+  return true;
+}
+
+bool RevalidateStopMove(const MoveStop &stop, std::string &error) {
+  MoveStop current;
+  if (!PrepareStopMove(current, error))
+    return false;
+  if (current.owner != stop.owner || current.targetFormId != stop.targetFormId) {
+    error = "Your movement changed before it could be stopped. Call stop_move again if you still want to stop.";
+    return false;
+  }
+  return true;
+}
+
+void StopMove(const MoveStop &stop) {
+  // The route must go first: ContinueCurrentQuest() restarts Walker for the next step every frame otherwise.
+  ClearCurrentQuestRoute();
+  Walker::Stop();
+  _MESSAGE("Movement stopped on request (owner %d, target %08X)", static_cast<int>(stop.owner), stop.targetFormId);
+  NeuroSDK::SendContext(("## Movement\nYou stopped moving" +
+                         (stop.description.empty() ? std::string() : " toward " + stop.description) + ".")
+                            .c_str(),
+                        true);
 }
 
 } // namespace GameplayHandler

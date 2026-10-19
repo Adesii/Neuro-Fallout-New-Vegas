@@ -1,6 +1,6 @@
 # 02 - stop_move action
 
-Status: open
+Status: done (code complete, needs in-game verification)
 
 ## Problem
 Once Neuro starts walking (`move_to_object`, explore, etc.) she cannot stop on her own.
@@ -19,3 +19,13 @@ context saying what was cancelled and where she stopped.
 
 ## Done when
 Action available during gameplay, walking stops immediately, no stuck keys, host test if any logic is engine-free.
+
+## Result
+- `stop_move` (`src/Actions/Gameplay/StopMoveAction.*`, `GameplayHandler::PrepareStopMove/StopMove`). Registered whenever a
+  game is loaded (like `stop_attack`), so it still works while a menu pauses Walker.
+- Clears the `do_current_quest` route before `Walker::Stop()`, otherwise the route restarts Walker the next frame, and
+  sends a silent "You stopped moving toward X." context. Revalidates owner and target.
+- Refuses with a pointer to `stop_attack` when the active Walker command is combat's melee approach (the engagement would
+  re-issue it). Added `Walker::GetDescription()`.
+- Manual checks: stop during `move_to_object`, during a `do_current_quest` route (must not resume), during `explore`,
+  while a menu is open, and during a melee approach (must refuse); no key stays held.

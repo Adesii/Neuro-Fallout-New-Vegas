@@ -41,4 +41,14 @@ void StartObjectAction(const ObjectSelection &selection, Walker::Intent intent);
 bool PrepareExploration(ObjectSelection &selection, std::string &error);
 void StartExploration(const ObjectSelection &selection);
 
+// What stop_move is about to cancel: the Walker command (owner and target) or only a quest route between steps.
+struct MoveStop {
+  Walker::Owner owner = Walker::Owner::None;
+  uint32_t targetFormId = 0;
+  std::string description;
+};
+bool PrepareStopMove(MoveStop &stop, std::string &error);
+bool RevalidateStopMove(const MoveStop &stop, std::string &error);
+void StopMove(const MoveStop &stop);
+
 } // namespace GameplayHandler

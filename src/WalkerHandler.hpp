@@ -25,6 +25,8 @@ void Stop();
 bool IsActive();
 Owner GetOwner();
 uint32_t GetTargetFormId();
+// What the active command is heading for, as given to Start(); empty when nothing is active.
+std::string GetDescription();
 // While set, Walker keeps moving the player but leaves yaw and pitch alone (combat owns the aim).
 void SetLookSuppressed(bool suppressed);
 std::vector<Event> TakeEvents();

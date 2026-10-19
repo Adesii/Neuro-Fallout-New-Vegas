@@ -589,6 +589,8 @@ Owner GetOwner() { return g_state.hasCommand ? g_state.command.owner : Owner::No
 
 uint32_t GetTargetFormId() { return g_state.hasCommand ? g_state.command.targetFormId : 0; }
 
+std::string GetDescription() { return g_state.hasCommand ? g_state.command.description : std::string(); }
+
 void SetLookSuppressed(bool suppressed) { g_lookSuppressed = suppressed; }
 
 std::vector<Event> TakeEvents() {
