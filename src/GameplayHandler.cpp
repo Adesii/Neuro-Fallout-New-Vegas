@@ -53,6 +53,12 @@ struct QuestEntry : QuestSelection {
   int priority = 0;
   float distance = 0.0f;
   bool sameTravelSpace = false;
+  // Only meaningful when the target is in another area: the door to walk through, how far it is, and where the
+  // objective itself is. doorDistance stays negative when the door is not in the player's own area.
+  std::string doorName;
+  float doorDistance = -1.0f;
+  bool hasDoor = false;
+  std::string destinationName;
 };
 
 struct ObjectEntry : ObjectSelection {
@@ -128,6 +134,20 @@ bool IsInSameTravelSpace(TESObjectREFR *a, TESObjectREFR *b) {
   return aCell == bCell || (aCell->worldSpace && aCell->worldSpace == bCell->worldSpace);
 }
 
+// The door the engine's quest route says to take first to reach a target in another area.
+TESObjectREFR *FindEntryDoor(BGSQuestObjective::Target *target) {
+  if (!target || target->data.teleportLinks.IsEmpty() || !target->data.teleportLinks.pBuffer)
+    return nullptr;
+  auto *door = target->data.teleportLinks.GetAt(0).door;
+  return door && !door->GetDeleted() ? door : nullptr;
+}
+
+std::string PlaceName(TESObjectREFR *ref) {
+  auto *cell = ref ? ref->GetParentCell() : nullptr;
+  const char *name = cell ? cell->fullName.GetFullName() : nullptr;
+  return name ? name : "";
+}
+
 BGSQuestObjective *FindObjective(uint32_t questFormId, uint32_t objectiveId) {
   auto *player = PlayerCharacter::GetSingleton();
   if (!player)
@@ -158,12 +178,7 @@ TESObjectREFR *ResolveQuestTarget(BGSQuestObjective *objective, uint32_t preferr
 
     if (IsInSameTravelSpace(player, target->target))
       return target->target;
-    if (!target->data.teleportLinks.IsEmpty() && target->data.teleportLinks.pBuffer) {
-      auto *door = target->data.teleportLinks.GetAt(0).door;
-      if (door && !door->GetDeleted())
-        return door;
-    }
-    return nullptr;
+    return FindEntryDoor(target);
   }
   return nullptr;
 }
@@ -286,12 +301,23 @@ void BuildQuestCatalog() {
         continue;
       const bool sameSpace = IsInSameTravelSpace(player, target->target);
       const float distance = sameSpace ? Distance3D(player->GetPos(), target->target->GetPos()) : 0.0f;
-      g_quests.push_back(
-          {{objective->quest->GetFormID(), objective->objectiveId, target->target->GetFormID(), description},
-           0,
-           objective->quest->priority,
-           distance,
-           sameSpace});
+      QuestEntry entry{
+          {objective->quest->GetFormID(), objective->objectiveId, target->target->GetFormID(), description},
+          0,
+          objective->quest->priority,
+          distance,
+          sameSpace};
+      if (!sameSpace) {
+        entry.destinationName = PlaceName(target->target);
+        if (auto *door = FindEntryDoor(target)) {
+          entry.hasDoor = true;
+          const char *doorName = door->GetFullName();
+          entry.doorName = doorName ? doorName : "";
+          if (IsInSameTravelSpace(player, door))
+            entry.doorDistance = Distance3D(player->GetPos(), door->GetPos());
+        }
+      }
+      g_quests.push_back(std::move(entry));
     }
   }
 
@@ -306,6 +332,31 @@ void BuildQuestCatalog() {
   });
   for (size_t index = 0; index < g_quests.size(); ++index)
     g_quests[index].id = static_cast<int>(index + 1);
+}
+
+// Says where the objective is and what it takes to get there. Distances are straight-line game units; for another
+// area the distance is to the door, since the objective itself is somewhere beyond it.
+std::string DescribeQuestLocation(const QuestEntry &entry) {
+  std::ostringstream text;
+  if (entry.sameTravelSpace) {
+    text << "in your current area, about " << static_cast<int>(entry.distance) << " game units away";
+    return text.str();
+  }
+  text << "NOT in your current area";
+  if (!entry.destinationName.empty())
+    text << " (it is in " << entry.destinationName << ")";
+  if (!entry.hasDoor) {
+    text << ": you have to go to another area to reach it, but the door to use is not known";
+    return text.str();
+  }
+  text << ": you have to enter a door to get there. The door"
+       << (entry.doorName.empty() ? std::string() : " \"" + entry.doorName + "\"");
+  if (entry.doorDistance >= 0.0f)
+    text << " is about " << static_cast<int>(entry.doorDistance) << " game units away from you";
+  else
+    text << " is not in your current area, so you need to travel to another area first";
+  text << "; the objective itself is further, beyond it";
+  return text.str();
 }
 
 std::string ValidQuestIds() {
@@ -540,10 +591,7 @@ void QueryQuests() {
   } else {
     for (const auto &entry : g_quests) {
       context << "\n- `" << entry.id << "` - " << entry.description;
-      if (entry.sameTravelSpace)
-        context << " - about " << static_cast<int>(entry.distance) << " game units away";
-      else
-        context << " - requires travel through another area";
+      context << " - " << DescribeQuestLocation(entry);
     }
   }
   NeuroSDK::SendContext(context.str().c_str(), true);
