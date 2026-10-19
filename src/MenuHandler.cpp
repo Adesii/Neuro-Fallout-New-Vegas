@@ -10,6 +10,7 @@
 #include "Menus/SubtitleHandler.hpp"
 #include "Menus/TextEditHandler.hpp"
 #include "Menus/TraitsHandler.hpp"
+#include "Menus/VatsHandler.hpp"
 #include "Utils/DebugLog.hpp"
 
 namespace MenuHandler {
@@ -24,6 +25,7 @@ void Reset() {
   Menus::MessagePopupHandler::Reset();
   Menus::TextEditHandler::Reset();
   Menus::CharacterEditorHandler::Reset();
+  Menus::VatsHandler::Reset();
 }
 
 bool Process() {
@@ -48,6 +50,8 @@ bool Process() {
                                                !dialogPresent && !charGenPresent && !traitsPresent);
   const bool containerBlocksGameplay = Menus::ContainerHandler::Process();
   const bool pipBoyBlocksGameplay = Menus::PipBoyHandler::Process();
+  const bool vatsBlocksGameplay =
+      Menus::VatsHandler::Process(!popupPresent && !textEditPresent && !characterEditorPresent && !dialogPresent);
 
   if (Menus::MessagePopupHandler::Process()) {
     Menus::TextEditHandler::Reset();
@@ -72,6 +76,8 @@ bool Process() {
   if (containerBlocksGameplay)
     return true;
   if (pipBoyBlocksGameplay)
+    return true;
+  if (vatsBlocksGameplay)
     return true;
 
   // Unknown menus are not automated yet, but they still pause gameplay automation.
