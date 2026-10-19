@@ -6,6 +6,7 @@
 #include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
 #include "Menus/PipBoyHandler.hpp"
+#include "StanceHandler.hpp"
 #include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
 #include "common.hpp"
@@ -168,6 +169,7 @@ void NeuroSDK::MainLoop() {
   const bool menuBlocksGameplay = MenuHandler::Process();
   GameplayHandler::Process(menuBlocksGameplay);
   CombatHandler::Process(menuBlocksGameplay);
+  StanceHandler::Process(menuBlocksGameplay);
   Actions::ActionRegistry::Get().Dispatch(TakeActionInbox());
 
   // Opening is accepted after menu observation. Pause Walker on that same frame,
@@ -182,6 +184,7 @@ void NeuroSDK::ResetAutomation(bool connectionLost) {
   MenuHandler::Reset();
   GameplayHandler::Reset();
   CombatHandler::Reset();
+  StanceHandler::Reset();
   Actions::ActionRegistry::Get().Reset();
   if (connectionLost)
     Actions::ActionRegistry::Get().DropPendingResults();
