@@ -1,4 +1,5 @@
 #include "ContainerHandler.hpp"
+#include "Actions/Container/CloseContainerAction.hpp"
 #include "Actions/Container/LootAllAction.hpp"
 #include "Actions/Container/LootItemAction.hpp"
 #include "Actions/Container/QueryItemsAction.hpp"
@@ -27,6 +28,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr auto kStepDelay = std::chrono::milliseconds(350);
 constexpr auto kTransferTimeout = std::chrono::seconds(60);
+constexpr auto kCloseTimeout = std::chrono::seconds(5);
 
 struct Transfer {
   Inventory::ItemIdentity identity;
@@ -40,8 +42,16 @@ struct Transfer {
   Clock::time_point pausedAt{};
 };
 
+// An accepted close_container: the native Exit button is clicked after a visible step, then the menu must leave.
+struct CloseRequest {
+  Clock::time_point startedAt{};
+  Clock::time_point nextStepAt{};
+  bool clicked = false;
+};
+
 Actions::PersistentActionSet g_actions;
 bool g_actionsBuilt = false;
+std::optional<CloseRequest> g_close;
 ContainerMenu *g_owner = nullptr;
 uint32_t g_containerId = 0;
 uint64_t g_session = 0;
@@ -72,6 +82,8 @@ std::vector<Inventory::ListedItem> ReadPage(bool own, Inventory::ItemQueryType t
 std::optional<std::string> ValidateSession(uint64_t session) {
   if (session != g_session || !IsActive())
     return "The looting container is no longer the active menu. Open a container first.";
+  if (g_close)
+    return "The container is being closed.";
   return std::nullopt;
 }
 
@@ -94,7 +106,8 @@ bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool openin
           << " uses indexes from this listing and transfers the entire stack. Indexes stay fixed until your next "
           << (own ? "query_own_items" : "query_items") << " or until the container closes.";
   if (opening)
-    context << "\nContainer actions: loot_item, query_items, loot_all, query_own_items, stow_away_item. "
+    context << "\nContainer actions: loot_item, query_items, loot_all, query_own_items, stow_away_item, "
+               "close_container (leave without taking anything). "
                "Query your own items before stowing anything. Query types: All, Weapons, Equipment, Consumerable, "
                "WeaponMods, "
                "Keys, Misc; type defaults to All. Weapons includes ammunition; Equipment is armor and clothing; "
@@ -113,7 +126,8 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Container::QueryItemsAction>())
       .Add(std::make_unique<Actions::Container::LootAllAction>())
       .Add(std::make_unique<Actions::Container::QueryOwnItemsAction>())
-      .Add(std::make_unique<Actions::Container::StowAwayItemAction>());
+      .Add(std::make_unique<Actions::Container::StowAwayItemAction>())
+      .Add(std::make_unique<Actions::Container::CloseContainerAction>());
   g_actionsBuilt = true;
 }
 
@@ -282,9 +296,39 @@ void AdvanceTransfer() {
   transfer.phase = Transfer::Phase::Confirm;
 }
 
+void FailClose(const std::string &reason) {
+  _WARNING("Container close failed: %s", reason.c_str());
+  g_close.reset();
+  NeuroSDK::SendContext(("## Container\n" + reason + " The container is still open.").c_str(), false);
+}
+
+void AdvanceClose() {
+  if (!g_close)
+    return;
+  const auto now = Clock::now();
+  if (g_close->startedAt == Clock::time_point{}) {
+    g_close->startedAt = now;
+    g_close->nextStepAt = now + kStepDelay;
+  }
+  if (now - g_close->startedAt > kCloseTimeout) {
+    FailClose("The container did not close.");
+    return;
+  }
+  if (g_close->clicked || now < g_close->nextStepAt)
+    return;
+  // The Exit button is the native control behind the keyboard E shortcut (container_menu.xml, CM_ExitButton).
+  auto *control = UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_ExitButton");
+  if (!UIUtils::IsControlAvailable(control) || !UIUtils::ClickTile(g_owner, control)) {
+    FailClose("The Exit button is unavailable.");
+    return;
+  }
+  g_close->clicked = true;
+}
+
 } // namespace
 
 void Reset() {
+  g_close.reset();
   g_actions.Unregister();
   g_owner = nullptr;
   g_containerId = 0;
@@ -300,6 +344,8 @@ bool Process() {
   const bool visible = Menu::IsMenuVisible(Interface::Container);
   if (!visible || !menu || !menu->containerRef) {
     if (g_owner) {
+      if (g_close && g_close->clicked)
+        NeuroSDK::SendContext("## Container\nYou closed the container. Gameplay controls are available again.", true);
       if (!g_transfers.empty()) {
         if (g_transfers.front().all && g_transfers.front().phase == Transfer::Phase::Observe)
           NeuroSDK::SendContext("## Container loot\nTake All was activated and the container menu closed.", true);
@@ -321,6 +367,7 @@ bool Process() {
     g_openedAt = Clock::now();
   }
   AdvanceTransfer();
+  AdvanceClose();
   if (!IsActive()) {
     g_actions.Unregister();
     return !g_transfers.empty();
@@ -411,6 +458,22 @@ Actions::PreparedAction PrepareLootAll() {
   if (auto error = revalidate())
     return Actions::PreparedAction::Failure(*error);
   return Actions::PreparedAction::Success([] { g_transfers.push_back({.all = true}); }, revalidate);
+}
+
+Actions::PreparedAction PrepareClose() {
+  const uint64_t session = g_session;
+  auto revalidate = [session]() -> std::optional<std::string> {
+    if (auto error = ValidateSession(session))
+      return error;
+    if (!g_transfers.empty())
+      return "Wait for the accepted item transfers to finish before closing the container.";
+    if (!UIUtils::IsControlAvailable(UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_ExitButton")))
+      return "The container cannot be closed right now.";
+    return std::nullopt;
+  };
+  if (auto error = revalidate())
+    return Actions::PreparedAction::Failure(*error);
+  return Actions::PreparedAction::Success([] { g_close = CloseRequest{}; }, revalidate);
 }
 
 } // namespace Menus::ContainerHandler

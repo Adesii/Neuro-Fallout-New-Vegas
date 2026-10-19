@@ -5,11 +5,11 @@ One file per task, so each can be handed to an agent on its own. Status is in th
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 01 | [crouch_toggle action](01-crouch-toggle.md) | Gameplay actions |
-| 02 | [stop_move action](02-stop-move.md) | Walker |
+| 01 | [crouch_toggle action](01-crouch-toggle.md) (done, needs in-game test) | Gameplay actions |
+| 02 | [stop_move action](02-stop-move.md) (done, needs in-game test) | Walker |
 | 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
-| 05 | [close_container action](05-close-container.md) | Container |
+| 05 | [close_container action](05-close-container.md) (done, needs in-game test) | Container |
 | 06 | [Periodic status reminders](06-periodic-status.md) | Context |
 | 07 | [query_nearby top 20 with priority](07-query-nearby-priority.md) | Gameplay actions |
 

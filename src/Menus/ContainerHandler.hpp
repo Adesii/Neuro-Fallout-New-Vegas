@@ -10,5 +10,6 @@ bool Process();
 Actions::PreparedAction PrepareQuery(bool ownInventory, int page, Inventory::ItemQueryType type);
 Actions::PreparedAction PrepareTransfer(bool stow, int index);
 Actions::PreparedAction PrepareLootAll();
+Actions::PreparedAction PrepareClose();
 
 } // namespace Menus::ContainerHandler
