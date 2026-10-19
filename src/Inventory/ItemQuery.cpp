@@ -90,4 +90,24 @@ Actions::Json::JsonSchema BuildItemQuerySchema() {
   return schema;
 }
 
+bool ParseItemIndex(const Actions::ActionData &data, int &index, std::string &error) {
+  if (!data.IsObject() || data.Size() != 1 || !data.HasProperty("index") || !data.GetInteger("index", index)) {
+    error = "Expected exactly one integer field: index.";
+    return false;
+  }
+  if (index < 1) {
+    error = "index must be a one-based item index of at least 1.";
+    return false;
+  }
+  return true;
+}
+
+Actions::Json::JsonSchema BuildItemIndexSchema() {
+  auto schema = Actions::Json::JsonSchema::Object();
+  auto index = Actions::Json::JsonSchema::Integer();
+  index.Minimum(1);
+  schema.Property("index", std::move(index));
+  return schema;
+}
+
 } // namespace Inventory

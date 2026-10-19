@@ -9,6 +9,7 @@
 #include "GameObjects.h"
 #include "GameUI.h"
 #include "Inventory/ItemListing.hpp"
+#include "Inventory/MenuItems.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/UIUtils.hpp"
@@ -56,70 +57,14 @@ bool IsActive() {
 MenuItemEntryList &Items(bool own) { return own ? g_owner->leftItems : g_owner->rightItems; }
 Inventory::ItemListing &Listing(bool own) { return own ? g_ownItems : g_containerItems; }
 
-Inventory::ItemIdentity Identity(ItemChange *item) {
-  ExtraDataList *extra = nullptr;
-  for (auto *node = item->pExtraLists; node && !extra; node = node->GetNext())
-    extra = node->GetItem();
-  return {item->pObject->GetFormID(), reinterpret_cast<uintptr_t>(extra)};
-}
-
-bool MatchesIdentity(ItemChange *item, const Inventory::ItemIdentity &identity) {
-  if (item->pObject->GetFormID() != identity.formId)
-    return false;
-  if (!identity.extra)
-    return !Identity(item).extra;
-  for (auto *node = item->pExtraLists; node; node = node->GetNext())
-    if (reinterpret_cast<uintptr_t>(node->GetItem()) == identity.extra)
-      return true;
-  return false;
-}
-
 ListBoxItem<ItemChange *> *FindLive(bool own, const Inventory::ItemIdentity &identity, bool *ambiguous = nullptr) {
-  ListBoxItem<ItemChange *> *found = nullptr;
-  for (auto *node = Items(own).GetHead(); node; node = node->GetNext()) {
-    auto *row = node->GetItem();
-    if (!row || !row->tile || !row->object || !row->object->pObject || row->object->iNumber <= 0 ||
-        !MatchesIdentity(row->object, identity))
-      continue;
-    // Ambiguous stacks are never resolved by a shifting index or by base form alone.
-    if (found) {
-      if (ambiguous)
-        *ambiguous = true;
-      return nullptr;
-    }
-    found = row;
-  }
-  return found;
+  return Inventory::FindMenuItem(Items(own), identity, ambiguous);
 }
 
-size_t CountItems(bool own, Inventory::ItemQueryType type) {
-  size_t count = 0;
-  for (auto *node = Items(own).GetHead(); node; node = node->GetNext()) {
-    auto *row = node->GetItem();
-    auto *item = row ? row->object : nullptr;
-    if (item && item->pObject && item->iNumber > 0 && Inventory::MatchesQuery(item->pObject, type))
-      ++count;
-  }
-  return count;
-}
+size_t CountItems(bool own, Inventory::ItemQueryType type) { return Inventory::CountMenuItems(Items(own), type); }
 
 std::vector<Inventory::ListedItem> ReadPage(bool own, Inventory::ItemQueryType type, size_t first) {
-  std::vector<Inventory::ListedItem> items;
-  items.reserve(Inventory::kItemsPerPage);
-  size_t index = 0;
-  for (auto *node = Items(own).GetHead(); node && items.size() < Inventory::kItemsPerPage; node = node->GetNext()) {
-    auto *row = node->GetItem();
-    auto *item = row ? row->object : nullptr;
-    if (!item || !item->pObject || item->iNumber <= 0 || !Inventory::MatchesQuery(item->pObject, type))
-      continue;
-    if (index++ < first)
-      continue;
-    std::string name = UIUtils::GetTileString(row->tile ? row->tile->GetChild("ListItemText") : nullptr);
-    if (name.empty())
-      name = GetFullName(item->pObject);
-    items.push_back({Identity(item), std::move(name), item->iNumber, item->GetWorn(false)});
-  }
-  return items;
+  return Inventory::ReadMenuItemPage(Items(own), type, first);
 }
 
 std::optional<std::string> ValidateSession(uint64_t session) {
