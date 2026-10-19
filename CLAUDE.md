@@ -26,6 +26,8 @@
 - Action windows are client-only and visual menu execution must lock out window regeneration and Walker until actual completion. Do not infer menu-open state from retained engine singleton pointers; use top/active menu state.
 - Neuro supports only one active action force. Preserve the process-wide force ownership guard in `src/Actions/ActionWindow.cpp` when adding independently forceable systems.
 
+- Menus without automation yet are stubbed in `src/Menus/StubMenuHandler.cpp`: while one is open Neuro gets one `close_*` action and a context saying the rest is not implemented. When you implement a menu for real, give it its own handler and delete its table entry. Exit-control paths come from the private menu XML and are unverified in game; menus whose exit is handled in code (hacking, terminals, surgery, caravan), the level-up menu and blackjack are intentionally not stubbed.
+
 ### Menu inventory scopes
 
 - Container looting/stowing (`ContainerHandler`, `src/Actions/Container/`) and Pip-Boy inventory (`PipBoyHandler`, `InventoryHandler`) have detailed rules in `.claude/rules/container-inventory.md` and `.claude/rules/pipboy-inventory.md`. They load automatically when you read files under the matching `src/` paths; read them explicitly before designing changes elsewhere.

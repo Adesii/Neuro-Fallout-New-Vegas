@@ -27,8 +27,10 @@ Opening a container then `close_container` leaves the menu and resumes Walker; w
   while closing every other container action is refused. Sends "You closed the container." when the menu leaves; 5 s timeout
   reports failure.
 - Unverified: that clicking the Exit tile closes the menu (Take All uses the same mechanism).
-- Other menus with the same gap (not changed): none checked in game; Pip-Boy already has `close_pipboy`. Barter,
-  lockpick, hacking, computer terminals, repair and recipe menus have no Neuro handler at all yet, so they have no actions
-  of any kind.
+- Other menus with the same gap: Pip-Boy already has `close_pipboy`. Barter, lockpick, repair, repair services, weapon
+  mod, recipe, sleep/wait, slot machine, roulette, companion wheel, tutorial and book menus now have a stub
+  (`src/Menus/StubMenuHandler.*`) offering only a `close_*` action. Hacking, terminals, surgery, caravan, blackjack and
+  the level-up menu are not stubbed (exit handled in code / state dependent / must not be skipped) and still have no
+  actions.
 - Manual checks: open a container and call `close_container` straight away; again right after `loot_item` (refused while the
   transfer runs, accepted after); confirm Walker resumes.
