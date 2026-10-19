@@ -11,9 +11,7 @@
     ],
     "deny": [
       "Edit(.reference-data/**)",
-      "Write(.reference-data/**)",
-      "Edit(extracts/**)",
-      "Write(extracts/**)"
+      "Edit(extracts/**)"
     ]
   },
   "hooks": {
