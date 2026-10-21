@@ -6,6 +6,12 @@ Status: open
 While waiting for something to finish (long dialogue sequences, the Vit-O-Matic during character creation, other
 cutscene-like moments) Neuro hears nothing and does not know what is going on.
 
+## Scope note (2026-10-21)
+The generic idle/post-action nudge is a separate system, see `24-idle-poke-and-wakeup.md` (designer decision: Skyrim-style
+generic non-silent poke, which also fires during idle gameplay). This todo is only about *describing what is going on*
+while the game is busy or blocked. Do not merge the two; make sure a status reminder counts as activity for the poke
+timer so they never stack.
+
 ## Goal
 A status reminder sent every ~5-10 s while the game is busy or blocked, describing where she is and what she is doing
 (current menu/phase, active Walker command, combat engagement, dialogue speaker, waiting for ...).
@@ -22,4 +28,5 @@ A status reminder sent every ~5-10 s while the game is busy or blocked, describi
   command in progress, an `attack` engagement, a menu waiting for her choice.
 
 ## Done when
-Reminders arrive at the chosen interval during the examples above, never during idle gameplay, and are tested on the host.
+Reminders arrive at the chosen interval during the examples above, never during plain idle gameplay (the poke in todo 24
+owns that), and are tested on the host.

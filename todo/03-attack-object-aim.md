@@ -6,6 +6,12 @@ Status: open
 In the quest "Back in the Saddle" (shooting the bottles on the fence) the automatic `attack` with `object_id` misses:
 the aim lands above the bottles. Attacking them directly (manually) works.
 
+## Related
+Aim heights, stance-aware eye height and the angle maths are unified in `27-aim-unification.md`; do the
+measurements here first and feed the numbers into that todo. Candidate causes found in the code review: object aim
+height of 20 units, a fixed eye height of 100 (wrong when crouched), and a ~4 degree pitch tolerance
+(`docs/code-review.md` A6).
+
 ## Where to look
 - `src/utils/AimUtils.*` (aim point computation) and `src/CombatHandler.cpp` free-aim path for non-actor targets.
 - Aim is probably computed at the reference origin or bounding-box centre; for small props the origin is at the base

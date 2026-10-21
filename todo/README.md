@@ -3,6 +3,9 @@
 One file per task, so each can be handed to an agent on its own. Status is in the first line of each file
 (`Status: open | in progress | done`). Update it, and delete or move the file when the work is committed.
 
+Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sections record what the designer chose;
+"Open questions" sections must be answered before coding that part.
+
 | # | Task | Area |
 | - | ---- | ---- |
 | 01 | [crouch_toggle action](01-crouch-toggle.md) (done, needs in-game test) | Gameplay actions |
@@ -10,7 +13,7 @@ One file per task, so each can be handed to an agent on its own. Status is in th
 | 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
 | 05 | [close_container action](05-close-container.md) (done, needs in-game test) | Container |
-| 06 | [Periodic status reminders](06-periodic-status.md) | Context |
+| 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
 | 07 | [query_nearby top 20 with priority](07-query-nearby-priority.md) | Gameplay actions |
 | 08 | [In-game verification of the latest changes](08-verify-in-game.md) | Testing |
 | 09 | [Hacking menu (terminal lock minigame)](09-hacking-menu.md) | Menus |
@@ -28,10 +31,32 @@ One file per task, so each can be handed to an agent on its own. Status is in th
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
 | 23 | [Keep the game running when the window is unfocused](23-background-focus.md) | Plugin |
+| 24 | [Idle poke, post-action wake-up and greeting](24-idle-poke-and-wakeup.md) | Context / scheduling |
+| 25 | [Walker stuck detection, recovery, jump, doors, timeouts](25-walker-stuck-recovery.md) | Walker |
+| 26 | [Walker interaction line-of-sight and progress/failure feedback](26-walker-interaction-and-feedback.md) | Walker / Context |
+| 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) | Aim / Combat |
+| 28 | [Location notices and throttled "you see" push](28-location-and-world-context.md) | Context |
+| 29 | [Damage, death and combat-start messages](29-player-status-and-damage-context.md) | Context / Combat |
+| 30 | [Context reliability: disconnects, dedupe, subtitles](30-sdk-context-reliability.md) | SDK / Context |
+| 31 | [Menu window lifecycle and timeout fixes (popup starvation)](31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
+| 32 | [Input injection safety (held keys, pulses, hook)](32-input-injection-safety.md) | Input (bugs) |
+| 33 | [Action registry, scripts and tooling correctness](33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
+| 34 | [Combat engagement timing and small fixes](34-combat-engagement-fixes.md) | Combat (bugs) |
+| 35 | [Quest routing and object classification fixes](35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
+| 36 | [Cross-module duplication and hygiene](36-shared-utilities-cleanup.md) | Cleanup |
+| 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) | Cleanup |
+| 38 | [Engine-free extraction and missing host tests](38-engine-free-extraction-and-tests.md) | Tests |
+| 39 | [Report all distances to Neuro in metres](39-distances-in-metres.md) | Context formatting |
+
+Suggested order (from `docs/code-review.md` section F): 24, then 31/32/30 (bugs that can strand her), then 39 (metres,
+so later messages use the formatter from the start), then 25/26, 27 together with 03, then 29/28, then 33-35, then
+36-38.
 
 Notes for whoever picks one up:
 
 - Read `CLAUDE.md` first; for anything touching actions invoke the `neuro-fnv-actions` skill.
+- Features that exist in Skyrim (24, 26, 28, 29, 30): invoke the `skyrim-feature-port` skill and write
+  `docs/design/<feature>.md` first.
 - Cloud cannot run FNV: report what was verified, what is assumed, and give a manual in-game checklist.
 - Never invent engine addresses; follow `docs/reference-research.md`.
 - Add host tests beside any engine-free logic (`bash tools/test.sh`), format with `clang-format -i`, build with `just debug`.

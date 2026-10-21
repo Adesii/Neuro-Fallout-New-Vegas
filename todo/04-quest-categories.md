@@ -20,5 +20,10 @@ Group (or label) quests by category and make sure Neuro can choose by category o
   rule. Ask the designer how Neuro should prefer them (e.g. main first, DLC marked, optional last).
 - Keep ordering stable between calls; test the grouping/ordering logic on the host if it is engine-free.
 
+## Decision (designer, 2026-10-21)
+Ordering: **main story first, then optional/side quests, DLC quests labelled** with their DLC name but sorted by their
+own priority. Neuro can still pick any quest. Every line in `query_quests` carries a category tag. The data source for
+main vs optional is still the research question above.
+
 ## Done when
 Quest lists show a category, ordering follows the designer's preference, and the checklist covers a DLC and a side quest.

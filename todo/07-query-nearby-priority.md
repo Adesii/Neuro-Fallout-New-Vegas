@@ -9,6 +9,11 @@ are cut off.
 ## Goal
 Return at most 20 entries, chosen by importance first and distance second, so valuable/usable objects beat clutter.
 
+## Related
+- The code currently returns 30 entries sorted by distance only (`kNearbyLimit` in `GameplayHandler.cpp`); the cap decided here
+  is 20. Classification is shared with Walker in `35-quest-and-object-query-fixes.md`.
+- The throttled "you see" push in `28-location-and-world-context.md` must reuse this scoring, not add a second scorer.
+
 ## Notes
 - Code: `src/Actions/Gameplay/QueryNearbyAction.*`, `src/GameplayHandler.*`, `WorldUtils::ForEachLoadedReference`.
 - Need a priority scheme; propose one and confirm with the designer. Candidates: quest targets and NPCs first, then
