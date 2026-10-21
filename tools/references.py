@@ -24,9 +24,22 @@ MAX_FILE = 4 * 1024 * 1024
 MAX_RATIO = 200
 
 
+REQUIRED_FIELDS = ("name", "purpose", "license", "copy_allowed")
+COPY_ALLOWED = ("yes", "copyleft", "no")
+
+
 def load_manifest():
     with MANIFEST.open(encoding="utf-8") as stream:
-        return json.load(stream)
+        manifest = json.load(stream)
+    problems = []
+    for index, entry in enumerate(manifest["references"]):
+        label = entry.get("name", f"#{index}")
+        problems += [f"{label}: missing '{field}'" for field in REQUIRED_FIELDS if not entry.get(field)]
+        if entry.get("copy_allowed") not in COPY_ALLOWED:
+            problems.append(f"{label}: copy_allowed must be one of {', '.join(COPY_ALLOWED)}")
+    if problems:
+        raise RuntimeError("Invalid reference manifest:\n- " + "\n- ".join(problems))
+    return manifest
 
 
 def run(args, *, cwd=None, check=True, capture=False):
@@ -282,6 +295,7 @@ def check():
         if branch is not None:
             state += ", attached HEAD"
         print(f"- {name}: {actual or 'unknown'} ({state}) [{path.resolve()}]")
+        print(f"    copy_allowed: {entry['copy_allowed']}")
         # External roots are user-owned: report drift but never rewrite or reject them.
         # Managed acquisitions must remain clean, pinned, and detached.
         if managed and (expected and actual != expected or dirty or branch is not None):

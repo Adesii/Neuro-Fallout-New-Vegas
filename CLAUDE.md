@@ -45,6 +45,14 @@
 - Never invent engine addresses, layouts, offsets, menu IDs, control names or undocumented behavior. Match FNV 1.4.0.525 and distinguish source/XML-backed facts from assumptions needing runtime testing.
 - Before copying or adapting code, inspect the exact source license/provenance; preserve required notices and credit the plugin, revision and source file. Public availability is not permission; no license or incompatible terms means no copying.
 
+## Designing features from the Skyrim integration
+
+- The Skyrim Neuro integration (`Neuro-Skyrim-Integration` in `tools/reference-manifest.json`) is the behavioral target for Neuro-facing features (context content, poking/hinting, timing, suppression rules). It was tested live on stream, so where it disagrees with neuro-sdk best-practice prose, Skyrim wins. The neuro-sdk API spec still decides what messages and fields are valid.
+- It is an idea source only. Do not copy code or mirror its structure. Extract the behavior and the reasoning, then adapt it to this codebase's existing owners (`NeuroSDK.cpp`, `MenuHandler`, `ActionRegistry`, `WalkerHandler`, ...). Do not add a parallel system when an existing module can be extended.
+- Before implementing a feature that has a Skyrim counterpart, invoke the `skyrim-feature-port` skill (`.claude/skills/skyrim-feature-port/SKILL.md`). Design notes go in `docs/design/<feature>.md`; raw ideas stay in `todo/`.
+- Skyrim's script-layer and event mechanisms do not carry over to xNVSE automatically. Mark every mechanism that needs an FNV-side equivalent as unverified until it is checked against project sources, NVSE/JG definitions or reference plugins.
+- Scheduling and policy logic (cooldowns, suppression, rate limits, "is this worth sending") belongs in an engine-free module with host tests, like `src/Combat/CombatLogic.*`. Only the hooks that read game state touch the engine.
+
 ## Hard constraints and boundaries
 
 - The plugin is tied to 32-bit Fallout: New Vegas `1.4.0.525` (`RUNTIME_VERSION=0x040020D0`) and uses absolute engine addresses plus memory-layout overlays. Do not change architecture, packing, structure layouts, or runtime version without auditing hooks, `src/defs/`, and `src/itr/` together.

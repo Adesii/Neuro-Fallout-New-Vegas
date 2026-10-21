@@ -8,7 +8,9 @@ Run `python3 tools/references.py setup`, then `python3 tools/references.py check
 
 - `.reference-data/repos/<repository>/`: public plugin/SDK reference sources.
 - `.reference-data/extracts/menus/`: optional privately supplied menu XML.
-- `tools/reference-manifest.json`: upstream URLs, pinned revisions, purpose and license pointers.
+- `tools/reference-manifest.json`: upstream URLs, pinned revisions, purpose, target game, license and whether copying is allowed.
+
+Each manifest entry has `name` (also the directory name under `repos/`), `url`, `revision`, `purpose` (what it contains and when to consult it), `targets` (game/runtime), `license`, `license_file`, `copy_allowed` and `caveat`. `copy_allowed` is `yes` (permissive; keep notices), `copyleft` (review license compatibility before adapting) or `no` (no/unclear license, or project policy). `setup` and `check` reject entries missing `name`, `purpose`, `license` or a valid `copy_allowed`. `revision` is the pinned commit; a local checkout that differs is reported by `check` as unpinned, not rewritten.
 
 Existing valid local `.references` roots are reusable without copying the corpus. Explicit `NEURO_FNV_REFERENCE_ROOT` and `NEURO_FNV_MENU_ROOT` overrides take precedence. Do not modify, reset, format, build, or initialize recursive submodules in external reference directories. Local checkouts may differ from the manifest; report the actual revision used. Managed checkouts are pinned; updating the manifest is a deliberate infrastructure change, not a side effect of feature work.
 
@@ -23,9 +25,12 @@ Existing valid local `.references` roots are reusable without copying the corpus
 | itr-nvse | Engine hooks, input, navigation/gameplay utility patterns; provenance for this project's adapted `src/itr/`. Inspect implementation as well as `FEATURES.md` and `THIRD_PARTY.md`. |
 | yUI-NVSE | Inventory sorting/icons, tile/UI integration and alternative engine definitions (`yUI/`, `CommonLib/`, `nvse/`). Watch for UI modifications and borrowed-source licensing. |
 | sup | SUP UI/HUD bar and tile manipulation, utility/plugin commands; start in `nvse_plugin_example/`. Treat absent or unclear licensing as a prohibition on copying, not permission. |
-| neuro-sdk | Official protocol, `API/BEST_PRACTICES.md`, action/schema/context examples. Not the project's C transport dependency: that is the pinned `libs/libneurosdk` submodule. |
+| neuro-sdk | Official protocol (`API/SPECIFICATION.md`), `API/BEST_PRACTICES.md`, action/schema/context examples. Decides which messages and fields are valid. Not the project's C transport dependency: that is the pinned `libs/libneurosdk` submodule. |
+| Neuro-Skyrim-Integration | Behavioral reference for what to send Neuro, when, how often and when to suppress it (`src/*Processor.cpp`). Live-tested on stream, so it wins over neuro-sdk best-practice prose on behavior. Skyrim SE/SKSE only: idea source, never a code source. Use the `skyrim-feature-port` skill. |
 
 The table is a search map, not a blanket compatibility or license guarantee. Use the manifest and the exact source file's notices at the revision you inspect.
+
+Which source first: Neuro-facing behavior starts with Neuro-Skyrim-Integration and message validity with neuro-sdk; menu reading with FalloutNVAccess and private menu XML; engine hooks and gameplay with itr-nvse; engine call patterns with JIP-LN-NVSE and JohnnyGuitarNVSE; plugin API with NVSE; sup and yUI-NVSE only for HUD/tile gaps. Only entries with `copy_allowed` `yes` can be adapted, and Neuro-Skyrim-Integration is `no` by project policy despite its MIT license.
 
 ## Research order
 

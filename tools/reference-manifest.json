@@ -1,68 +1,103 @@
 {
   "references": [
     {
+      "name": "neuro-sdk",
+      "url": "https://github.com/VedalAI/neuro-sdk.git",
+      "revision": "0cad33ac692f6cc90d36747fea9bbc53ca34b97a",
+      "purpose": "Defines the Neuro API contract: which websocket messages and fields are valid (API/SPECIFICATION.md), plus API/BEST_PRACTICES.md and PROPOSALS.md. Consult it to decide whether a message, action schema or field is legal. Where BEST_PRACTICES.md prose disagrees with the live-tested behavior of Neuro-Skyrim-Integration, Skyrim wins on behavior; this repo still wins on what is valid. Not the project's C transport: that is the libs/libneurosdk submodule.",
+      "targets": "Engine-independent (Neuro API protocol)",
+      "license": "MIT",
+      "license_file": "LICENSE.md",
+      "copy_allowed": "yes",
+      "caveat": "Copyright Vedal AI 2024. Preserve the copyright and permission notice in copied substantial portions."
+    },
+    {
+      "name": "Neuro-Skyrim-Integration",
+      "url": "https://github.com/vituha230/Neuro-Skyrim-Integration.git",
+      "revision": "8cbec85a6232b6b3b00f91e58718789fd270a611",
+      "purpose": "Behavioral reference for Neuro-facing feature design: what to send to Neuro, when, how often, and when to suppress it (context content, poking/hinting, timing, per-menu action sets). Live-tested on stream. Source is in src/*Processor.cpp (one per menu or feature), script_sources/ (Papyrus) and docs/. Idea source only, not a code source: it targets Skyrim SE 1.6.1170 with SKSE and its script layer, so none of its engine mechanisms carry over to xNVSE. Invoke the skyrim-feature-port skill before using it.",
+      "targets": "Skyrim SE 1.6.1170 (SKSE); not Fallout: New Vegas",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "copy_allowed": "no",
+      "caveat": "Copyright vituha230 2026. The license would permit copying, but project policy (CLAUDE.md, 'Designing features from the Skyrim integration') makes this an idea source only: extract behavior and reasoning, do not copy code or mirror structure."
+    },
+    {
       "name": "FalloutNVAccess",
-      "url": "https://github.com/FalloutAccess/FalloutNVAccess.git",
+      "url": "https://git.alex19ep.me/alex19EP/FalloutNVAccess.git",
       "revision": "d24c62ef30394241d8b4920415acd1367fd0c776",
-      "purpose": "Reverse-engineered Fallout: New Vegas engine classes, layouts, and offsets.",
-      "license": "MIT (LICENSE)",
-      "caveat": "GitHub mirror contains the requested revision; retain MIT notice for copied substantial portions."
+      "purpose": "xNVSE screen-reader accessibility plugin for FNV. Contains reverse-engineered engine classes, layouts and offsets, plus concrete menu observation, inventory/Pip-Boy reading, dialogue and character-creation handling (start in src/). Consult it first for how a menu's tiles are read at runtime. Its README targets Vanilla UI Plus, so its tile paths may not exist in vanilla or other UI overhauls.",
+      "targets": "FNV 1.4.0.525 via xNVSE; menu code assumes Vanilla UI Plus",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "copy_allowed": "yes",
+      "caveat": "Copyright Alexander Epaneshnikov 2026. Preserve the notice in copied substantial portions; adapted definitions here are credited in src/defs/FalloutNVAccess-license.md. The revision is served by git.alex19ep.me. The former GitHub mirror (FalloutAccess/FalloutNVAccess) was not shown to contain this revision, so it is no longer used."
     },
     {
       "name": "itr-nvse",
       "url": "https://github.com/Into-The-Rough/itr-nvse.git",
-      "revision": "4aad925802432ffb759db9d8c020840e24404263",
-      "purpose": "Plugin examples and pathfinding-related implementation patterns.",
-      "license": "MIT (LICENSE)",
-      "caveat": "Preserve copyright and permission notices in copied substantial portions."
+      "revision": "bb6163347af04530a6070049bb26025a4604fbb8",
+      "purpose": "xNVSE plugin bundling engine fixes, gameplay tweaks, UI quality-of-life features and script commands/event hooks (see FEATURES.md). Consult it for engine hook, input and pathfinding patterns and for dialogue, radio, combat and VATS utilities. It is the provenance of this project's adapted src/itr/. Closer to gameplay logic than FalloutNVAccess, which is closer to menu reading.",
+      "targets": "FNV 1.4.0.525 via xNVSE",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "copy_allowed": "yes",
+      "caveat": "Copyright Into the Rough contributors 2026. THIRD_PARTY.md lists code with other origins (PerlinNoise.hpp MIT, VATSSpeechFix ported from SoundFilteringSoftware, RefillAmmo based on ShowOff-NVSE, a bundled modified NVSE 5.1.4 SDK with its own licence). Check THIRD_PARTY.md and the file before copying anything; preserve src/itr/itr-license.md."
     },
     {
       "name": "JIP-LN-NVSE",
       "url": "https://github.com/jazzisparis/JIP-LN-NVSE.git",
       "revision": "5a30ac4356ea0e93b9ff357b5031b1e420240a4d",
-      "purpose": "JIP-LN NVSE plugin source, commands, and engine integration patterns.",
-      "license": "GPL-3.0-or-later (LICENSE)",
-      "caveat": "Copyleft obligations apply to redistribution of derivative works; review full license before adapting."
+      "purpose": "JIP-LN NVSE plugin: 1000+ script functions and engine fixes (functions_jip/, functions_ln/, internal/, nvse/). Consult it for how an engine function is called, inventory and extra-data handling, UI/script commands and reverse-engineered call patterns. Largest source of engine call evidence; cross-check against JohnnyGuitarNVSE.",
+      "targets": "FNV 1.4.0.525 via NVSE",
+      "license": "GPL-3.0",
+      "license_file": "LICENSE",
+      "copy_allowed": "copyleft",
+      "caveat": "LICENSE is the GPLv3 text; 'or later' wording was not found in the repository, so only GPL-3.0 is recorded. Copyleft applies to derivative works: do not adapt code without reviewing compatibility with this project's license first."
     },
     {
       "name": "JohnnyGuitarNVSE",
       "url": "https://github.com/carxt/JohnnyGuitarNVSE.git",
-      "revision": "de352b278e2452abcf95cb96c6328983923b09ec",
-      "purpose": "JohnnyGuitar NVSE plugin source and command/API implementation patterns.",
-      "license": "LGPL-2.1 (LICENSE)",
-      "caveat": "Preserve notices and comply with LGPL conditions when adapting or distributing."
-    },
-    {
-      "name": "neuro-sdk",
-      "url": "https://github.com/VedalAI/neuro-sdk.git",
-      "revision": "0cad33ac692f6cc90d36747fea9bbc53ca34b97a",
-      "purpose": "Official Neuro SDK protocol and integration reference.",
-      "license": "MIT (LICENSE.md)",
-      "caveat": "Preserve copyright and permission notices in copied substantial portions."
+      "revision": "53617984a6cc22f3cd9814b7021bbf3cfedfc4f5",
+      "purpose": "JohnnyGuitar NVSE plugin: script functions, features and engine fixes (JG/, shared/). Source of the JG definitions already compiled here via libs/nvse/JG. Consult it for expanded Bethesda/Gamebryo class declarations, inventory/UI helpers and plugin command patterns, and to check this project's JG definitions against upstream.",
+      "targets": "FNV 1.4.0.525 via NVSE",
+      "license": "LGPL-2.1-only",
+      "license_file": "LICENSE",
+      "copy_allowed": "copyleft",
+      "caveat": "README states LGPLv2.1-only. Preserve notices and comply with LGPL conditions when adapting or distributing; review compatibility before copying."
     },
     {
       "name": "NVSE",
       "url": "https://github.com/xNVSE/NVSE.git",
-      "revision": "05f6d4f28370dedb1b9b10edf3fcdf750ae3de4e",
-      "purpose": "xNVSE runtime, plugin API, and example plugin source.",
-      "license": "No top-level license file found in the inspected local checkout",
-      "caveat": "Treat source as reference-only; do not redistribute/adapt unless file-level licensing is established."
+      "revision": "0ccd23ad885ddae533c1790a3fc56cd073e38de3",
+      "purpose": "xNVSE runtime and plugin API: interfaces, plugin lifecycle, engine type declarations, script command implementation, nvse_plugin_example/. Consult it for the authoritative plugin API and message types. Compare with the vendored libs/nvse first; upstream may be newer than the vendored copy.",
+      "targets": "FNV 1.4.0.525 via xNVSE",
+      "license": "No top-level license. common/ has Ian Patterson's zlib-style license (common/common_license.txt, covers common/ only); nvse/Algohol/ is MIT; nothing else is licensed.",
+      "license_file": null,
+      "copy_allowed": "no",
+      "caveat": "Reference only. The license is missing for the main source, so it is not copyable; the bundled common/ and Algohol licenses cover only those directories."
     },
     {
       "name": "yUI-NVSE",
       "url": "https://github.com/yvileapsis/yUI-NVSE.git",
-      "revision": "074e5e45286e4dfa8813a0fd58a11a78df8f9a67",
-      "purpose": "UI-focused NVSE plugin implementation and menu-facing behaviors.",
-      "license": "No top-level license file found in the inspected local checkout",
-      "caveat": "Treat source as reference-only; do not redistribute/adapt unless file-level licensing is established."
+      "revision": "77387bec3109e539d0284fadd5efb964ecc1b319",
+      "purpose": "yvileapsis's NVSE plugins (yUI/, CommonLib/, CrashLogger/, nvse/). Consult it for inventory sorting and icons, tile/UI integration, and alternative engine definitions. Its UI code modifies menus, so check whether a behavior is a mod change rather than vanilla.",
+      "targets": "FNV 1.4.0.525 via NVSE",
+      "license": "No license file found",
+      "license_file": null,
+      "copy_allowed": "no",
+      "caveat": "Reference only. README says it borrows liberally from lStewieAl's Tweaks and kNVSE, so provenance is mixed and unlicensed."
     },
     {
       "name": "sup",
       "url": "https://github.com/TommInfinite/SUP-NVSE-PLUGIN.git",
       "revision": "bd66533170df7235b913bbd6a421d6835578d34a",
-      "purpose": "SUP NVSE plugin source; UI helper declarations including Tomm_fn_UI.h.",
-      "license": "Unknown (no repository license metadata)",
-      "caveat": "The public GitHub repo is the older New2 branch snapshot (2021); the supplied local extraction may be newer and is unversioned. Nexus lists this upstream, but license is absent: reference-only; do not redistribute/adapt without permission."
+      "purpose": "SUP NVSE plugin: HUD bar and tile manipulation, utility and UI commands (Tomm_fn_UI.h; start in nvse_plugin_example/). Consult it only when tile or HUD manipulation evidence is missing from FalloutNVAccess and yUI-NVSE.",
+      "targets": "FNV 1.4.0.525 via NVSE",
+      "license": "No license for the plugin. The bundled common/ carries Ian Patterson's license, which covers only that directory.",
+      "license_file": null,
+      "copy_allowed": "no",
+      "caveat": "The revision is the public New2 branch head (2021), used only when cloning fresh. A local copy in .references may be unversioned and newer; `check` reports it as non-git. decoding.h says it was copied from JIP-LN-NVSE (GPL). Reference only: do not copy."
     }
   ],
   "menu_data": {
