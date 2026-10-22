@@ -54,7 +54,9 @@ Built and committed (one commit per item). Host tests: 127 pass (new: `StepTimer
    argument (`!popup && !textEdit && !characterEditor`, plus the existing Special-executing rule) and only then applies
    the popup/text-edit/editor precedence. A covered handler with no running execution closes its window (freeing the
    process-wide force) in the same frame, before `MessagePopupHandler` registers its own; with a running execution it
-   pauses. Dialog, CharGen and Traits already took the argument, so `MenuHandler` was the only change.
+   pauses. Traits and CharGen additionally had an early `return true` for "visible but not on top" that sat before their
+   close branch, so a covered window was never closed; both now call `CloseWindow()` there (found in review, fixed in a
+   follow-up commit). Dialog has no such branch.
 2. **Container close:** `AdvanceClose` returns while `IsActive()` is false, so Exit is never clicked under a popup.
 3. **Timers:** new engine-free `ScopedState::StepTimer` (host-tested): counts only running frames, skips stalls over 1 s
    and the first frame back. Used by Dialog, Message popup, Traits, CharGen, Special (execution and recovery timers),
@@ -70,6 +72,11 @@ Built and committed (one commit per item). Host tests: 127 pass (new: `StepTimer
    function and its two function-local statics are namespace-scope and cleared by `Reset()`; CharGen uses `/`.
 
 ### Unverified
+- `IsCovered()` is `IsMenuVisible(Message)` with something still on top (`GetTopMenuID() != NoMenu`); a visibility flag
+  that lingers after the popup closed while another menu is on top would keep Walker blocked until that menu closes.
+- The character editor now needs `RSM_next_button` to pass `IsControlAvailable` (visible and targetable, absent traits
+  count as available). `race_sex_menu.xml` sets neither trait on the button, but its `text_box.xml` template is not in
+  the extracts. If character creation stops advancing at the face editor, remove that check.
 - `Menu::IsMenuVisible(Interface::Message)` as the "popup still in the stack" test (same call the other handlers use for
   their own menus) and that a replaced identical popup builds new button tiles. If the engine reuses tiles, an
   identical follow-up still ends as a timeout rather than a mis-detected success.
@@ -86,5 +93,5 @@ Built and committed (one commit per item). Host tests: 127 pass (new: `StepTimer
 4. Two identical popups in a row (e.g. the same warning twice): the second one is answered, no "timed out".
 5. Open a container, accept `close_container`, and cover it with a popup before the Exit click: Exit is not clicked
    until the popup is gone.
-6. Character creation name prompt: the name is filled and OK is clicked; with the server's display name missing the log
+6. Character creation: the face editor (race/sex menu) advances to the next screen on its own; the name prompt: the name is filled and OK is clicked; with the server's display name missing the log
    warns once.

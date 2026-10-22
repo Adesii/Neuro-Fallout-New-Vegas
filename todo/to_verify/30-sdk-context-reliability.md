@@ -57,9 +57,9 @@ in this file served as its approval).
   with the same silence within 3 s of the last sent message is dropped (reported as delivered). A new connection
   re-arms the warning and forgets the last message. **Trade-off:** an identical query result requested twice within
   3 s is dropped; see the design note's open question.
-- Reconnect status: `GameplayHandler::BuildFreshStatus(reconnect)` (existing `BuildPlayerStatus` plus a short list of
-  active objectives, names only so it never rebuilds the `query_quests` ids) is sent non-silent once per connection,
-  as soon as a game is loaded. **Greeting (todo 24) and location (todo 28) are not implemented**: there is a marked
+- Reconnect status: `GameplayHandler::BuildFreshStatus()` (existing `BuildPlayerStatus` plus a short list of active
+  objectives, names only so it never rebuilds the `query_quests` ids) is sent non-silent once per *reconnect*, as soon
+  as a game is loaded. The first connection of a session gets no status (the greeting is todo 24). **Greeting (todo 24) and location (todo 28) are not implemented**: there is a marked
   slot in the builder and those two tasks stay open.
 - `CombatHandler::FlushNotes` clears its notes and starts the cooldown only after the send succeeded.
 - Subtitles: `SubtitleTracker` reports an entry only while it is new in the HUD array and forgets entries that left it,
@@ -78,5 +78,5 @@ in this file served as its approval).
 
 ### Manual in-game checklist
 See the design note; in short: stop the server mid-fight (one warning, no stale combat notes), restart it (one "Status
-after reconnecting" message with health, weapon and objectives), start the server at the main menu and load a save (one
-status after the load), load a save with subtitles on screen (no stale batch, a repeated bark is reported afterwards).
+after reconnecting" message with health, weapon and objectives), restart it again at the main menu and load a save (one
+status after the load; none on the very first connection of a session), load a save with subtitles on screen (no stale batch, a repeated bark is reported afterwards).
