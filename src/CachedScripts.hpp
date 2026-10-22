@@ -4,6 +4,7 @@
 #include "common.hpp"
 
 #include <bit>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -170,22 +171,36 @@
 
 namespace CachedScripts {
 
-inline std::unordered_map<std::string, Script *> scripts;
+// Scripts are keyed by the address of their source text, so sources must have static storage duration (the
+// constexpr arrays CREATE_PLUGINSCRIPT defines). This avoids allocating a std::string on every lookup.
+struct Entry {
+  Script *script = nullptr;
+  // A failed compile is not cached as a result: it is retried after a pause, logging once per attempt.
+  std::chrono::steady_clock::time_point retryAt{};
+};
+
+inline constexpr auto kCompileRetryDelay = std::chrono::seconds(5);
+
+inline std::unordered_map<const char *, Entry> scripts;
 
 inline Script *Get(const char *source) {
-  auto [it, inserted] = scripts.try_emplace(source);
-  if (inserted) {
-    if (!g_script) {
-      _ERROR("Cannot compile plugin script: xNVSE's script interface is unavailable.");
-      return nullptr;
-    }
+  auto &entry = scripts[source];
+  if (entry.script)
+    return entry.script;
 
-    it->second = g_script->CompileScript(source);
-    if (!it->second) {
-      _ERROR("Failed to compile plugin script:\n%s", source);
-    }
+  const auto now = std::chrono::steady_clock::now();
+  if (now < entry.retryAt)
+    return nullptr;
+  entry.retryAt = now + kCompileRetryDelay;
+
+  if (!g_script) {
+    _ERROR("Cannot compile plugin script: xNVSE's script interface is unavailable.");
+    return nullptr;
   }
-  return it->second;
+  entry.script = g_script->CompileScript(source);
+  if (!entry.script)
+    _ERROR("Failed to compile plugin script:\n%s", source);
+  return entry.script;
 }
 
 inline void *FloatArg(float value) {
@@ -193,44 +208,31 @@ inline void *FloatArg(float value) {
 }
 
 template <typename... Args>
-bool Call(const char *source, TESObjectREFR *callingRef, NVSEArrayVarInterface::Element &result, Args... args) {
+bool Invoke(const char *source, TESObjectREFR *callingRef, TESObjectREFR *containerRef,
+            NVSEArrayVarInterface::Element *result, Args... args) {
   Script *script = Get(source);
-  if (!script) {
+  if (!script)
     return false;
-  }
 
-  const bool success = g_script->CallFunction(script, callingRef, nullptr, &result, sizeof...(args), args...);
-  if (!success) {
+  const bool success = g_script->CallFunction(script, callingRef, containerRef, result, sizeof...(args), args...);
+  if (!success)
     _ERROR("Failed to execute cached plugin script:\n%s", source);
-  }
   return success;
 }
-template <typename... Args> bool CallNoResult(const char *source, Args... args) {
-  Script *script = Get(source);
-  if (!script) {
-    return false;
-  }
 
-  const bool success = g_script->CallFunction(script, nullptr, nullptr, nullptr, sizeof...(args), args...);
-  if (!success) {
-    _ERROR("Failed to execute cached plugin script:\n%s", source);
-  }
-  return success;
+template <typename... Args>
+bool Call(const char *source, TESObjectREFR *callingRef, NVSEArrayVarInterface::Element &result, Args... args) {
+  return Invoke(source, callingRef, nullptr, &result, args...);
+}
+
+template <typename... Args> bool CallNoResult(const char *source, Args... args) {
+  return Invoke(source, nullptr, nullptr, nullptr, args...);
 }
 
 template <typename... Args>
 bool CallC(const char *source, TESObjectREFR *callingRef, TESObjectREFR *containerRef,
            NVSEArrayVarInterface::Element &result, Args... args) {
-  Script *script = Get(source);
-  if (!script) {
-    return false;
-  }
-
-  const bool success = g_script->CallFunction(script, callingRef, containerRef, &result, sizeof...(args), args...);
-  if (!success) {
-    _ERROR("Failed to execute cached plugin script:\n%s", source);
-  }
-  return success;
+  return Invoke(source, callingRef, containerRef, &result, args...);
 }
 
 } // namespace CachedScripts
