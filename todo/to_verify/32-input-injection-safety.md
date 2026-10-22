@@ -1,6 +1,6 @@
 # 32 - Input injection safety (held keys, pulses, hook)
 
-Status: open
+Status: to verify
 Area: `src/utils/InputUtils.*`, `src/hooks/Hooks_DirectInput8Create.*`, `ResetAutomation`
 Source: `docs/code-review.md` B1, B2, B13
 
@@ -32,3 +32,35 @@ Source: `docs/code-review.md` B1, B2, B13
 ## Done when
 Overlapping pulses behave, a forced disconnect/load mid-fight leaves no key down (checked in game), and the input
 core has host tests.
+
+## Result (2026-10-22)
+Built and committed. Host tests: 123 pass; DLL builds. Nothing was run in game.
+
+- `src/hooks/InputCore.hpp` (engine-free): `KeyState` (the old `KeyInfo`) holds an owner bit mask instead of a bool
+  (`Owner`: Walker, CombatAttack, CombatPulse, StancePulse, VatsPulse). A key is held while any owner holds it and each
+  owner's hold/release is idempotent, so no owner can cancel another and unmatched releases are harmless. A plain
+  counter was rejected because the callers assert holds repeatedly (`SetAttackHeld(true)` each frame) and release
+  without having held.
+- `DIHookControl::SetKeyHeldState(owner, key, held)`; `ClearAllScripted()` clears holds, taps and every buffered queue
+  (the disable flags are kept: nothing sets them). It is the last step of `NeuroSDK::ResetAutomation`, which already runs
+  for preload, new game, exit to menu and disconnect.
+- `PulseQueue` takes an owner and refreshes an existing entry for the same control instead of pushing a duplicate (a
+  shorter second pulse never shortens a running one). It moved to `src/utils/PulseQueue.cpp` so it is host-tested.
+- Buffered injection: one bounded queue (64 events) per device type; `GetDeviceData` now uses its device type; taps queue
+  press and release together or not at all. `BufferedKey*` now take the device type; they are still unused.
+- `tests/InputCoreTests.cpp` (14 tests): key state, owners, merge/peek/overflow/null buffer, injection with no real
+  events (the unavailable-device case), pulse overlap and cross-queue ownership.
+
+### Unverified
+- The hook and `ProcessBufferedData` run only in the game; the extraction is behaviour-preserving by reading but
+  untested there.
+- Whether `ReadDeviceState` should re-acquire a device the game released on purpose (item 4 of the problem list) is still
+  an open question; the code is unchanged.
+
+### Manual in-game checklist
+1. Walk with Neuro (W held by Walker), start a fight (attack button held by combat), then kill the connection with
+   the server: after the plugin resets, no movement key or mouse button stays pressed.
+2. Load a save mid-fight and mid-walk: same check (the character stands still, no auto-fire).
+3. VATS plus crouch plus combat pulses in one fight: crouch toggles once per request, VATS keys still work.
+4. Alt-tab out and back while Neuro walks, open the console (`~`) and close it, minimise and restore: the game keeps
+   responding to the keyboard and mouse afterwards, and Neuro's input still works.
