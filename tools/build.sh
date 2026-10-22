@@ -52,8 +52,9 @@ if [[ -z "$cmake_bin" ]]; then
   exit 1
 fi
 command -v ninja >/dev/null || { echo "Missing build prerequisite: ninja (run tools/cloud-setup.sh)." >&2; exit 1; }
-if ! "$cmake_bin" --version | python3 -c 'import re,sys; s=sys.stdin.read(); m=re.search(r"cmake version ([0-9]+)[.]([0-9]+)", s); sys.exit(0 if m and tuple(map(int,m.groups())) >= (3,30) else 1)'; then
-  echo "CMake >= 3.30 is required." >&2
+cmake_version="$("$cmake_bin" --version | sed -n '1s/^cmake version \([0-9]*\.[0-9]*\).*/\1/p')"
+if [[ -z "$cmake_version" || "$(printf '%s\n3.30\n' "$cmake_version" | sort -V | head -n1)" != "3.30" ]]; then
+  echo "CMake >= 3.30 is required (found ${cmake_version:-unknown})." >&2
   exit 1
 fi
 if [[ ! -f "$ROOT_DIR/libs/libneurosdk/CMakeLists.txt" ]]; then

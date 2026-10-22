@@ -4,6 +4,17 @@
 set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${NEURO_FNV_TEST_BUILD_DIR:-$ROOT_DIR/build/tests}"
-cmake -S "$ROOT_DIR/tests" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug >/dev/null
-cmake --build "$build_dir" >/dev/null
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+
+# Build output is only shown when a step fails, so a compile error is never swallowed.
+quiet() {
+  if ! "$@" >"$log" 2>&1; then
+    cat "$log" >&2
+    exit 1
+  fi
+}
+
+quiet cmake -S "$ROOT_DIR/tests" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug
+quiet cmake --build "$build_dir"
 "$build_dir/neuro_fnv_tests" "$@"

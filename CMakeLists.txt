@@ -29,7 +29,6 @@ target_compile_definitions(neurosdk PRIVATE _CRT_RAND_S _GNU_SOURCE)
 # -----------------------------------------------------------------------------
 file(GLOB_RECURSE NEURO_FNV_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*/*.cpp"
 )
 
 add_library(neuro-fnv SHARED ${NEURO_FNV_SOURCES})
