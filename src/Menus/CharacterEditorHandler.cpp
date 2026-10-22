@@ -23,7 +23,7 @@ bool Process() {
 
   char componentPath[] = "NOGLOW_BRANCH/RSM_Background/RSM_next_button";
   auto *nextButton = menu->tile->GetComponentTile(componentPath);
-  if (nextButton && g_advanceDelay.Ready(menu, nextButton->name.c_str(), kAdvanceDelay) &&
+  if (UIUtils::IsControlAvailable(nextButton) && g_advanceDelay.Ready(menu, nextButton->name.c_str(), kAdvanceDelay) &&
       UIUtils::ClickTile(menu, nextButton)) {
     g_advanceDelay.Reset();
   }
