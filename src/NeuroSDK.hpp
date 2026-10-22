@@ -13,18 +13,12 @@
 #include <vector>
 class NeuroSDK : public ISingleton<NeuroSDK> {
 public:
-  enum class ActionPriority { Low, Medium, High, Critical };
+#include "NeuroSDKTransport.inc"
 
   bool Initialize();
   void MainLoop();
   // connectionLost additionally drops results still owed for request ids of the dead session.
   void ResetAutomation(bool connectionLost = false);
-  static bool SendContext(const char *message, bool silent = false);
-  static bool RegisterActions(const std::vector<Actions::Definition> &definitions);
-  static bool UnregisterActions(const std::vector<std::string> &names);
-  static bool ForceActions(const std::vector<std::string> &names, const std::string &query, const std::string &state,
-                           ActionPriority priority, bool ephemeralContext = false);
-  static bool SendActionResult(const std::string &id, bool success, const std::string &message);
   void RegisterCommands(NVSEInterface *nvse);
 
   static std::string GetCharacterDisplayName();

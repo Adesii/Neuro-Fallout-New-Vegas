@@ -12,7 +12,10 @@ ActionWindow *g_forcedWindow = nullptr;
 } // namespace
 
 ActionWindow::~ActionWindow() {
-  // Only the force guard is released: the registry may already be gone during static destruction.
+  // A window destroyed while its actions are still bound would leave the registry holding dangling pointers.
+  // The registry is intentionally never destroyed (see ActionRegistry::Get), so this is safe during static teardown.
+  if (m_state == State::Registered || m_state == State::Forced || m_state == State::Closing)
+    ActionRegistry::Get().Unbind(*this);
   if (m_ownsForce && g_forcedWindow == this)
     g_forcedWindow = nullptr;
 }

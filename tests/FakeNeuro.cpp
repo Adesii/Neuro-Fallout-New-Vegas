@@ -1,5 +1,6 @@
 #include "FakeNeuro.hpp"
 #include "Actions/ActionRegistry.hpp"
+#include "Actions/TransportRules.hpp"
 #include "NeuroSDK.hpp"
 #include <algorithm>
 
@@ -55,7 +56,7 @@ bool NeuroSDK::SendContext(const char *message, bool silent) {
 }
 
 bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitions) {
-  if (Fake::State().failRegister)
+  if (Fake::State().failRegister || !Actions::Transport::CanRegister(definitions))
     return false;
   std::vector<std::string> names;
   for (const auto &definition : definitions)
@@ -65,22 +66,24 @@ bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitio
 }
 
 bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
+  if (Actions::Transport::IsNoopUnregister(names))
+    return true;
   if (Fake::State().failUnregister)
     return false;
   Fake::Log("unregister:" + Join(names));
   return true;
 }
 
-bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &, const std::string &,
+bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &query, const std::string &,
                             ActionPriority, bool) {
-  if (Fake::State().failForce)
+  if (Fake::State().failForce || !Actions::Transport::CanForce(names, query))
     return false;
   Fake::Log("force:" + Join(names));
   return true;
 }
 
 bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::string &message) {
-  if (Fake::State().failResult)
+  if (Fake::State().failResult || !Actions::Transport::CanSendResult(id))
     return false;
   Fake::Log("result:" + id + ":" + (success ? "true" : "false") + ":" + message);
   return true;

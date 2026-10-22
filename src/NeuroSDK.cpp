@@ -1,6 +1,7 @@
 
 #include "NeuroSDK.hpp"
 #include "Actions/ActionRegistry.hpp"
+#include "Actions/TransportRules.hpp"
 #include "CachedScripts.hpp"
 #include "CombatHandler.hpp"
 #include "GameplayHandler.hpp"
@@ -222,18 +223,17 @@ bool NeuroSDK::SendContext(const char *message, bool silent) {
 }
 
 bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitions) {
-  if (definitions.empty())
+  std::string reason;
+  if (!Actions::Transport::CanRegister(definitions, &reason)) {
+    _WARNING("Cannot register actions: %s", reason.c_str());
     return false;
+  }
 
   std::vector<neurosdk_action_t> actions;
   std::vector<std::string> schemas;
   actions.reserve(definitions.size());
   schemas.reserve(definitions.size());
   for (const auto &definition : definitions) {
-    if (!definition.schema.IsEmpty() && definition.schema.GetType() != Actions::Json::JsonSchemaType::Object) {
-      _WARNING("Cannot register action '%s': root schema type must be object", definition.name.c_str());
-      return false;
-    }
     _DMESSAGE("Registering NeuroSDK action: %s", definition.name.c_str());
     schemas.push_back(definition.schema.Serialize());
     actions.push_back({.name = const_cast<char *>(definition.name.c_str()),
@@ -248,7 +248,7 @@ bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitio
 }
 
 bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
-  if (names.empty())
+  if (Actions::Transport::IsNoopUnregister(names))
     return true;
 
   std::vector<char *> actionNames;
@@ -267,7 +267,7 @@ bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
 
 bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &query, const std::string &state,
                             ActionPriority priority, bool ephemeralContext) {
-  if (names.empty() || query.empty())
+  if (!Actions::Transport::CanForce(names, query))
     return false;
   _DMESSAGE("Forcing %zu NeuroSDK action(s): %s", names.size(), query.c_str());
 
@@ -303,7 +303,7 @@ bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::st
 }
 
 bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::string &resultMessage) {
-  if (id.empty())
+  if (!Actions::Transport::CanSendResult(id))
     return false;
   _DMESSAGE("Sending action result (id: %s, success: %s): %s", id.c_str(), success ? "true" : "false",
             resultMessage.c_str());
@@ -341,15 +341,17 @@ bool NeuroSDK::PollMessages() {
 
   for (int index = 0; index < count; ++index) {
     auto &message = messages[index];
-    if (message.kind != NeuroSDK_MessageKind_Action)
-      continue;
-
-    const auto &action = message.value.action;
-    _DMESSAGE("Polled NeuroSDK action: %s (id: %s)", action.name ? action.name : "<missing>",
-              action.id ? action.id : "<missing>");
-    actionInbox.push_back({.id = action.id ? action.id : "",
-                           .name = action.name ? action.name : "",
-                           .data = action.data ? action.data : ""});
+    if (message.kind == NeuroSDK_MessageKind_Action) {
+      const auto &action = message.value.action;
+      _DMESSAGE("Polled NeuroSDK action: %s (id: %s)", action.name ? action.name : "<missing>",
+                action.id ? action.id : "<missing>");
+      actionInbox.push_back({.id = action.id ? action.id : "",
+                             .name = action.name ? action.name : "",
+                             .data = action.data ? action.data : ""});
+    }
+    // Every polled message is handed back, whatever its kind. The pinned libneurosdk only owns memory for Action
+    // messages and returns NeuroSDK_UnknownCommand for the rest without freeing anything; a library update that
+    // allocates for other kinds is then released without touching this loop.
     neurosdk_message_destroy(&message);
   }
   return true;

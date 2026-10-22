@@ -3,6 +3,7 @@
 #include "Actions/PersistentActionSet.hpp"
 #include "FakeNeuro.hpp"
 #include "TestFramework.hpp"
+#include "utils/ScopedState.hpp"
 
 using namespace Actions;
 using Fake::Action;
@@ -98,6 +99,43 @@ TEST("window: destroying a forced window releases the force guard") {
   ForceOn(next);
   CHECK(next.Register());
   next.End();
+}
+
+TEST("window: destroying a registered window unbinds its actions") {
+  Fake::ResetWorld();
+  auto dropped = std::make_unique<ActionWindow>();
+  dropped->Add(std::make_unique<Action>("one"));
+  REQUIRE(dropped->Register());
+  REQUIRE(IsBound("one"));
+  dropped.reset(); // without End()/Release(): the registry must not keep dangling pointers
+
+  CHECK(!IsBound("one"));
+  ActionWindow next;
+  next.Add(std::make_unique<Action>("one"));
+  CHECK(next.Register());
+  next.End();
+}
+
+TEST("window: destroying a forced or closing window unbinds its actions too") {
+  Fake::ResetWorld();
+  {
+    ActionWindow forced;
+    forced.Add(std::make_unique<Action>("one"));
+    ForceOn(forced);
+    REQUIRE(forced.Register());
+  }
+  CHECK(!IsBound("one"));
+
+  {
+    ActionWindow closing;
+    closing.Add(std::make_unique<Action>("two"));
+    REQUIRE(closing.Register());
+    State().failUnregister = true;
+    CHECK(!closing.End());
+    CHECK(closing.GetState() == ActionWindow::State::Closing);
+  }
+  State().failUnregister = false;
+  CHECK(!IsBound("two"));
 }
 
 TEST("window: release unregisters on the server when connected") {
@@ -243,14 +281,50 @@ TEST("persistent set: failed unregister is unbound at once and retried before re
 
 TEST("persistent set: failed server registration leaves nothing bound") {
   Fake::ResetWorld();
+  const auto start = ScopedState::Clock::now();
   PersistentActionSet set;
   set.Add(std::make_unique<Action>("one")).Add(std::make_unique<Action>("two"));
   State().failRegister = true;
-  CHECK(!set.Register());
+  CHECK(!set.Register(start));
   State().failRegister = false;
   CHECK(!IsBound("one"));
   CHECK(!IsBound("two"));
-  CHECK(set.Register());
+  CHECK(set.Register(start + PersistentActionSet::kRetryDelay));
+  set.Unregister();
+}
+
+TEST("persistent set: a failed registration is not retried until the backoff has passed") {
+  Fake::ResetWorld();
+  const auto start = ScopedState::Clock::now();
+  PersistentActionSet set;
+  set.Add(std::make_unique<Action>("one"));
+  State().failRegister = true;
+  CHECK(!set.Register(start));
+  State().failRegister = false;
+
+  // Every frame inside the delay is a cheap no-op: nothing is built, bound or sent.
+  CHECK(!set.Register(start + std::chrono::milliseconds(500)));
+  CHECK(!set.Register(start + PersistentActionSet::kRetryDelay - std::chrono::milliseconds(1)));
+  CHECK(!State().Contains("register:"));
+  CHECK(!IsBound("one"));
+
+  CHECK(set.Register(start + PersistentActionSet::kRetryDelay));
+  CHECK_EQ(State().Count("register:one"), size_t{1});
+  set.Unregister();
+}
+
+TEST("persistent set: resetting the registry clears the backoff so the set is restored at once") {
+  Fake::ResetWorld();
+  const auto start = ScopedState::Clock::now();
+  PersistentActionSet set;
+  set.Add(std::make_unique<Action>("one"));
+  State().failRegister = true;
+  CHECK(!set.Register(start));
+  State().failRegister = false;
+  CHECK(!set.Register(start));
+
+  ActionRegistry::Get().Reset(); // reconnect or load
+  CHECK(set.Register(start));
   set.Unregister();
 }
 
@@ -260,4 +334,19 @@ TEST("persistent set: invalid names are rejected") {
   set.Add(std::make_unique<Action>("Bad"));
   CHECK(!set.Register());
   CHECK(State().log.empty());
+}
+
+TEST("transport: the fake enforces the real preconditions") {
+  Fake::ResetWorld();
+  CHECK(!NeuroSDK::RegisterActions({}));
+  Actions::Definition array;
+  array.name = "bad";
+  array.schema = Json::JsonSchema::Array();
+  CHECK(!NeuroSDK::RegisterActions({array}));
+  CHECK(!NeuroSDK::SendActionResult("", true, ""));
+  CHECK(!NeuroSDK::ForceActions({}, "query", "", NeuroSDK::ActionPriority::Low));
+  CHECK(!NeuroSDK::ForceActions({"one"}, "", "", NeuroSDK::ActionPriority::Low));
+  CHECK(!NeuroSDK::ForceActions({""}, "query", "", NeuroSDK::ActionPriority::Low));
+  CHECK(NeuroSDK::UnregisterActions({}));
+  CHECK(State().log.empty()); // nothing reached the wire
 }

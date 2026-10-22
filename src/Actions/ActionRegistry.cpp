@@ -8,8 +8,10 @@
 namespace Actions {
 
 ActionRegistry &ActionRegistry::Get() {
-  static ActionRegistry registry;
-  return registry;
+  // Leaked on purpose: action windows owned by namespace-scope statics unbind from it in their destructors, which may
+  // run after a function-local static would already have been destroyed.
+  static auto *registry = new ActionRegistry;
+  return *registry;
 }
 
 bool ActionRegistry::Bind(IAction &action) {
@@ -57,6 +59,12 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
                       .revalidate = {}});
     };
 
+    if (request.id.empty()) {
+      // Nothing can be answered or acknowledged without an id; leave the window alone so Neuro can retry.
+      _WARNING("ActionRegistry dropped action '%s' because its request id is empty", request.name.c_str());
+      continue;
+    }
+
     auto entry = m_entries.find(request.name);
     if (entry == m_entries.end()) {
       _WARNING("ActionRegistry rejected unavailable action: %s", request.name.c_str());
@@ -97,6 +105,7 @@ void ActionRegistry::Dispatch(std::vector<Request> requests) {
 }
 
 void ActionRegistry::Reset() {
+  ++m_generation;
   m_entries.clear();
   for (auto &pending : m_pendingResults) {
     if (pending.success) {
@@ -116,10 +125,6 @@ bool ActionRegistry::HasPendingResult(const std::string &actionName) const {
 }
 
 void ActionRegistry::DeliverOrQueue(PendingResult result) {
-  if (result.id.empty()) {
-    _WARNING("Cannot deliver action result for '%s': request id is empty", result.actionName.c_str());
-    return;
-  }
   if (!NeuroSDK::SendActionResult(result.id, result.success, result.message)) {
     _WARNING("Action '%s' result send deferred", result.actionName.c_str());
     m_pendingResults.push_back(std::move(result));
@@ -132,6 +137,14 @@ void ActionRegistry::DeliverOrQueue(PendingResult result) {
 }
 
 void ActionRegistry::RetryPendingResults() {
+  // Executions run after the loop: a callback may push new pending results or reset the registry, which would
+  // invalidate the iterators of the loop below.
+  struct Finished {
+    std::string actionName;
+    std::function<void()> execute;
+  };
+  std::vector<Finished> finished;
+
   for (auto iter = m_pendingResults.begin(); iter != m_pendingResults.end();) {
     if (iter->success && iter->revalidate) {
       auto error = iter->revalidate();
@@ -147,13 +160,14 @@ void ActionRegistry::RetryPendingResults() {
       continue;
     }
 
-    const bool executeAccepted = iter->success;
-    const std::string actionName = iter->actionName;
-    auto execute = executeAccepted ? std::move(iter->execute) : std::function<void()>{};
+    finished.push_back({iter->actionName, iter->success ? std::move(iter->execute) : std::function<void()>{}});
     iter = m_pendingResults.erase(iter);
-    if (execute)
-      execute();
-    _MESSAGE("Deferred action '%s' result delivered", actionName.c_str());
+  }
+
+  for (auto &entry : finished) {
+    if (entry.execute)
+      entry.execute();
+    _MESSAGE("Deferred action '%s' result delivered", entry.actionName.c_str());
   }
 }
 

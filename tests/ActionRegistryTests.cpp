@@ -219,3 +219,51 @@ TEST("registry: duplicate names do not bind and unbind only removes the owner") 
   CHECK(State().Contains("result:14:true:"));
   ActionRegistry::Get().Unbind(*first);
 }
+
+TEST("dispatch: an empty id leaves the window open and runs nothing") {
+  Fake::ResetWorld();
+  ActionWindow window;
+  window.Add(LoggingAction("pick"));
+  REQUIRE(window.Register());
+
+  ActionRegistry::Get().Dispatch({MakeRequest("", "pick")});
+
+  CHECK(window.GetState() == ActionWindow::State::Registered);
+  CHECK(!State().Contains("validate"));
+  CHECK(!State().Contains("unregister:"));
+  CHECK(!State().Contains("result:"));
+
+  ActionRegistry::Get().Dispatch({MakeRequest("15", "pick")});
+  CHECK(State().Contains("result:15:true:"));
+}
+
+TEST("retry: executions run after the whole queue was processed, so a callback may queue more results") {
+  Fake::ResetWorld();
+  ActionWindow first;
+  first.Add(std::make_unique<Action>("first", [](const Request &) {
+    return PreparedAction::Success([] {
+      Log("execute:first");
+      // Queues a new pending result (the send fails) while the retry loop is still running.
+      State().failResult = true;
+      ActionRegistry::Get().Dispatch({MakeRequest("extra", "nobody")});
+    });
+  }));
+  ActionWindow second;
+  second.Add(LoggingAction("second"));
+  REQUIRE(first.Register());
+  REQUIRE(second.Register());
+
+  State().failResult = true;
+  ActionRegistry::Get().Dispatch({MakeRequest("20", "first"), MakeRequest("21", "second")});
+  CHECK(ActionRegistry::Get().HasPendingResult("first"));
+  CHECK(ActionRegistry::Get().HasPendingResult("second"));
+  State().failResult = false;
+
+  ActionRegistry::Get().Dispatch({});
+
+  CHECK_EQ(State().Count("result:20:true:"), size_t{1});
+  CHECK_EQ(State().Count("result:21:true:"), size_t{1});
+  CHECK_EQ(State().Count("execute:first"), size_t{1});
+  CHECK_EQ(State().Count("execute"), size_t{1});
+  ActionRegistry::Get().DropPendingResults();
+}

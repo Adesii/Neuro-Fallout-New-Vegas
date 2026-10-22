@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Action.hpp"
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -22,6 +23,8 @@ public:
   // Results owed for request ids of a dead connection can never be delivered usefully.
   void DropPendingResults();
   bool HasPendingResult(const std::string &actionName) const;
+  // Incremented by every Reset(), so owners with their own retry state can tell that the world was reset.
+  uint64_t Generation() const { return m_generation; }
 
 private:
   struct Entry {
@@ -40,6 +43,7 @@ private:
 
   std::unordered_map<std::string, Entry> m_entries;
   std::vector<PendingResult> m_pendingResults;
+  uint64_t m_generation = 0;
 
   void DeliverOrQueue(PendingResult result);
   void RetryPendingResults();

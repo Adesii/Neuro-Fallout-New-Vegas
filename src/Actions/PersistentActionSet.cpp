@@ -13,12 +13,20 @@ PersistentActionSet &PersistentActionSet::Add(std::unique_ptr<IAction> action) {
   return *this;
 }
 
-bool PersistentActionSet::Register() {
+bool PersistentActionSet::Register(ScopedState::Clock::time_point now) {
   if (m_state == State::Closing && !Unregister())
     return false;
   if (m_state == State::Registered)
     return true;
   if (m_actions.empty())
+    return false;
+
+  const uint64_t generation = ActionRegistry::Get().Generation();
+  if (generation != m_retryGeneration) {
+    m_retryGeneration = generation;
+    m_retry.Reset();
+  }
+  if (!m_retry.Ready(now))
     return false;
 
   std::vector<Definition> definitions;
@@ -28,6 +36,7 @@ bool PersistentActionSet::Register() {
     const auto &definition = action->GetDefinition();
     if (!IsValidActionName(definition.name) || !names.insert(definition.name).second) {
       _WARNING("PersistentActionSet rejected invalid or duplicate action name: %s", definition.name.c_str());
+      m_retry.Fail(now);
       return false;
     }
     definitions.push_back(definition);
@@ -39,6 +48,7 @@ bool PersistentActionSet::Register() {
       _WARNING("PersistentActionSet failed to bind action: %s", action->GetDefinition().name.c_str());
       for (size_t index = 0; index < boundCount; ++index)
         ActionRegistry::Get().Unbind(*m_actions[index]);
+      m_retry.Fail(now);
       return false;
     }
     ++boundCount;
@@ -47,9 +57,11 @@ bool PersistentActionSet::Register() {
   if (!NeuroSDK::RegisterActions(definitions)) {
     for (const auto &action : m_actions)
       ActionRegistry::Get().Unbind(*action);
+    m_retry.Fail(now);
     return false;
   }
 
+  m_retry.Reset();
   m_state = State::Registered;
   _MESSAGE("PersistentActionSet registered %zu action(s)", m_actions.size());
   return true;
