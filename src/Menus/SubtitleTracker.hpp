@@ -10,8 +10,17 @@ struct SubtitleEntry {
   std::string text;
   uint32_t startTime = 0;
   int32_t priority = 0;
+  // Where the subtitle's sound comes from (HUDMainMenu::SubtitleData::position). It follows a moving speaker, so it is
+  // not part of an entry's identity.
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  // Filled in by whoever resolved the speaker; empty when unknown.
+  std::string speaker;
 
-  bool operator==(const SubtitleEntry &other) const = default;
+  bool operator==(const SubtitleEntry &other) const {
+    return startTime == other.startTime && priority == other.priority && text == other.text;
+  }
 };
 
 // Tells newly shown subtitles from ones already reported. The HUD keeps a subtitle in its array while it is
