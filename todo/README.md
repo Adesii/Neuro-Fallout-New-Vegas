@@ -1,21 +1,28 @@
 # TODO
 
 One file per task, so each can be handed to an agent on its own. Status is in the first line of each file
-(`Status: open | in progress | done`). Update it, and delete or move the file when the work is committed.
+(`Status: open | in progress | to verify | archived`). A task lives in the folder that matches its state:
+
+| Folder | Meaning |
+| ------ | ------- |
+| `todo/` | Open or in progress: not implemented, or only partly. |
+| `todo/to_verify/` | Implemented and committed, but never run in the game (Cloud cannot run FNV). The `Result` section records what was built and what is unverified; `08-verify-in-game.md` is the shared checklist. |
+| `todo/archive/` | Implemented and confirmed working in game by the designer. |
+
+Flow: `todo/` -> `to_verify/` when the code is done -> `archive/` only when the designer confirms it works in game.
+Use `git mv` and update the `Status:` line and the tables below.
 
 Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sections record what the designer chose;
 "Open questions" sections must be answered before coding that part.
 
+## Open
+
 | # | Task | Area |
 | - | ---- | ---- |
-| 01 | [crouch_toggle action](01-crouch-toggle.md) (done, needs in-game test) | Gameplay actions |
-| 02 | [stop_move action](02-stop-move.md) (done, needs in-game test) | Walker |
 | 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
-| 05 | [close_container action](05-close-container.md) (done, needs in-game test) | Container |
 | 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
 | 07 | [query_nearby top 20 with priority](07-query-nearby-priority.md) | Gameplay actions |
-| 08 | [In-game verification of the latest changes](08-verify-in-game.md) | Testing |
 | 09 | [Hacking menu (terminal lock minigame)](09-hacking-menu.md) | Menus |
 | 10 | [Terminal / computers menu](10-terminal-menu.md) | Menus |
 | 11 | [Level-up menu](11-level-up-menu.md) | Menus |
@@ -30,7 +37,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 20 | [Companion wheel](20-companion-wheel.md) | Menus |
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
-| 23 | [Keep the game running when the window is unfocused](23-background-focus.md) | Plugin |
+| 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (input hook done, untested; see 08) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](24-idle-poke-and-wakeup.md) | Context / scheduling |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](25-walker-stuck-recovery.md) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](26-walker-interaction-and-feedback.md) | Walker / Context |
@@ -48,6 +55,19 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 38 | [Engine-free extraction and missing host tests](38-engine-free-extraction-and-tests.md) | Tests |
 | 39 | [Report all distances to Neuro in metres](39-distances-in-metres.md) | Context formatting |
 
+## To verify (implemented, waiting for an in-game test)
+
+| # | Task | Area |
+| - | ---- | ---- |
+| 01 | [crouch_toggle action](to_verify/01-crouch-toggle.md) | Gameplay actions |
+| 02 | [stop_move action](to_verify/02-stop-move.md) | Walker |
+| 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
+| 08 | [In-game verification checklist](to_verify/08-verify-in-game.md) | Testing |
+
+## Archive
+
+None yet, see [archive/](archive/README.md).
+
 Suggested order (from `docs/code-review.md` section F): 24, then 31/32/30 (bugs that can strand her), then 39 (metres,
 so later messages use the formatter from the start), then 25/26, 27 together with 03, then 29/28, then 33-35, then
 36-38.
@@ -60,4 +80,4 @@ Notes for whoever picks one up:
 - Cloud cannot run FNV: report what was verified, what is assumed, and give a manual in-game checklist.
 - Never invent engine addresses; follow `docs/reference-research.md`.
 - Add host tests beside any engine-free logic (`bash tools/test.sh`), format with `clang-format -i`, build with `just debug`.
-- Commit when a task is done, with explicit paths and the `Co-Authored-By` line.
+- Commit when a task is done, with explicit paths and the `Co-Authored-By` line, and move its file to `to_verify/` (never straight to `archive/`).

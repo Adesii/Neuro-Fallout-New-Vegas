@@ -49,9 +49,17 @@
 
 - The Skyrim Neuro integration (`Neuro-Skyrim-Integration` in `tools/reference-manifest.json`) is the behavioral target for Neuro-facing features (context content, poking/hinting, timing, suppression rules). It was tested live on stream, so where it disagrees with neuro-sdk best-practice prose, Skyrim wins. The neuro-sdk API spec still decides what messages and fields are valid.
 - It is an idea source only. Do not copy code or mirror its structure. Extract the behavior and the reasoning, then adapt it to this codebase's existing owners (`NeuroSDK.cpp`, `MenuHandler`, `ActionRegistry`, `WalkerHandler`, ...). Do not add a parallel system when an existing module can be extended.
-- Before implementing a feature that has a Skyrim counterpart, invoke the `skyrim-feature-port` skill (`.claude/skills/skyrim-feature-port/SKILL.md`). Design notes go in `docs/design/<feature>.md`; raw ideas stay in `todo/`.
+- Before implementing a feature that has a Skyrim counterpart, invoke the `skyrim-feature-port` skill (`.claude/skills/skyrim-feature-port/SKILL.md`). Design notes go in `docs/design/<feature>.md`; raw ideas stay in `todo/` (see Task tracking).
 - Skyrim's script-layer and event mechanisms do not carry over to xNVSE automatically. Mark every mechanism that needs an FNV-side equivalent as unverified until it is checked against project sources, NVSE/JG definitions or reference plugins.
 - Scheduling and policy logic (cooldowns, suppression, rate limits, "is this worth sending") belongs in an engine-free module with host tests, like `src/Combat/CombatLogic.*`. Only the hooks that read game state touch the engine.
+
+## Task tracking (`todo/`)
+
+- One file per task under `todo/`; `todo/README.md` is the index and holds the full rules. The first line of each file is `Status: ...`.
+- Lifecycle by folder: `todo/` (open or partly done) -> `todo/to_verify/` (implemented and committed, not yet run in game) -> `todo/archive/` (confirmed working in game by the designer).
+- When you finish implementing a task, `git mv` it to `todo/to_verify/`, set `Status: to verify`, record what was built and what is unverified in its `Result` section, add the manual checks to `todo/to_verify/08-verify-in-game.md`, and update the tables in `todo/README.md`.
+- Only move a task to `todo/archive/` after the designer says it works in game. A passing build or host test is not verification (see the Cloud rule above); never archive on your own judgement.
+- Do not delete task files. Tasks that were only partly implemented stay in `todo/` with a note of what is done.
 
 ## Hard constraints and boundaries
 

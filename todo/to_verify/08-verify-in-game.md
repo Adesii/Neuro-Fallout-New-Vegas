@@ -1,6 +1,6 @@
 # 08 - In-game verification of the latest changes
 
-Status: open
+Status: to verify (checklist for the items in this folder and the review follow-ups)
 
 Nothing from the last sessions has been run in the game. Verify and report back (log lines included for failures).
 

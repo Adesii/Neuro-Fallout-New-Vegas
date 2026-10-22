@@ -1,6 +1,6 @@
 # 05 - close_container action
 
-Status: done (code complete, needs in-game verification)
+Status: to verify (code complete, not yet tested in game)
 
 ## Problem
 When a container is open Neuro can only loot or stow; she cannot just close it. She is forced to take something to

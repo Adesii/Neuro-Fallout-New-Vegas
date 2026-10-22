@@ -1,6 +1,6 @@
 # 01 - crouch_toggle action
 
-Status: done (code complete, needs in-game verification)
+Status: to verify (code complete, not yet tested in game)
 
 ## Problem
 Neuro cannot sneak. Stealth needs crouching, and there is no action for it.

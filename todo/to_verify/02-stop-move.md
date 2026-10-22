@@ -1,6 +1,6 @@
 # 02 - stop_move action
 
-Status: done (code complete, needs in-game verification)
+Status: to verify (code complete, not yet tested in game)
 
 ## Problem
 Once Neuro starts walking (`move_to_object`, explore, etc.) she cannot stop on her own.
