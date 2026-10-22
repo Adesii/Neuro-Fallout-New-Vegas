@@ -36,7 +36,7 @@ struct SpokenLine {
 struct ExecutionState {
   SelectionSnapshot selection;
   std::string responseText;
-  Clock::time_point startedAt;
+  ScopedState::StepTimer timer; // counts only while the dialog is on top and unobstructed
   Clock::time_point clickAt;
   bool selected = false;
   bool clicked = false;
@@ -50,6 +50,8 @@ ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 std::string g_publishedSignature;
 std::unique_ptr<ExecutionState> g_execution;
 std::vector<SpokenLine> g_pendingSpeech;
+// Lines already reported as context but still part of the current decision ("since the last choice").
+std::vector<SpokenLine> g_spokenSinceChoice;
 DialogMenu *g_observedMenu = nullptr;
 std::string g_lastSpokenLine;
 bool g_wasShowingText = false;
@@ -94,9 +96,9 @@ std::string BuildSignature(DialogMenu *menu, const std::vector<DialogOption> &op
   return signature;
 }
 
-std::string BuildSpokenDialog(const char *heading) {
+std::string BuildSpokenDialog(const char *heading, const std::vector<SpokenLine> &lines) {
   std::string context = "## " + std::string(heading);
-  for (const auto &line : g_pendingSpeech) {
+  for (const auto &line : lines) {
     context += "\n- ";
     if (!line.speaker.empty())
       context += line.speaker + ": ";
@@ -106,8 +108,10 @@ std::string BuildSpokenDialog(const char *heading) {
 }
 
 std::string BuildState(DialogMenu *menu, const std::vector<DialogOption> &options) {
-  std::string state = BuildSpokenDialog("Spoken dialog since the last choice");
-  if (g_pendingSpeech.empty()) {
+  std::vector<SpokenLine> spoken = g_spokenSinceChoice;
+  spoken.insert(spoken.end(), g_pendingSpeech.begin(), g_pendingSpeech.end());
+  std::string state = BuildSpokenDialog("Spoken dialog since the last choice", spoken);
+  if (spoken.empty()) {
     const std::string speaker = UIUtils::GetTileString(menu ? menu->tile034 : nullptr);
     const std::string text = UIUtils::GetTileString(menu ? menu->tile038 : nullptr);
     if (!text.empty())
@@ -148,9 +152,15 @@ void StopExecution(const std::string &reason) {
 void FlushPendingSpeech(const char *heading) {
   if (g_pendingSpeech.empty())
     return;
-  const std::string context = BuildSpokenDialog(heading);
-  if (NeuroSDK::SendContext(context.c_str(), true))
-    g_pendingSpeech.clear();
+  const std::string context = BuildSpokenDialog(heading, g_pendingSpeech);
+  if (!NeuroSDK::SendContext(context.c_str(), true))
+    return;
+  // Keep the reported lines for the force state, which would otherwise always find them already flushed.
+  g_spokenSinceChoice.insert(g_spokenSinceChoice.end(), g_pendingSpeech.begin(), g_pendingSpeech.end());
+  if (g_spokenSinceChoice.size() > kMaxPendingSpeechLines)
+    g_spokenSinceChoice.erase(g_spokenSinceChoice.begin(),
+                              g_spokenSinceChoice.begin() + (g_spokenSinceChoice.size() - kMaxPendingSpeechLines));
+  g_pendingSpeech.clear();
 }
 
 void ReportConfirmedResponse(const ExecutionState &execution) {
@@ -181,7 +191,7 @@ void AdvanceExecution() {
     return;
 
   const auto now = Clock::now();
-  if (now - g_execution->startedAt > kExecutionTimeout) {
+  if (g_execution->timer.Expired(kExecutionTimeout)) {
     StopExecution("The visual selection sequence timed out.");
     return;
   }
@@ -233,6 +243,8 @@ void Observe() {
   const bool visible = IsDialogVisible(menu);
   if (!visible) {
     FlushPendingSpeech("Dialog ended after these spoken lines");
+    if (g_pendingSpeech.empty())
+      g_spokenSinceChoice.clear();
     g_observedMenu = nullptr;
     g_lastSpokenLine.clear();
     g_wasShowingText = false;
@@ -294,10 +306,11 @@ void StartExecution(const SelectionSnapshot &snapshot) {
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(ExecutionState{.selection = snapshot,
-                                                                .responseText = UIUtils::GetTileString(snapshot.tile),
-                                                                .startedAt = now,
-                                                                .clickAt = now + kSelectionDelay});
+  g_execution = std::make_unique<ExecutionState>(ExecutionState{
+      .selection = snapshot, .responseText = UIUtils::GetTileString(snapshot.tile), .clickAt = now + kSelectionDelay});
+  g_execution->timer.Start(now);
+  // The choice is made: the next decision starts a fresh "since the last choice" record.
+  g_spokenSinceChoice.clear();
 }
 
 void Reset() {
@@ -309,6 +322,7 @@ void Reset() {
   g_publishedSignature.clear();
   g_execution.reset();
   g_pendingSpeech.clear();
+  g_spokenSinceChoice.clear();
   g_observedMenu = nullptr;
   g_lastSpokenLine.clear();
   g_wasShowingText = false;
@@ -318,6 +332,7 @@ bool Process(bool automationAllowed) {
   auto *menu = GetMenu();
   const bool menuOpen = IsTopMenu(menu);
   if (g_execution) {
+    g_execution->timer.Tick(automationAllowed && menuOpen);
     if (automationAllowed)
       AdvanceExecution();
     return g_execution != nullptr || menuOpen;
