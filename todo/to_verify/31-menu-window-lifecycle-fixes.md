@@ -1,6 +1,6 @@
 # 31 - Menu window lifecycle and timeout fixes
 
-Status: open
+Status: to verify
 Area: `src/MenuHandler.cpp`, `src/Menus/*`
 Source: `docs/code-review.md` S1, B12 (written by a subagent from a full read; S1 re-checked against the source)
 
@@ -46,3 +46,45 @@ Source: `docs/code-review.md` S1, B12 (written by a subagent from a full read; S
 ## Done when
 A popup appearing over each of the three menus still lets Neuro answer it; no spurious timeouts after obstruction;
 popup chains work; tests added for the timer; in-game checklist covers the popup-over-menu cases.
+
+## Result (2026-10-22)
+Built and committed (one commit per item). Host tests: 127 pass (new: `StepTimer`); DLL builds. Nothing was run in game.
+
+1. **S1:** `MenuHandler::Process` now calls Special, Dialog, CharGen and Traits every frame with an `unobstructed`
+   argument (`!popup && !textEdit && !characterEditor`, plus the existing Special-executing rule) and only then applies
+   the popup/text-edit/editor precedence. A covered handler with no running execution closes its window (freeing the
+   process-wide force) in the same frame, before `MessagePopupHandler` registers its own; with a running execution it
+   pauses. Dialog, CharGen and Traits already took the argument, so `MenuHandler` was the only change.
+2. **Container close:** `AdvanceClose` returns while `IsActive()` is false, so Exit is never clicked under a popup.
+3. **Timers:** new engine-free `ScopedState::StepTimer` (host-tested): counts only running frames, skips stalls over 1 s
+   and the first frame back. Used by Dialog, Message popup, Traits, CharGen, Special (execution and recovery timers),
+   Stub close and Container close. Inventory and Container *transfers* keep their existing pause-shifting `startedAt`
+   (it works; not migrated).
+4. **Popups:** `IsCovered()` (menu still visible but not on top) pauses instead of reporting "closed"; completion after a
+   click also needs the clicked button to be gone from the button list, so an identical follow-up popup is recognised.
+5. **Container listing:** an accepted query stores a pending request that is retried (1 s apart, 5 attempts, dropped if
+   the page is no longer valid) instead of ignoring `PublishItems` failing.
+6. **Smaller list:** TextEdit slows its OK retries after 5 clicks (15 s) and warns once without a character name;
+   character editor checks `IsControlAvailable` for Next; Dialog keeps flushed speech for the force state until the next
+   choice (so "Spoken dialog since the last choice" is no longer always empty); Special reports completion from one
+   function and its two function-local statics are namespace-scope and cleared by `Reset()`; CharGen uses `/`.
+
+### Unverified
+- `Menu::IsMenuVisible(Interface::Message)` as the "popup still in the stack" test (same call the other handlers use for
+  their own menus) and that a replaced identical popup builds new button tiles. If the engine reuses tiles, an
+  identical follow-up still ends as a timeout rather than a mis-detected success.
+- The popup sequence for each of the three menus below; none of it can be exercised outside the game.
+
+### Manual in-game checklist
+1. Dialog: while Neuro's `select_dialog` window is open, trigger a message popup (e.g. a skill-check or quest
+   notification popup that needs a button). Expect: the popup's `choose_popup_option` is forced and Neuro can answer
+   it (no repeating "cannot register while another force is active" in the log); after the popup the dialog window
+   comes back.
+2. Same with a popup over the trait selection and over the tag-skill screen during character creation.
+3. A popup that appears while Neuro is mid-click in dialog/traits/tag skills/SPECIAL: the sequence waits and finishes
+   afterwards, with no "timed out" message.
+4. Two identical popups in a row (e.g. the same warning twice): the second one is answered, no "timed out".
+5. Open a container, accept `close_container`, and cover it with a popup before the Exit click: Exit is not clicked
+   until the popup is gone.
+6. Character creation name prompt: the name is filled and OK is clicked; with the server's display name missing the log
+   warns once.
