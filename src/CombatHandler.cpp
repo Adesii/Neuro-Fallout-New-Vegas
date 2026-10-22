@@ -523,9 +523,11 @@ void FlushNotes(bool force) {
   text << "## Combat update";
   for (const auto &note : g_pendingNotes)
     text << "\n- " << note;
+  // Cleared only once the send went through: a note that could not be delivered is retried, not lost.
+  if (!NeuroSDK::SendContext(text.str().c_str(), false))
+    return;
   g_pendingNotes.clear();
   g_noteCooldown = kNoteInterval;
-  NeuroSDK::SendContext(text.str().c_str(), false);
 }
 
 void StartCombatContext(PlayerCharacter *player) {
