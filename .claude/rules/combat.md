@@ -20,6 +20,7 @@ paths:
   every ending sends a non-silent context message saying why.
 - Only explicitly friendly actors (faction relation Ally/Friend or teammate, unless fighting the player) are excluded
   from enemies, attack and VATS. Never exclude neutrals.
+- Held controls are owned: `InputUtils::SetControlHeld(owner, ...)` and `PulseQueue(owner)` use `InputCore::Owner` bits, so releasing never cancels another owner's press, and `NeuroSDK::ResetAutomation` ends with `DIHookControl::ClearAllScripted()` as a backstop.
 - Every exit path must release held inputs (`ReleaseInputs`, `PulseQueue::ReleaseAll`): pause, reset, disconnect,
   death, load, retarget. The attack control is usually a mouse button; resolve it with `InputUtils::ResolveControl`.
 - Combat owns aim while engaged (`Walker::SetLookSuppressed`); Walker keeps moving. Do not let Walker and combat both

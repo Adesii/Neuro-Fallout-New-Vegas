@@ -1,9 +1,9 @@
 #pragma once
 
 #include "ISingleton.h"
+#include "hooks/InputCore.hpp"
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
-#include <deque>
 
 void Hook_DirectInput8Create_Init();
 
@@ -47,37 +47,34 @@ public:
   bool IsKeyTapped(UINT32 keycode);
 
   void SetKeyDisableState(UINT32 keycode, bool bDisable, UINT32 mask);
-  void SetKeyHeldState(UINT32 keycode, bool bHold);
+  // A key stays held while any owner holds it; an owner may hold or release repeatedly without affecting the others.
+  void SetKeyHeldState(InputCore::Owner owner, UINT32 keycode, bool bHold);
   void TapKey(UINT32 keycode);
 
-  void BufferedKeyTap(UINT32 key);
-  void BufferedKeyPress(UINT32 key);
-  void BufferedKeyRelease(UINT32 key);
+  // Drops every scripted hold, tap and queued buffered event. Called from NeuroSDK::ResetAutomation so a disconnect,
+  // load or new game can never leave an injected key or mouse button down.
+  void ClearAllScripted();
+
+  // Buffered events go to one queue per device type (kDeviceType_Keyboard / kDeviceType_Mouse); `key` is the
+  // DirectInput offset on that device. Nothing calls these yet.
+  void BufferedKeyTap(UINT32 deviceType, UINT32 key);
+  void BufferedKeyPress(UINT32 deviceType, UINT32 key);
+  void BufferedKeyRelease(UINT32 deviceType, UINT32 key);
 
   // hook interface
   void ProcessKeyboardData(UINT8 *data);
   void ProcessMouseData(DIMOUSESTATE2 *data);
-  HRESULT ProcessBufferedData(IDirectInputDevice8 *device, DWORD dataSize, DIDEVICEOBJECTDATA *outData,
-                              DWORD *outDataLen, DWORD flags);
+  HRESULT ProcessBufferedData(UINT32 deviceType, IDirectInputDevice8 *device, DWORD dataSize,
+                              DIDEVICEOBJECTDATA *outData, DWORD *outDataLen, DWORD flags);
 
 private:
-  struct KeyInfo {
-    bool rawState;      // state from dinput last update
-    bool gameState;     // state sent to the game last update
-    bool insertedState; // true if a script pushed/held this key down last update
+  InputCore::KeyState m_keys[kMaxMacros];
 
-    bool hold;          // key is held down
-    bool tap;           // key is being tapped
-    bool userDisable;   // key cannot be pressed by user
-    bool scriptDisable; // key cannot be pressed by script
+  using BufferedQueue = InputCore::InjectedQueue<DIDEVICEOBJECTDATA>;
+  BufferedQueue m_buffered[2]; // indexed by device type - 1
 
-    bool Process(bool keyDown, UINT32 idx);
-  };
-
-  KeyInfo m_keys[kMaxMacros];
-
-  typedef std::deque<DIDEVICEOBJECTDATA> BufferedPressQueue;
-  BufferedPressQueue m_bufferedPresses;
+  BufferedQueue *BufferedFor(UINT32 deviceType);
+  void QueueBuffered(UINT32 deviceType, UINT32 key, bool press, bool release);
 };
 
 class FramerateTracker {

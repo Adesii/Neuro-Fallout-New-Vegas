@@ -95,7 +95,7 @@ bool g_playback = false;
 bool g_active = false;
 Clock::time_point g_playbackSince{};
 bool g_playbackWatchdogLogged = false;
-InputUtils::PulseQueue g_pulses;
+InputUtils::PulseQueue g_pulses{InputCore::Owner::VatsPulse};
 
 bool IsSelecting(Menu *menu) {
   const uint32_t mode = Vats::GetMode();

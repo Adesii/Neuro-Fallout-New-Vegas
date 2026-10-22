@@ -106,7 +106,8 @@ public:
 
   // oblivion and on use this for menus and the console
   HRESULT _stdcall GetDeviceData(DWORD dataSize, DIDEVICEOBJECTDATA *outData, DWORD *outDataLen, DWORD flags) {
-    return DIHookControl::GetSingleton().ProcessBufferedData(m_device, dataSize, outData, outDataLen, flags);
+    return DIHookControl::GetSingleton().ProcessBufferedData(m_deviceType, m_device, dataSize, outData, outDataLen,
+                                                             flags);
   }
 
   HRESULT _stdcall SetDataFormat(const DIDATAFORMAT *a) { return m_device->SetDataFormat(a); }
@@ -243,7 +244,7 @@ void Hook_DirectInput8Create_Init() {
   HookUtils::SafeWrite32(thunkAddress, (DWORD)Hook_DirectInput8Create_Execute);
 }
 
-DIHookControl::DIHookControl() { memset(&m_keys, 0, sizeof(m_keys)); }
+DIHookControl::DIHookControl() = default;
 
 bool DIHookControl::IsKeyPressed(UINT32 keycode, UINT32 flags) {
   if (keycode >= kMaxMacros)
@@ -253,7 +254,7 @@ bool DIHookControl::IsKeyPressed(UINT32 keycode, UINT32 flags) {
   if (!flags)
     flags = kFlag_DefaultBackCompat;
 
-  KeyInfo *info = &m_keys[keycode];
+  InputCore::KeyState *info = &m_keys[keycode];
 
   bool result = false;
   bool isMouseButton = keycode >= kMacro_MouseButtonOffset;
@@ -285,7 +286,7 @@ bool DIHookControl::IsKeyDisabled(UINT32 keycode) {
   if (keycode >= kMaxMacros)
     return false;
 
-  KeyInfo *info = &m_keys[keycode];
+  InputCore::KeyState *info = &m_keys[keycode];
 
   return info->userDisable || info->scriptDisable;
 }
@@ -294,7 +295,7 @@ bool DIHookControl::IsKeyHeld(UINT32 keycode) {
   if (keycode >= kMaxMacros)
     return false;
 
-  return m_keys[keycode].hold;
+  return m_keys[keycode].IsHeld();
 }
 
 bool DIHookControl::IsKeyTapped(UINT32 keycode) {
@@ -309,7 +310,7 @@ void DIHookControl::SetKeyDisableState(UINT32 keycode, bool bDisable, UINT32 mas
     mask = kDisable_All; // default mask value
 
   if (keycode < kMaxMacros) {
-    KeyInfo *info = &m_keys[keycode];
+    InputCore::KeyState *info = &m_keys[keycode];
 
     if (mask & kDisable_User)
       info->userDisable = bDisable;
@@ -318,9 +319,16 @@ void DIHookControl::SetKeyDisableState(UINT32 keycode, bool bDisable, UINT32 mas
   }
 }
 
-void DIHookControl::SetKeyHeldState(UINT32 keycode, bool bHold) {
+void DIHookControl::SetKeyHeldState(InputCore::Owner owner, UINT32 keycode, bool bHold) {
   if (keycode < kMaxMacros)
-    m_keys[keycode].hold = bHold;
+    m_keys[keycode].SetHeld(owner, bHold);
+}
+
+void DIHookControl::ClearAllScripted() {
+  for (auto &key : m_keys)
+    key.ClearScripted();
+  for (auto &queue : m_buffered)
+    queue.Clear();
 }
 
 void DIHookControl::TapKey(UINT32 keycode) {
@@ -328,45 +336,35 @@ void DIHookControl::TapKey(UINT32 keycode) {
     m_keys[keycode].tap = true;
 }
 
-void DIHookControl::BufferedKeyTap(UINT32 key) {
-  DIDEVICEOBJECTDATA data;
+DIHookControl::BufferedQueue *DIHookControl::BufferedFor(UINT32 deviceType) {
+  if (deviceType != kDeviceType_Keyboard && deviceType != kDeviceType_Mouse)
+    return nullptr;
+  return &m_buffered[deviceType - 1];
+}
 
-  data.uAppData = -1;
+static DIDEVICEOBJECTDATA MakeBufferedEvent(UINT32 key, bool down) {
+  DIDEVICEOBJECTDATA data = {};
+  data.uAppData = static_cast<UINT_PTR>(-1);
   data.dwTimeStamp = GetTickCount();
   data.dwSequence = 0; // engine doesn't appear to use this and we can't fake it easily
   data.dwOfs = key;
-  data.dwData = 0x80;
-
-  // key down
-  m_bufferedPresses.push_back(data);
-
-  // key up
-  data.dwData = 0x00;
-  m_bufferedPresses.push_back(data);
+  data.dwData = down ? 0x80 : 0x00;
+  return data;
 }
 
-void DIHookControl::BufferedKeyPress(UINT32 key) {
-  DIDEVICEOBJECTDATA data;
-
-  data.uAppData = -1;
-  data.dwTimeStamp = GetTickCount();
-  data.dwSequence = 0;
-  data.dwOfs = key;
-  data.dwData = 0x80;
-
-  m_bufferedPresses.push_back(data);
+void DIHookControl::BufferedKeyTap(UINT32 deviceType, UINT32 key) {
+  if (auto *queue = BufferedFor(deviceType))
+    queue->PushPair(MakeBufferedEvent(key, true), MakeBufferedEvent(key, false));
 }
 
-void DIHookControl::BufferedKeyRelease(UINT32 key) {
-  DIDEVICEOBJECTDATA data;
+void DIHookControl::BufferedKeyPress(UINT32 deviceType, UINT32 key) {
+  if (auto *queue = BufferedFor(deviceType))
+    queue->Push(MakeBufferedEvent(key, true));
+}
 
-  data.uAppData = -1;
-  data.dwTimeStamp = GetTickCount();
-  data.dwSequence = 0;
-  data.dwOfs = key;
-  data.dwData = 0x00;
-
-  m_bufferedPresses.push_back(data);
+void DIHookControl::BufferedKeyRelease(UINT32 deviceType, UINT32 key) {
+  if (auto *queue = BufferedFor(deviceType))
+    queue->Push(MakeBufferedEvent(key, false));
 }
 
 void DIHookControl::ProcessKeyboardData(UINT8 *data) {
@@ -374,7 +372,7 @@ void DIHookControl::ProcessKeyboardData(UINT8 *data) {
   for (UINT32 idx = 0; idx < 256; idx++) {
     bool keyDown = data[idx] != 0;
 
-    keyDown = m_keys[idx].Process(keyDown, idx);
+    keyDown = m_keys[idx].Process(keyDown, ShouldIgnoreKey(idx));
 
     data[idx] = keyDown ? 0x80 : 0x00;
   }
@@ -386,7 +384,7 @@ void DIHookControl::ProcessMouseData(DIMOUSESTATE2 *data) {
     UINT32 macroIdx = kMacro_MouseButtonOffset + idx;
     bool keyDown = data->rgbButtons[idx] != 0;
 
-    keyDown = m_keys[macroIdx].Process(keyDown, macroIdx);
+    keyDown = m_keys[macroIdx].Process(keyDown, ShouldIgnoreKey(macroIdx));
 
     data->rgbButtons[idx] = keyDown ? 0x80 : 0x00;
   }
@@ -401,7 +399,7 @@ void DIHookControl::ProcessMouseData(DIMOUSESTATE2 *data) {
     UINT32 macroIdx = kMacro_MouseWheelOffset + idx;
     bool keyDown = wheelState[idx] != 0;
 
-    keyDown = m_keys[macroIdx].Process(keyDown, macroIdx);
+    keyDown = m_keys[macroIdx].Process(keyDown, ShouldIgnoreKey(macroIdx));
 
     wheelState[idx] = keyDown ? 0x80 : 0x00;
   }
@@ -409,12 +407,13 @@ void DIHookControl::ProcessMouseData(DIMOUSESTATE2 *data) {
   // wheel state not transferred back
 }
 
-HRESULT DIHookControl::ProcessBufferedData(IDirectInputDevice8 *device, DWORD dataSize, DIDEVICEOBJECTDATA *outData,
-                                           DWORD *outDataLen, DWORD flags) {
+HRESULT DIHookControl::ProcessBufferedData(UINT32 deviceType, IDirectInputDevice8 *device, DWORD dataSize,
+                                           DIDEVICEOBJECTDATA *outData, DWORD *outDataLen, DWORD flags) {
   ASSERT(dataSize == sizeof(DIDEVICEOBJECTDATA));
 
-  // if we have nothing to inject, pass through
-  if (m_bufferedPresses.empty())
+  // if we have nothing to inject for this device, pass through
+  BufferedQueue *injected = BufferedFor(deviceType);
+  if (!injected || injected->Empty())
     return device->GetDeviceData(dataSize, outData, outDataLen, flags);
 
   const DWORD eventsRequested = *outDataLen;
@@ -437,57 +436,10 @@ HRESULT DIHookControl::ProcessBufferedData(IDirectInputDevice8 *device, DWORD da
   }
 
   // injected events fill the space the real events left; a null buffer only counts or discards events
-  const DWORD virtualEventsRequested = eventsRequested - (std::min)(numRealEvents, eventsRequested);
-  DIDEVICEOBJECTDATA *virtualOutData = outData ? outData + numRealEvents : nullptr;
-
-  DWORD numVirtualEvents = 0;
-  if (flags & DIGDD_PEEK) {
-    // peeking reports the events without consuming them
-    numVirtualEvents = (std::min)(static_cast<DWORD>(m_bufferedPresses.size()), virtualEventsRequested);
-    if (virtualOutData) {
-      for (DWORD i = 0; i < numVirtualEvents; i++)
-        virtualOutData[i] = m_bufferedPresses[i];
-    }
-  } else {
-    while (numVirtualEvents < virtualEventsRequested && !m_bufferedPresses.empty()) {
-      if (virtualOutData)
-        virtualOutData[numVirtualEvents] = m_bufferedPresses.front();
-      m_bufferedPresses.pop_front();
-      numVirtualEvents++;
-    }
-  }
-
+  const DWORD numVirtualEvents = injected->Merge(outData, numRealEvents, eventsRequested, (flags & DIGDD_PEEK) != 0);
   *outDataLen = numRealEvents + numVirtualEvents;
 
   return hr;
-}
-
-bool DIHookControl::KeyInfo::Process(bool keyDown, UINT32 idx) {
-  insertedState = false;
-  rawState = keyDown;
-
-  // only process whitelisted keys
-  if (!ShouldIgnoreKey(idx)) {
-    if (userDisable)
-      keyDown = false;
-
-    if (!scriptDisable) {
-      if (hold)
-        insertedState = true;
-
-      if (tap) {
-        insertedState = true;
-        tap = false;
-      }
-
-      if (insertedState)
-        keyDown = true;
-    }
-  }
-
-  gameState = keyDown;
-
-  return keyDown;
 }
 
 // this code doesn't belong here

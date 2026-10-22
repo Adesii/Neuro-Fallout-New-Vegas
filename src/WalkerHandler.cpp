@@ -150,7 +150,7 @@ void ReleaseMovementKeys() {
   auto &input = DIHookControl::GetSingleton();
   for (UINT8 &key : g_state.heldMovementKeys) {
     if (key != kUnboundKey)
-      input.SetKeyHeldState(key, false);
+      input.SetKeyHeldState(InputCore::Owner::Walker, key, false);
     key = kUnboundKey;
   }
 }
@@ -419,7 +419,7 @@ float UpdatePitch(PlayerCharacter *player, TESObjectREFR *target, bool closeToTa
 void HoldMovementKey(UINT8 key, size_t slot) {
   if (key == kUnboundKey)
     return;
-  DIHookControl::GetSingleton().SetKeyHeldState(key, true);
+  DIHookControl::GetSingleton().SetKeyHeldState(InputCore::Owner::Walker, key, true);
   g_state.heldMovementKeys[slot] = key;
 }
 

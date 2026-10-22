@@ -11,6 +11,7 @@
 #include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
 #include "common.hpp"
+#include "hooks/Hooks_DirectInput8Create.h"
 #include "neurosdk.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameObjects.h"
@@ -191,6 +192,8 @@ void NeuroSDK::ResetAutomation(bool connectionLost) {
     Actions::ActionRegistry::Get().DropPendingResults();
   actionInbox.clear();
   Walker::Stop();
+  // Last: whatever an owner failed to release itself (disconnect, load, new game) must not stay pressed.
+  DIHookControl::GetSingleton().ClearAllScripted();
 }
 
 bool NeuroSDK::StartupMessage() {

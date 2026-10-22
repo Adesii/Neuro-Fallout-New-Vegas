@@ -20,6 +20,7 @@ add_executable(neuro_fnv_tests
     PopupPolicyTests.cpp
     CombatTests.cpp
     StanceTests.cpp
+    InputCoreTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -31,6 +32,7 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Movement/StanceLogic.cpp"
     "${REPO}/src/Menus/PopupPolicy.cpp"
     "${REPO}/src/utils/ScopedState.cpp"
+    "${REPO}/src/utils/PulseQueue.cpp"
 )
 
 # The stubs directory must come first: it shadows src/NeuroSDK.hpp and the game's Utils/DebugLog.hpp.

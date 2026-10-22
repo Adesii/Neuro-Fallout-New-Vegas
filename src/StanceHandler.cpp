@@ -21,7 +21,7 @@ constexpr float kTapSeconds = 0.12f;
 
 Actions::PersistentActionSet g_actions;
 bool g_actionsBuilt = false;
-InputUtils::PulseQueue g_pulses;
+InputUtils::PulseQueue g_pulses{InputCore::Owner::StancePulse};
 Stance::CrouchVerifier g_verifier;
 
 void BuildActions() {

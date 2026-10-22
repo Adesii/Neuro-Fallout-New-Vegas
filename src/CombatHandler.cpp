@@ -105,7 +105,7 @@ bool g_lineOfSight = false;
 Combat::WeaponKind g_engagedWeaponKind = Combat::WeaponKind::Unarmed;
 
 uint32_t g_attackMacro = InputUtils::kNoControl;
-InputUtils::PulseQueue g_pulses;
+InputUtils::PulseQueue g_pulses{InputCore::Owner::CombatPulse};
 
 bool g_inCombat = false;
 float g_combatTimer = 0.0f;
@@ -132,8 +132,8 @@ void BuildActions() {
 void SetAttackHeld(bool held) {
   const uint32_t macro = held ? InputUtils::ResolveControl(static_cast<int>(ControlCode::Attack)) : g_attackMacro;
   if (held && g_attackMacro != InputUtils::kNoControl && g_attackMacro != macro)
-    InputUtils::SetControlHeld(g_attackMacro, false);
-  InputUtils::SetControlHeld(macro, held);
+    InputUtils::SetControlHeld(InputCore::Owner::CombatAttack, g_attackMacro, false);
+  InputUtils::SetControlHeld(InputCore::Owner::CombatAttack, macro, held);
   g_attackMacro = held ? macro : InputUtils::kNoControl;
 }
 
