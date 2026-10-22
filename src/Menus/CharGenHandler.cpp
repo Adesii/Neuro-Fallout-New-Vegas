@@ -441,8 +441,11 @@ bool Process(bool unobstructed) {
     return true;
   }
 
-  if (menu && Menu::IsMenuVisible(Interface::CharGen) && !menuOpen)
+  if (menu && Menu::IsMenuVisible(Interface::CharGen) && !menuOpen) {
+    // Covered by a popup or another menu: its window must not keep the process-wide force from the covering menu.
+    CloseWindow();
     return true;
+  }
   if (!menuOpen || !unobstructed) {
     CloseWindow();
     return menuOpen;

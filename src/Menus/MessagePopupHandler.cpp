@@ -52,8 +52,9 @@ MessageMenu *GetOpenMenu() {
 }
 
 // The popup is still in the menu stack but something else (another menu or popup) is on top of it. Different from
-// gone: nothing may be concluded about a covered popup, and its timers must not run.
-bool IsCovered() { return Menu::IsMenuVisible(Interface::Message); }
+// gone: nothing may be concluded about a covered popup, and its timers must not run. A visibility flag that lingers
+// with no menu on top at all would otherwise block gameplay forever, so that case counts as gone.
+bool IsCovered() { return Menu::IsMenuVisible(Interface::Message) && Interface::GetTopMenuID() != Interface::NoMenu; }
 
 bool HasButton(MessageMenu *menu, Tile *tile) {
   for (auto *entry = menu->buttonList.GetHead(); entry; entry = entry->GetNext()) {
