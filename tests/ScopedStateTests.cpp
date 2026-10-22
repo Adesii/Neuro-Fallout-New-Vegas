@@ -50,3 +50,52 @@ TEST("observation: remembers one owner and signature until reset") {
   observation.Reset();
   CHECK(!observation.IsCurrent(&owner, "a"));
 }
+
+TEST("step timer: counts only the time the operation is running") {
+  ScopedState::StepTimer timer;
+  const auto t0 = ScopedState::Clock::now();
+  timer.Start(t0);
+  timer.Tick(true, t0 + 400ms);
+  timer.Tick(true, t0 + 900ms);
+  CHECK(timer.Elapsed() == 900ms);
+  CHECK(!timer.Expired(900ms));
+  CHECK(timer.Expired(800ms));
+}
+
+TEST("step timer: an obstruction does not count and the first frame back adds nothing") {
+  ScopedState::StepTimer timer;
+  const auto t0 = ScopedState::Clock::now();
+  timer.Start(t0);
+  timer.Tick(true, t0 + 500ms);
+  // A popup covers the menu for a long time; the handler keeps ticking every frame.
+  for (int frame = 1; frame <= 600; ++frame)
+    timer.Tick(false, t0 + 500ms + frame * 100ms);
+  const auto back = t0 + 500ms + 600 * 100ms;
+  timer.Tick(true, back + 16ms);
+  CHECK(timer.Elapsed() == 500ms);
+  timer.Tick(true, back + 32ms);
+  CHECK(timer.Elapsed() == 516ms);
+  CHECK(!timer.Expired(10s));
+}
+
+TEST("step timer: frames that were never ticked (a stall) are not counted either") {
+  ScopedState::StepTimer timer;
+  const auto t0 = ScopedState::Clock::now();
+  timer.Start(t0);
+  timer.Tick(true, t0 + 100ms);
+  timer.Tick(true, t0 + 100ms + 5min); // nothing ticked for five minutes
+  CHECK(timer.Elapsed() == 100ms);
+}
+
+TEST("step timer: unstarted timers never expire and reset clears them") {
+  ScopedState::StepTimer timer;
+  const auto t0 = ScopedState::Clock::now();
+  timer.Tick(true, t0 + 5s);
+  CHECK(!timer.Started());
+  CHECK(!timer.Expired(0ms));
+  timer.Start(t0);
+  timer.Tick(true, t0 + 500ms);
+  timer.Reset();
+  CHECK(!timer.Started());
+  CHECK(timer.Elapsed() == 0ms);
+}
