@@ -38,10 +38,11 @@ nothing sent earlier is replayed; messages sent while disconnected cannot be del
 - `NeuroSDK::SendContext` consults the gate. Disconnected: one warning per outage, returns false (the context is
   dropped; callers that clear state on success still see false). Duplicate: returns true (it was already delivered).
   Empty: unchanged (warn, false).
-- Reconnect status: `GameplayHandler::BuildFreshStatus(reconnect)` builds one message from existing builders
+- Reconnect status: `GameplayHandler::BuildFreshStatus()` builds one message from existing builders
   (`CombatHandler::BuildPlayerStatus`, a short active-objective list) and returns nothing until a game is loaded.
-  `NeuroSDK` marks it pending when a connection becomes ready and sends it non-silent once the builder produces text;
-  only a successful send clears the flag. Slots for the greeting (todo 24) and the location line (todo 28) are marked in
+  `NeuroSDK` marks it pending when a connection becomes ready *again* (the first connection of a session gets none: the
+  decision was a status after a reconnect, and the greeting is todo 24) and sends it non-silent once the builder
+  produces text; only a successful send clears the flag. Slots for the greeting (todo 24) and the location line (todo 28) are marked in
   the builder and are not implemented here, since those tasks are open.
 - Combat notes: `FlushNotes` clears its list and starts the cooldown only after the send succeeded.
 - Subtitles: `src/Menus/SubtitleTracker.*` (engine-free, host-tested). Each observation compares the HUD's current
@@ -73,8 +74,8 @@ dialogue/`SayTopic` path (`JIP GameObjects.h:10` has `SayTopic(..., TESObjectREF
 1. Mid-fight, stop the Neuro server: the log shows exactly one "not connected" warning, then none until reconnect.
 2. Restart the server during the fight: Neuro receives one "Status after reconnecting" message with health, weapon and
    objectives, and no "Combat update" lines from the outage.
-3. Start the game with the server down, then start the server on the main menu: no status until a save is loaded, then
-   one status.
+3. Start the game with the server down, then start the server: no status message (first connection). Stop and
+   restart the server at the main menu, then load a save: one status after the load.
 4. Loading a save while subtitles are showing: no stale "Recent subtitles" appear afterwards; a bark repeated after the
    load is reported.
 5. Run `query_quests` twice within 3 s: the second listing may be dropped (accepted trade-off); after 3 s it arrives.

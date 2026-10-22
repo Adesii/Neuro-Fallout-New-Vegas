@@ -31,7 +31,8 @@ private:
 
   neurosdk_context_t ctx{};
   bool connectionReady = false;
-  // A status message is owed to Neuro: set when a connection becomes ready, cleared once it was sent.
+  // A status message is owed to Neuro: set when a connection becomes ready again after an earlier one, cleared once
+  // sent.
   bool freshStatusPending = false;
   bool hasConnectedBefore = false;
   std::vector<Actions::Request> actionInbox;

@@ -614,16 +614,15 @@ void Reset() {
   g_nextQuestObservation = {};
 }
 
-std::string BuildFreshStatus(bool reconnect) {
+std::string BuildFreshStatus() {
   if (!g_ready || !PlayerCharacter::GetSingleton())
     return {};
 
   constexpr size_t kMaxObjectivesListed = 5;
   std::ostringstream status;
-  status << "## " << (reconnect ? "Status after reconnecting" : "Game status") << "\n"
-         << (reconnect ? "Your connection to the game was restored. Anything that happened while you were "
-                         "disconnected was not reported to you; this is where things stand now."
-                       : "You are connected to the game. This is where things stand.");
+  status << "## Status after reconnecting\n"
+         << "Your connection to the game was restored. Anything that happened while you were disconnected was not "
+            "reported to you; this is where things stand now.";
   // Slots for the greeting (todo 24) and the current location (todo 28) go here once those tasks exist.
   status << "\n\n" << CombatHandler::BuildPlayerStatus();
 

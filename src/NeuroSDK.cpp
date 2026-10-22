@@ -162,7 +162,9 @@ void NeuroSDK::MainLoop() {
       return;
     connectionReady = true;
     g_contextGate.Connected();
-    freshStatusPending = true;
+    // The first connection of a session gets no status (the greeting is todo 24); a reconnect does.
+    freshStatusPending = hasConnectedBefore;
+    hasConnectedBefore = true;
     _MESSAGE("NeuroSDK connected; startup and action registration are being restored");
   }
 
@@ -213,13 +215,12 @@ void NeuroSDK::SendFreshStatus() {
   if (!freshStatusPending)
     return;
   // Empty until a game is loaded; the status then waits instead of describing the main menu.
-  const std::string status = GameplayHandler::BuildFreshStatus(hasConnectedBefore);
+  const std::string status = GameplayHandler::BuildFreshStatus();
   if (status.empty())
     return;
   if (SendContext(status.c_str(), false)) {
-    _MESSAGE("Sent the %s status to Neuro", hasConnectedBefore ? "fresh" : "initial");
+    _MESSAGE("Sent the status after reconnecting to Neuro");
     freshStatusPending = false;
-    hasConnectedBefore = true;
   }
 }
 
