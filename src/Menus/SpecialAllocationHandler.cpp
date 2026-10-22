@@ -37,9 +37,10 @@ struct ExecutionState {
   Menu *owner = nullptr;
   SpecialValues targets{};
   std::string completionSummary;
-  Clock::time_point startedAt;
+  // Both count only while the menu is on top and unobstructed, so a covering popup cannot time them out.
+  ScopedState::StepTimer timer;
+  ScopedState::StepTimer recoveryTimer;
   Clock::time_point nextStepAt;
-  Clock::time_point recoveryStartedAt;
   int steps = 0;
   ExecutionPhase phase = ExecutionPhase::Reduce;
   bool reviewed = false;
@@ -54,6 +55,8 @@ std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 std::unique_ptr<ExecutionState> g_execution;
+bool g_invalidOverlayLogged = false;
+Menu *g_lastObservedMenu = nullptr;
 
 int GetSpecialValue(int index) {
   auto *player = PlayerCharacter::GetSingleton();
@@ -103,8 +106,9 @@ void AbortExecution(const std::string &reason) {
   g_execution->aborting = true;
   g_execution->waitingForClose = false;
   g_execution->confirmationClicked = false;
-  g_execution->recoveryStartedAt = Clock::now();
-  g_execution->nextStepAt = g_execution->recoveryStartedAt;
+  const auto now = Clock::now();
+  g_execution->recoveryTimer.Start(now);
+  g_execution->nextStepAt = now;
 }
 
 bool ValuesMatch(const SpecialValues &targets) {
@@ -115,16 +119,21 @@ bool ValuesMatch(const SpecialValues &targets) {
   return true;
 }
 
+// The one place an execution ends after the menu is gone: reports the allocation once if it was confirmed.
+void FinishExecution() {
+  if (g_execution && g_execution->confirmationClicked) {
+    NeuroSDK::SendContext(g_execution->completionSummary.c_str(), true);
+    _MESSAGE("SPECIAL visual execution completed");
+  }
+  g_execution.reset();
+}
+
 void AdvanceExecution(bool unobstructed) {
   auto *menu = LoveTester::GetMenu();
   if (!g_execution)
     return;
   if (!menu) {
-    if (g_execution->confirmationClicked) {
-      NeuroSDK::SendContext(g_execution->completionSummary.c_str(), true);
-      _MESSAGE("SPECIAL visual execution completed");
-    }
-    g_execution.reset();
+    FinishExecution();
     return;
   }
   if (menu != g_execution->owner) {
@@ -136,13 +145,9 @@ void AdvanceExecution(bool unobstructed) {
   if (!IsTopMenu()) {
     if (Menu::IsMenuVisible(Interface::LoveTester))
       return;
-    if (g_execution->confirmationClicked) {
-      NeuroSDK::SendContext(g_execution->completionSummary.c_str(), true);
-      _MESSAGE("SPECIAL visual execution completed");
-    } else if (!g_execution->aborting) {
+    if (!g_execution->confirmationClicked && !g_execution->aborting)
       _WARNING("SPECIAL execution stopped because the Vitals Tester closed unexpectedly");
-    }
-    g_execution.reset();
+    FinishExecution();
     return;
   }
 
@@ -155,11 +160,11 @@ void AdvanceExecution(bool unobstructed) {
       g_execution.reset();
       return;
     }
-    if (now - g_execution->recoveryStartedAt >= kRecoveryTimeout) {
+    if (g_execution->recoveryTimer.Elapsed() >= kRecoveryTimeout) {
       if (UIUtils::ClickControl(menu, "exit_menu")) {
         g_execution->aborting = false;
         g_execution->waitingForClose = true;
-        g_execution->startedAt = now;
+        g_execution->timer.Start(now);
       } else {
         g_execution->nextStepAt = now + kPageChangeDelay;
       }
@@ -171,7 +176,7 @@ void AdvanceExecution(bool unobstructed) {
     }
     return;
   }
-  if (now - g_execution->startedAt > kExecutionTimeout || g_execution->steps >= kMaxSteps) {
+  if (g_execution->timer.Expired(kExecutionTimeout) || g_execution->steps >= kMaxSteps) {
     AbortExecution("The visual allocation sequence timed out.");
     return;
   }
@@ -312,8 +317,9 @@ void StartExecution(const SpecialValues &values) {
     NeuroSDK::SendContext(("SPECIAL allocation could not start: " + error).c_str());
     return;
   }
-  g_execution = std::make_unique<ExecutionState>(
-      ExecutionState{.owner = menu, .targets = values, .startedAt = Clock::now(), .nextStepAt = Clock::now()});
+  const auto now = Clock::now();
+  g_execution = std::make_unique<ExecutionState>(ExecutionState{.owner = menu, .targets = values, .nextStepAt = now});
+  g_execution->timer.Start(now);
   _MESSAGE("SPECIAL visual execution started: S%d P%d E%d C%d I%d A%d L%d", values[0], values[1], values[2], values[3],
            values[4], values[5], values[6]);
 }
@@ -327,38 +333,40 @@ void Reset() {
   }
   g_registerRetry.Reset();
   g_execution.reset();
+  g_invalidOverlayLogged = false;
+  g_lastObservedMenu = nullptr;
 }
 
 bool Process(bool unobstructed) {
   auto *menu = LoveTester::GetMenu();
   auto *data = LoveTester::GetData();
   const bool menuOpen = menu && IsTopMenu();
-  static bool invalidOverlayLogged = false;
   if (Interface::GetTopMenuID() == Interface::LoveTester && (!menu || !IsValidMenuData(data))) {
-    if (!invalidOverlayLogged) {
+    if (!g_invalidOverlayLogged) {
       _WARNING("Vitals Tester overlay invalid (singleton: %p, lookup: %p, page: %d, total: %d)", menu,
                LoveTester::GetMenuByType(), data ? data->currentPage : -1, data ? data->totalPoints : -1);
-      invalidOverlayLogged = true;
+      g_invalidOverlayLogged = true;
     }
     CloseWindow();
     return true;
   }
   if (IsValidMenuData(data))
-    invalidOverlayLogged = false;
+    g_invalidOverlayLogged = false;
 
-  static Menu *lastObservedMenu = nullptr;
   auto *observedMenu = menuOpen ? menu : nullptr;
-  if (observedMenu != lastObservedMenu) {
+  if (observedMenu != g_lastObservedMenu) {
     if (observedMenu) {
       _DMESSAGE("Vitals Tester detected (menu: %p, top: %u, page: %d, total: %d, unobstructed: %s)", menu,
                 Interface::GetTopMenuID(), data ? data->currentPage : -1, data ? data->totalPoints : -1,
                 unobstructed ? "true" : "false");
-    } else if (lastObservedMenu) {
+    } else if (g_lastObservedMenu) {
       _DMESSAGE("Vitals Tester closed");
     }
-    lastObservedMenu = observedMenu;
+    g_lastObservedMenu = observedMenu;
   }
   if (g_execution) {
+    g_execution->timer.Tick(unobstructed && menuOpen);
+    g_execution->recoveryTimer.Tick(unobstructed && menuOpen);
     AdvanceExecution(unobstructed);
     return g_execution != nullptr || menuOpen;
   }
