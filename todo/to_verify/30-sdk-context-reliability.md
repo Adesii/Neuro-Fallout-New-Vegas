@@ -20,6 +20,7 @@ Source: `docs/code-review.md` A7.4, A7.6, B8, B9, S2
   status**: greeting (todo 24) + location (todo 28) + active quest/health summary. **Rate-limit** the
   "not connected" warning.
 - Subtitle speaker: **research only, no guessing**: add the speaker only when engine data provides it directly.
+  **Superseded 2026-10-22:** matching the subtitle's source position to an actor is allowed (see Result).
 
 ## Work
 1. `SendContext`: log the disconnected warning once per outage; callers that clear state on success
@@ -65,18 +66,20 @@ in this file served as its approval).
 - Subtitles: `SubtitleTracker` reports an entry only while it is new in the HUD array and forgets entries that left it,
   so a repeated line, or a restarted `startTime` after a load, is not swallowed; `SubtitleHandler::Reset()` (called from
   `MenuHandler::Reset`) clears the tracker and the unsent batch.
-- Subtitle speaker: **researched, not implemented.** `HUDMainMenu::SubtitleData` has text, start time, display time,
-  position and priority, no actor; the HUD XML tile carries only the string; JohnnyGuitarNVSE's
-  `OnGeneralSubtitle` hook exposes a `target` that its own comment calls "usually the player" (the listener). Only a
-  position-to-nearest-actor guess would produce a name, which the decision forbids. Details and the possible future
-  route (a hook on the dialogue path) are in the design note.
+- Subtitle speaker: the engine data has no actor, but `SubtitleData::position` is the sound's source position
+  (JohnnyGuitarNVSE). The designer then allowed a geometric match (2026-10-22), so the handler reads that position and
+  `Menus::SpeakerMatch` (host-tested) picks the actor whose body (a 160-unit vertical segment) the position lies on:
+  within 80 units, with the runner-up at least 40 units farther, otherwise no name. Batches read
+  `- Name: "text"`. Each decision is logged. Details and the SayTopic-hook fallback are in the design note.
 - `PollMessages` destroys every polled message (shared with todo 33).
 
 ### Unverified
 - That `neurosdk_context_connected` flips to false promptly after a server restart (the existing path relies on it).
-- The 3 s duplicate window is a guess.
+- The 3 s duplicate window is a guess (the designer chose to keep it, queries included).
+- **That the subtitle position is the speaker's.** If the logged "nearest" distances are not small for ordinary NPC
+  barks, the fallback is a hook on the speaking path. The 160/80/40 numbers are guesses too.
 
 ### Manual in-game checklist
 See the design note; in short: stop the server mid-fight (one warning, no stale combat notes), restart it (one "Status
 after reconnecting" message with health, weapon and objectives), restart it again at the main menu and load a save (one
-status after the load; none on the very first connection of a session), load a save with subtitles on screen (no stale batch, a repeated bark is reported afterwards).
+status after the load; none on the very first connection of a session), listen near NPCs (the log line per subtitle shows the match, and the batch names speakers), load a save with subtitles on screen (no stale batch, a repeated bark is reported afterwards).

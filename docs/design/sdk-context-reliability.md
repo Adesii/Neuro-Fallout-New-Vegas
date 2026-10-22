@@ -61,14 +61,34 @@ Evidence, all from project and reference sources:
 - JohnnyGuitarNVSE hooks `HUDMainMenu::AppendSubtitleData` (call at `0x7052B8`, from `Interface::ShowText`) and hands its
   script `(text, sound, position, target, instant)`. JG documents `target` as "Target Reference (Usually Player)": it is
   the listener, not the speaker. `position` is the source position only.
-Conclusion: the engine data does not name the speaker. The only way to produce a name would be to match `position` to
-the nearest actor, which the designer ruled out. Nothing was implemented. A future change would need a hook on the
-dialogue/`SayTopic` path (`JIP GameObjects.h:10` has `SayTopic(..., TESObjectREFR *target, ...)`) and its own research.
+Conclusion: the engine data does not name the speaker, but it does give where the sound comes from.
+
+## Subtitle speaker: revised decision (designer, 2026-10-22)
+Matching the source position to an actor is allowed. Implemented as:
+- `SubtitleData::position` is read together with the text for every new subtitle (it is already in the struct the
+  handler reads; no hook, no new addresses). `SubtitleEntry` keeps it out of its identity because it follows a moving
+  speaker.
+- `SubtitleHandler::ResolveSpeaker` collects the live, non-dead actors within 600 units (horizontally) of the source from
+  the loaded cells (`WorldUtils::ForEachLoadedReference`) and hands them to the engine-free
+  `Menus::SpeakerMatch::Resolve` (host-tested).
+- The source can sit anywhere on the speaker (feet, mouth, head), so distance is measured to the actor's body: a vertical
+  segment of 160 units times the actor's scale. The best candidate must be within 80 units, and the runner-up at least
+  40 units farther; otherwise there is no name (too far, ambiguous or unnamed actor). A missing name is preferred to a
+  wrong one, and nothing is guessed beyond the geometry.
+- A named match is reported as `- Name: "text"` in the "Recent subtitles" batch; the player can match too.
+- Every decision is logged (`Subtitle "..." from (x, y, z): speaker ... (n candidate(s), nearest d, next d2)`) so the
+  assumption below can be checked in `Fallout New Vegas` logs.
+- Alternative not taken: hooking `Actor::SayTopic` (JIP `GameObjects.h:10`, vtable slot `0x13C`) would give the speaker
+  as `this` with certainty, but needs a vtable hook at an address not established in this project. It is the fallback if
+  the position turns out not to be the speaker's.
 
 ## Unverified assumptions
 - `neurosdk_context_connected` turns false promptly after a server restart (the existing disconnect path relies on it).
 - Reconnect timing relative to the player being loaded: the status waits for a loaded player, not for a stable frame.
 - 3 s is a guess at what repeats are noise.
+- **That `SubtitleData::position` is the speaker's position.** JohnnyGuitarNVSE documents it as the source position and
+  hooks the call that fills it, but no source here shows what `Interface::ShowText` passes. The 160/80/40 geometry
+  numbers are also guesses. The per-subtitle log line exists to verify both.
 
 ## Manual in-game checklist
 1. Mid-fight, stop the Neuro server: the log shows exactly one "not connected" warning, then none until reconnect.
@@ -78,7 +98,11 @@ dialogue/`SayTopic` path (`JIP GameObjects.h:10` has `SayTopic(..., TESObjectREF
    restart the server at the main menu, then load a save: one status after the load.
 4. Loading a save while subtitles are showing: no stale "Recent subtitles" appear afterwards; a bark repeated after the
    load is reported.
-5. Run `query_quests` twice within 3 s: the second listing may be dropped (accepted trade-off); after 3 s it arrives.
+5. Stand near an NPC who barks (or in a conversation overheard from a distance) and check the log: the position is on
+   the speaker (nearest distance well under 80), and "Recent subtitles" names them. Check with two NPCs close together
+   and with a radio/Pip-Boy voice (expect no name).
+6. Run `query_quests` twice within 3 s: the second listing may be dropped (accepted trade-off); after 3 s it arrives.
 
-## Open questions
-- Should an explicit query's context bypass the duplicate window? (Needs an API flag; deferred.)
+## Decisions
+- Explicit query results are not exempt from the 3 s duplicate window (designer, 2026-10-22): a repeated identical
+  message within 3 s is dropped, including a query result asked for twice.
