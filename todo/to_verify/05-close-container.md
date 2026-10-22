@@ -34,3 +34,6 @@ Opening a container then `close_container` leaves the menu and resumes Walker; w
   actions.
 - Manual checks: open a container and call `close_container` straight away; again right after `loot_item` (refused while the
   transfer runs, accepted after); confirm Walker resumes.
+- Stub `close_*` actions (from the old shared checklist): open each stubbed menu (barter, lockpick, repair, repair services,
+  weapon mod, recipe, sleep/wait, slot machine, roulette, companion wheel, tutorial, book) and call its `close_*`. Check the
+  exit tile click closes it, and that the menu IDs 1035 (item repair) and 1058 (repair services) map to the right menus.

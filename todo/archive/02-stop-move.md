@@ -1,6 +1,6 @@
 # 02 - stop_move action
 
-Status: to verify (code complete, not yet tested in game)
+Status: archived (verified in game, 2026-10-22)
 
 ## Problem
 Once Neuro starts walking (`move_to_object`, explore, etc.) she cannot stop on her own.
@@ -29,3 +29,4 @@ Action available during gameplay, walking stops immediately, no stuck keys, host
   re-issue it). Added `Walker::GetDescription()`.
 - Manual checks: stop during `move_to_object`, during a `do_current_quest` route (must not resume), during `explore`,
   while a menu is open, and during a melee approach (must refuse); no key stays held.
+- Verified in game by the designer (2026-10-22): `stop_move` works.

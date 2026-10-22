@@ -6,7 +6,7 @@ One file per task, so each can be handed to an agent on its own. Status is in th
 | Folder | Meaning |
 | ------ | ------- |
 | `todo/` | Open or in progress: not implemented, or only partly. |
-| `todo/to_verify/` | Implemented and committed, but never run in the game (Cloud cannot run FNV). The `Result` section records what was built and what is unverified; `08-verify-in-game.md` is the shared checklist. |
+| `todo/to_verify/` | Implemented and committed, but never run in the game (Cloud cannot run FNV). The task's own `Result` section records what was built, what is unverified, and the manual in-game checks. |
 | `todo/archive/` | Implemented and confirmed working in game by the designer. |
 
 Flow: `todo/` -> `to_verify/` when the code is done -> `archive/` only when the designer confirms it works in game.
@@ -37,7 +37,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 20 | [Companion wheel](20-companion-wheel.md) | Menus |
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
-| 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (input hook done, untested; see 08) | Plugin |
+| 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](24-idle-poke-and-wakeup.md) | Context / scheduling |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](25-walker-stuck-recovery.md) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](26-walker-interaction-and-feedback.md) | Walker / Context |
@@ -59,14 +59,16 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 01 | [crouch_toggle action](to_verify/01-crouch-toggle.md) | Gameplay actions |
-| 02 | [stop_move action](to_verify/02-stop-move.md) | Walker |
 | 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
-| 08 | [In-game verification checklist](to_verify/08-verify-in-game.md) | Testing |
 
 ## Archive
 
-None yet, see [archive/](archive/README.md).
+| # | Task | Area |
+| - | ---- | ---- |
+| 01 | [crouch_toggle action](archive/01-crouch-toggle.md) | Gameplay actions |
+| 02 | [stop_move action](archive/02-stop-move.md) | Walker |
+
+See [archive/](archive/README.md).
 
 Suggested order (from `docs/code-review.md` section F): 24, then 31/32/30 (bugs that can strand her), then 39 (metres,
 so later messages use the formatter from the start), then 25/26, 27 together with 03, then 29/28, then 33-35, then

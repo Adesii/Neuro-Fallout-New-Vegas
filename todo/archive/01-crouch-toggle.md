@@ -1,6 +1,6 @@
 # 01 - crouch_toggle action
 
-Status: to verify (code complete, not yet tested in game)
+Status: archived (verified in game, 2026-10-22)
 
 ## Problem
 Neuro cannot sneak. Stealth needs crouching, and there is no action for it.
@@ -28,6 +28,6 @@ Action registered in `src/NeuroSDK.cpp` set, validated, state verified in game; 
   reports the state read back from the engine ("now crouching" / "now standing"), or "no effect" after 1.5 s.
 - Sneak state is `PlayerCharacter::GetMovementFlags()` with bit `0x400` set and swimming `0x800` clear (JIP-LN-NVSE
   `Actor::IsSneaking`, itr-nvse `CrouchCommands`); the vendored JG comment "bit 9" disagrees and is not used.
-- Unverified: that the flag reads correctly in game, and that the Crouch binding toggles rather than needs holding.
+- Verified in game by the designer (2026-10-22): the action works, so the sneak flag read and the toggling Crouch binding hold.
 - Manual checks: crouch then stand while watching the HUD sneak indicator; confirm the context message matches; try it
   while swimming/in a menu (rejected or "no effect"); confirm no key stays held.

@@ -57,7 +57,7 @@
 
 - One file per task under `todo/`; `todo/README.md` is the index and holds the full rules. The first line of each file is `Status: ...`.
 - Lifecycle by folder: `todo/` (open or partly done) -> `todo/to_verify/` (implemented and committed, not yet run in game) -> `todo/archive/` (confirmed working in game by the designer).
-- When you finish implementing a task, `git mv` it to `todo/to_verify/`, set `Status: to verify`, record what was built and what is unverified in its `Result` section, add the manual checks to `todo/to_verify/08-verify-in-game.md`, and update the tables in `todo/README.md`.
+- When you finish implementing a task, `git mv` it to `todo/to_verify/`, set `Status: to verify`, record what was built and what is unverified in its `Result` section, list the manual in-game checks there too, and update the tables in `todo/README.md`.
 - Only move a task to `todo/archive/` after the designer says it works in game. A passing build or host test is not verification (see the Cloud rule above); never archive on your own judgement.
 - Do not delete task files. Tasks that were only partly implemented stay in `todo/` with a note of what is done.
 
