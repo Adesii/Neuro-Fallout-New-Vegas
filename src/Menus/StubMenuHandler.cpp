@@ -4,6 +4,7 @@
 #include "GameUI.h"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
+#include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
 #include <array>
 #include <chrono>
@@ -55,7 +56,7 @@ constexpr std::array kEntries = {
 
 // An accepted close: the native exit control is clicked after a visible step, then the menu must leave.
 struct CloseRequest {
-  Clock::time_point startedAt{};
+  ScopedState::StepTimer timer; // counts only while the menu is actionable (nothing covers it)
   Clock::time_point nextStepAt{};
   bool clicked = false;
 };
@@ -110,11 +111,11 @@ void AdvanceClose(const Entry &entry) {
   if (!g_close || !g_actionable)
     return;
   const auto now = Clock::now();
-  if (g_close->startedAt == Clock::time_point{}) {
-    g_close->startedAt = now;
+  if (!g_close->timer.Started()) {
+    g_close->timer.Start(now);
     g_close->nextStepAt = now + kStepDelay;
   }
-  if (now - g_close->startedAt > kCloseTimeout) {
+  if (g_close->timer.Expired(kCloseTimeout)) {
     FailClose(entry, "The menu did not close.");
     return;
   }
@@ -169,6 +170,8 @@ bool Process() {
   g_actionable = Interface::GetTopMenuID() == g_open->menuId && MenuOf(*g_open) && MenuOf(*g_open)->tile;
   if (!g_actionable) {
     // A popup or another menu is on top and owns the controls.
+    if (g_close)
+      g_close->timer.Tick(false);
     UnregisterAll();
     return true;
   }
@@ -183,6 +186,8 @@ bool Process() {
   }
   if (g_announced)
     SetFor(*g_open).Register();
+  if (g_close)
+    g_close->timer.Tick(true);
   AdvanceClose(*g_open);
   return true;
 }
