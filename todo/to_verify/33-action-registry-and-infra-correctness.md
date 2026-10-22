@@ -1,6 +1,6 @@
 # 33 - Action registry, scripts and tooling correctness
 
-Status: open
+Status: to verify
 Area: `src/Actions/*`, `src/CachedScripts.hpp`, `tools/`, CMake
 Source: `docs/code-review.md` B3, B4, B6, B7, B8, B11, B14, E2
 
@@ -44,3 +44,38 @@ Source: `docs/code-review.md` B3, B4, B6, B7, B8, B11, B14, E2
 ## Done when
 The window-destruction test fails before and passes after, registry edge cases are covered, a broken build in
 `tools/test.sh` prints its errors, and persistent sets no longer spam failed registration.
+
+## Result (2026-10-22)
+Built and committed. Host tests: 109 pass (`bash tools/test.sh`); DLL builds with `tools/build.sh Debug`. Nothing was run in
+game.
+
+- `~ActionWindow` unbinds Registered/Forced/Closing windows. `ActionRegistry::Get()` is now a deliberately leaked
+  singleton, so windows owned by namespace-scope statics can unbind during static teardown. Test: destroying a window
+  segfaulted before the fix (checked by stashing the change) and passes after.
+- `CachedScripts`: keyed by `const char *` (sources are the static `CREATE_PLUGINSCRIPT` arrays), a null script is never
+  cached, a failed compile is retried after 5 s and logged once per attempt, and `Call`/`CallNoResult`/`CallC` are thin
+  wrappers over one `Invoke`. **No code calls these wrappers yet**, so this part is compile-checked only.
+- `ActionRegistry`: an empty request id is rejected before `Validate` and leaves the window alone; `RetryPendingResults`
+  collects finished entries and runs their callbacks after the loop. Tests for both.
+- `PersistentActionSet::Register` has a 2 s `ScopedState::Backoff` (with a `now` seam for tests). The delay is cleared
+  when `ActionRegistry::Reset()` runs (new `Generation()` counter) so a reconnect re-registers at once.
+- `tools/test.sh` prints the build log when a step fails; the redundant CMake glob is gone; `tools/build.sh` compares
+  the CMake version without `python3`. No extra warning flags were added to the plugin target (the vendored sources
+  would flood the log); the host tests already build with `-Wall -Wextra`.
+- Shared transport: `src/NeuroSDKTransport.inc` (the static method list) is included by both `NeuroSDK.hpp` and
+  `tests/stubs/NeuroSDK.hpp`, and the preconditions live in `src/Actions/TransportRules.hpp`, used by the real transport
+  and the fake. The fake now rejects an empty register list, non-object root schemas, empty result ids and empty
+  force names/query, and sends nothing for an empty unregister.
+- `PollMessages` (also todo 30) now hands every polled message to `neurosdk_message_destroy`. The pinned library frees
+  only Action messages and returns `NeuroSDK_UnknownCommand` for the rest, so behaviour is unchanged today.
+
+### Unverified
+- Persistent sets (Combat, Stance, Gameplay, Container, Inventory, PipBoy, Stub) re-register after a reconnect without
+  the old per-frame retry churn.
+
+### Manual in-game checklist
+1. Start the game with Neuro's server down, then start the server: the persistent actions (explore, query_quests, ...)
+   appear once, and the log shows no repeating "PersistentActionSet ..." warning.
+2. Open and close a container, the Pip-Boy inventory and a stubbed menu several times: their actions register and
+   unregister each time and Neuro can use them.
+3. Load a save with an action window open: no crash, and the next menu's window registers normally.
