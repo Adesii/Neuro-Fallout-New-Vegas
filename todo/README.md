@@ -44,7 +44,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) | Aim / Combat |
 | 28 | [Location notices and throttled "you see" push](28-location-and-world-context.md) | Context |
 | 29 | [Damage, death and combat-start messages](29-player-status-and-damage-context.md) | Context / Combat |
-| 30 | [Context reliability: disconnects, dedupe, subtitles](30-sdk-context-reliability.md) | SDK / Context |
 | 34 | [Combat engagement timing and small fixes](34-combat-engagement-fixes.md) | Combat (bugs) |
 | 35 | [Quest routing and object classification fixes](35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
 | 36 | [Cross-module duplication and hygiene](36-shared-utilities-cleanup.md) | Cleanup |
@@ -57,6 +56,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | # | Task | Area |
 | - | ---- | ---- |
 | 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
+| 30 | [Context reliability: disconnects, dedupe, subtitles](to_verify/30-sdk-context-reliability.md) | SDK / Context |
 | 31 | [Menu window lifecycle and timeout fixes (popup starvation)](to_verify/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
 | 33 | [Action registry, scripts and tooling correctness](to_verify/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
