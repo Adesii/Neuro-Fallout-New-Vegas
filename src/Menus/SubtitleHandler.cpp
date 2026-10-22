@@ -1,9 +1,9 @@
 #include "SubtitleHandler.hpp"
 #include "GameUI.h"
+#include "Menus/SubtitleTracker.hpp"
 #include "NeuroSDK.hpp"
 #include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
-#include <algorithm>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -13,19 +13,9 @@ namespace {
 
 constexpr auto kBatchDelay = std::chrono::seconds(5);
 constexpr auto kRetryDelay = std::chrono::seconds(1);
-constexpr size_t kMaxRememberedSubtitles = 256;
+constexpr size_t kMaxPendingSubtitles = 64;
 
-struct SubtitleEntry {
-  std::string text;
-  UINT32 startTime = 0;
-  INT32 priority = 0;
-
-  bool operator==(const SubtitleEntry &other) const {
-    return startTime == other.startTime && priority == other.priority && text == other.text;
-  }
-};
-
-std::vector<SubtitleEntry> g_remembered;
+SubtitleTracker g_tracker;
 std::vector<SubtitleEntry> g_pending;
 ScopedState::Clock::time_point g_flushAt;
 bool g_flushScheduled = false;
@@ -49,32 +39,33 @@ void Flush(ScopedState::Clock::time_point now) {
 
 } // namespace
 
+void Reset() {
+  g_tracker.Reset();
+  g_pending.clear();
+  g_flushScheduled = false;
+}
+
 void Process() {
   const auto now = ScopedState::Clock::now();
+  std::vector<SubtitleEntry> current;
   auto *hud = HUDMainMenu::GetSingleton();
   if (hud && hud->subtitlesArr.pBuffer) {
     for (UINT32 index = 0; index < hud->subtitlesArr.GetSize(); ++index) {
       auto *subtitle = hud->subtitlesArr.GetAt(index);
-      if (!subtitle)
-        continue;
-
-      SubtitleEntry entry = {UIUtils::CopyBoundedString(subtitle->text, sizeof(subtitle->text)), subtitle->startTime,
-                             subtitle->priority};
-      if (entry.text.empty() || std::find(g_remembered.begin(), g_remembered.end(), entry) != g_remembered.end())
-        continue;
-
-      g_remembered.push_back(entry);
-      g_pending.push_back(std::move(entry));
-      if (!g_flushScheduled) {
-        g_flushScheduled = true;
-        g_flushAt = now + kBatchDelay;
-      }
+      if (subtitle)
+        current.push_back({UIUtils::CopyBoundedString(subtitle->text, sizeof(subtitle->text)), subtitle->startTime,
+                           subtitle->priority});
     }
   }
 
-  if (g_remembered.size() > kMaxRememberedSubtitles) {
-    const auto excess = g_remembered.size() - kMaxRememberedSubtitles;
-    g_remembered.erase(g_remembered.begin(), g_remembered.begin() + excess);
+  for (auto &entry : g_tracker.Observe(current)) {
+    g_pending.push_back(std::move(entry));
+    if (g_pending.size() > kMaxPendingSubtitles)
+      g_pending.erase(g_pending.begin());
+    if (!g_flushScheduled) {
+      g_flushScheduled = true;
+      g_flushAt = now + kBatchDelay;
+    }
   }
   Flush(now);
 }

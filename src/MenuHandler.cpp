@@ -17,6 +17,7 @@
 namespace MenuHandler {
 
 void Reset() {
+  Menus::SubtitleHandler::Reset();
   Menus::SpecialAllocationHandler::Reset();
   Menus::DialogHandler::Reset();
   Menus::CharGenHandler::Reset();
