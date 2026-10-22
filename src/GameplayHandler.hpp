@@ -25,6 +25,9 @@ void SetReady(bool ready);
 bool ValidateQuestAction(std::string &error);
 bool ValidateGameplayAction(std::string &error);
 
+// The orientation message sent when a connection becomes ready; empty until a game is loaded.
+std::string BuildFreshStatus(bool reconnect);
+
 void QueryQuests();
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error);
 bool RevalidateQuestSelection(const QuestSelection &selection, std::string &error);

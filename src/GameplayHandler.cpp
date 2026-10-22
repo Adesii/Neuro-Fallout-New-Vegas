@@ -8,6 +8,7 @@
 #include "Actions/Gameplay/TargetObjectAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
 #include "Actions/PipBoy/OpenInventoryAction.hpp"
+#include "CombatHandler.hpp"
 #include "GameData.h"
 #include "GameObjects.h"
 #include "Menus/PipBoyHandler.hpp"
@@ -611,6 +612,43 @@ void Reset() {
   g_questFlags.clear();
   g_observationInitialized = false;
   g_nextQuestObservation = {};
+}
+
+std::string BuildFreshStatus(bool reconnect) {
+  if (!g_ready || !PlayerCharacter::GetSingleton())
+    return {};
+
+  constexpr size_t kMaxObjectivesListed = 5;
+  std::ostringstream status;
+  status << "## " << (reconnect ? "Status after reconnecting" : "Game status") << "\n"
+         << (reconnect ? "Your connection to the game was restored. Anything that happened while you were "
+                         "disconnected was not reported to you; this is where things stand now."
+                       : "You are connected to the game. This is where things stand.");
+  // Slots for the greeting (todo 24) and the current location (todo 28) go here once those tasks exist.
+  status << "\n\n" << CombatHandler::BuildPlayerStatus();
+
+  // Names only: this must not rebuild the query_quests catalog, whose ids Neuro may already be using.
+  status << "\n\n## Active quest objectives";
+  size_t listed = 0;
+  size_t total = 0;
+  auto *player = PlayerCharacter::GetSingleton();
+  for (auto iter = player->questObjectiveList.Begin(); !iter.End(); ++iter) {
+    auto *objective = iter.Get();
+    if (!objective || !objective->quest ||
+        (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed ||
+        (objective->quest->flags & kQuestFlagFinished))
+      continue;
+    ++total;
+    if (listed < kMaxObjectivesListed) {
+      status << "\n- " << QuestName(objective->quest) << ": " << ObjectiveText(objective);
+      ++listed;
+    }
+  }
+  if (total == 0)
+    status << "\n- None.";
+  else if (total > listed)
+    status << "\n- and " << (total - listed) << " more (use query_quests)";
+  return status.str();
 }
 
 void QueryQuests() {

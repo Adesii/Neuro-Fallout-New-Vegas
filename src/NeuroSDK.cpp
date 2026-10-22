@@ -4,6 +4,7 @@
 #include "Actions/TransportRules.hpp"
 #include "CachedScripts.hpp"
 #include "CombatHandler.hpp"
+#include "Context/ContextGate.hpp"
 #include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
 #include "Menus/PipBoyHandler.hpp"
@@ -41,6 +42,8 @@ constexpr int kContextFlags = 0;
 constexpr auto kReconnectDelay = std::chrono::seconds(10);
 
 char DEFAULT_EMPTY[] = "";
+
+Context::ContextGate g_contextGate;
 
 DWORD g_mainThreadId = 0;
 std::mutex g_deferredLogMutex;
@@ -158,6 +161,8 @@ void NeuroSDK::MainLoop() {
     if (!StartupMessage())
       return;
     connectionReady = true;
+    g_contextGate.Connected();
+    freshStatusPending = true;
     _MESSAGE("NeuroSDK connected; startup and action registration are being restored");
   }
 
@@ -167,6 +172,8 @@ void NeuroSDK::MainLoop() {
     DropContext();
     return;
   }
+
+  SendFreshStatus();
 
   const bool menuBlocksGameplay = MenuHandler::Process();
   GameplayHandler::Process(menuBlocksGameplay);
@@ -202,16 +209,42 @@ bool NeuroSDK::StartupMessage() {
   return SendSDKMessage(startupMessage);
 }
 
+void NeuroSDK::SendFreshStatus() {
+  if (!freshStatusPending)
+    return;
+  // Empty until a game is loaded; the status then waits instead of describing the main menu.
+  const std::string status = GameplayHandler::BuildFreshStatus(hasConnectedBefore);
+  if (status.empty())
+    return;
+  if (SendContext(status.c_str(), false)) {
+    _MESSAGE("Sent the %s status to Neuro", hasConnectedBefore ? "fresh" : "initial");
+    freshStatusPending = false;
+    hasConnectedBefore = true;
+  }
+}
+
 bool NeuroSDK::SendContext(const char *message, bool silent) {
   if (!message || strlen(message) == 0) {
     _WARNING("Cannot send empty context message to NeuroSDK.");
     return false;
   }
   auto sdk = &NeuroSDK::GetSingleton();
-  // _MESSAGE("Sending context message to NeuroSDK: %s and it is Silent: %b", message, silent);
   if (!sdk->connectionReady) {
-    _WARNING("NeuroSDK is not connected. Cannot send context message.");
+    // Context from before a reconnect would be stale, so it is dropped. Callers that clear state on success see false.
+    if (g_contextGate.ShouldWarnOutage())
+      _WARNING("NeuroSDK is not connected; context messages are dropped until it reconnects.");
     return false;
+  }
+  switch (g_contextGate.Check(message, silent)) {
+  case Context::ContextGate::Verdict::Empty:
+    _WARNING("Cannot send blank context message to NeuroSDK.");
+    return false;
+  case Context::ContextGate::Verdict::Duplicate:
+    _DMESSAGE("Dropped a context message repeated within %lld s",
+              static_cast<long long>(Context::ContextGate::kDuplicateWindow.count()));
+    return true;
+  case Context::ContextGate::Verdict::Send:
+    break;
   }
 
   neurosdk_message_t context_message{};

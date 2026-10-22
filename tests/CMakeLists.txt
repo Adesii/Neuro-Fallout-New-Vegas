@@ -21,6 +21,7 @@ add_executable(neuro_fnv_tests
     CombatTests.cpp
     StanceTests.cpp
     InputCoreTests.cpp
+    ContextGateTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -28,9 +29,11 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Actions/PersistentActionSet.cpp"
     "${REPO}/src/Actions/Json/JsonSchema.cpp"
     "${REPO}/src/Combat/CombatLogic.cpp"
+    "${REPO}/src/Context/ContextGate.cpp"
     "${REPO}/src/Inventory/ItemQuery.cpp"
     "${REPO}/src/Movement/StanceLogic.cpp"
     "${REPO}/src/Menus/PopupPolicy.cpp"
+    "${REPO}/src/Menus/SubtitleTracker.cpp"
     "${REPO}/src/utils/ScopedState.cpp"
     "${REPO}/src/utils/PulseQueue.cpp"
 )

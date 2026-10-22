@@ -31,6 +31,9 @@ private:
 
   neurosdk_context_t ctx{};
   bool connectionReady = false;
+  // A status message is owed to Neuro: set when a connection becomes ready, cleared once it was sent.
+  bool freshStatusPending = false;
+  bool hasConnectedBefore = false;
   std::vector<Actions::Request> actionInbox;
   // neurosdk_context_create blocks for seconds while connecting, so it runs off the game thread.
   std::future<ConnectResult> pendingConnect;
@@ -41,6 +44,7 @@ private:
   void UpdateConnection();
   void DropContext();
   bool StartupMessage();
+  void SendFreshStatus();
   bool SendSDKMessage(neurosdk_message_t &message);
   bool PollMessages();
   std::vector<Actions::Request> TakeActionInbox();
