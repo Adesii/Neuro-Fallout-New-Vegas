@@ -14,6 +14,7 @@
 #include "Inventory/QuantityPrompt.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
+#include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
 #include <algorithm>
 #include <chrono>
@@ -44,14 +45,27 @@ struct Transfer {
 
 // An accepted close_container: the native Exit button is clicked after a visible step, then the menu must leave.
 struct CloseRequest {
-  Clock::time_point startedAt{};
+  ScopedState::StepTimer timer; // counts only while the container is the active menu (a popup on top pauses it)
   Clock::time_point nextStepAt{};
   bool clicked = false;
 };
 
+// An accepted query whose listing could not be sent yet; the send is retried instead of silently leaving the old
+// listing bound with Neuro holding no data.
+struct PendingQuery {
+  bool own = false;
+  int page = 0;
+  Inventory::ItemQueryType type = Inventory::ItemQueryType::All;
+  int attempts = 0;
+};
+constexpr int kMaxPublishAttempts = 5;
+constexpr auto kPublishRetryDelay = std::chrono::seconds(1);
+
 Actions::PersistentActionSet g_actions;
 bool g_actionsBuilt = false;
 std::optional<CloseRequest> g_close;
+std::optional<PendingQuery> g_pendingQuery;
+ScopedState::Backoff g_publishRetry{kPublishRetryDelay};
 ContainerMenu *g_owner = nullptr;
 uint32_t g_containerId = 0;
 uint64_t g_session = 0;
@@ -296,6 +310,26 @@ void AdvanceTransfer() {
   transfer.phase = Transfer::Phase::Confirm;
 }
 
+void RetryPendingQuery() {
+  if (!g_pendingQuery || !IsActive() || !g_publishRetry.Ready())
+    return;
+  // The page may have changed since the query was accepted; a stale request is dropped rather than sent.
+  if (ValidatePage(g_pendingQuery->own, g_pendingQuery->page, g_pendingQuery->type)) {
+    g_pendingQuery.reset();
+    return;
+  }
+  if (PublishItems(g_pendingQuery->own, g_pendingQuery->page, g_pendingQuery->type)) {
+    g_pendingQuery.reset();
+    return;
+  }
+  if (++g_pendingQuery->attempts >= kMaxPublishAttempts) {
+    _WARNING("Container listing could not be sent after %d attempts", kMaxPublishAttempts);
+    g_pendingQuery.reset();
+    return;
+  }
+  g_publishRetry.Fail();
+}
+
 void FailClose(const std::string &reason) {
   _WARNING("Container close failed: %s", reason.c_str());
   g_close.reset();
@@ -306,11 +340,16 @@ void AdvanceClose() {
   if (!g_close)
     return;
   const auto now = Clock::now();
-  if (g_close->startedAt == Clock::time_point{}) {
-    g_close->startedAt = now;
+  // A popup over the container owns the controls: neither click Exit underneath it nor count the wait as a failure.
+  const bool active = IsActive();
+  g_close->timer.Tick(active, now);
+  if (!active)
+    return;
+  if (!g_close->timer.Started()) {
+    g_close->timer.Start(now);
     g_close->nextStepAt = now + kStepDelay;
   }
-  if (now - g_close->startedAt > kCloseTimeout) {
+  if (g_close->timer.Expired(kCloseTimeout)) {
     FailClose("The container did not close.");
     return;
   }
@@ -329,6 +368,8 @@ void AdvanceClose() {
 
 void Reset() {
   g_close.reset();
+  g_pendingQuery.reset();
+  g_publishRetry.Reset();
   g_actions.Unregister();
   g_owner = nullptr;
   g_containerId = 0;
@@ -368,6 +409,7 @@ bool Process() {
   }
   AdvanceTransfer();
   AdvanceClose();
+  RetryPendingQuery();
   if (!IsActive()) {
     g_actions.Unregister();
     return !g_transfers.empty();
@@ -395,7 +437,13 @@ Actions::PreparedAction PrepareQuery(bool own, int page, Inventory::ItemQueryTyp
   };
   if (auto error = revalidate())
     return Actions::PreparedAction::Failure(*error);
-  return Actions::PreparedAction::Success([own, page, type] { PublishItems(own, page, type); }, revalidate);
+  return Actions::PreparedAction::Success(
+      [own, page, type] {
+        g_pendingQuery = PendingQuery{.own = own, .page = page, .type = type};
+        g_publishRetry.Reset();
+        RetryPendingQuery();
+      },
+      revalidate);
 }
 
 Actions::PreparedAction PrepareTransfer(bool stow, int index) {
