@@ -47,9 +47,17 @@ bool Process() {
   const bool dialogPresent = topMenu == Interface::Dialog;
   const bool charGenPresent = topMenu == Interface::CharGen;
   const bool traitsPresent = topMenu == Interface::Traits;
+  // A popup, text prompt or character editor on top owns the controls. Every menu with a published action window is
+  // still processed each frame, told it is obstructed, so it closes its window (freeing the process-wide force for
+  // the popup's own window) and pauses its timers instead of going stale behind the popup.
+  const bool modalPresent = popupPresent || textEditPresent || characterEditorPresent;
   const bool specialBlocksGameplay =
-      Menus::SpecialAllocationHandler::Process(!popupPresent && !textEditPresent && !characterEditorPresent &&
-                                               !dialogPresent && !charGenPresent && !traitsPresent);
+      Menus::SpecialAllocationHandler::Process(!modalPresent && !dialogPresent && !charGenPresent && !traitsPresent);
+  const bool specialRunning = Menus::SpecialAllocationHandler::IsExecuting();
+  const bool dialogBlocksGameplay = Menus::DialogHandler::Process(!modalPresent && !specialRunning);
+  const bool charGenBlocksGameplay = Menus::CharGenHandler::Process(!modalPresent && !specialRunning);
+  const bool traitsBlocksGameplay =
+      Menus::TraitsHandler::Process(!modalPresent && !specialRunning && !Menus::CharGenHandler::IsExecuting());
   const bool containerBlocksGameplay = Menus::ContainerHandler::Process();
   const bool pipBoyBlocksGameplay = Menus::PipBoyHandler::Process();
   const bool vatsBlocksGameplay =
@@ -67,12 +75,11 @@ bool Process() {
   }
   if (Menus::CharacterEditorHandler::Process())
     return true;
-  if (Menus::DialogHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting()))
+  if (dialogBlocksGameplay)
     return true;
-  if (Menus::CharGenHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting()))
+  if (charGenBlocksGameplay)
     return true;
-  if (Menus::TraitsHandler::Process(!Menus::SpecialAllocationHandler::IsExecuting() &&
-                                    !Menus::CharGenHandler::IsExecuting()))
+  if (traitsBlocksGameplay)
     return true;
   if (specialBlocksGameplay)
     return true;

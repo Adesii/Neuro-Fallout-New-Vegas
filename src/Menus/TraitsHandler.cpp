@@ -47,7 +47,8 @@ struct ExecutionState {
   SelectionSnapshot selection;
   DoneSnapshot done;
   std::string completionSummary;
-  Clock::time_point startedAt;
+  // Counts only the time the menu is on top and unobstructed, so a covering popup cannot time the sequence out.
+  ScopedState::StepTimer timer;
   Clock::time_point nextStepAt;
   Phase phase = Phase::PrepareSelect;
   bool finishing = false;
@@ -216,7 +217,7 @@ void AdvanceExecution() {
     return;
   }
   const auto now = Clock::now();
-  if (now - g_execution->startedAt > kExecutionTimeout) {
+  if (g_execution->timer.Expired(kExecutionTimeout)) {
     StopExecution("The visual trait selection timed out.");
     return;
   }
@@ -384,9 +385,9 @@ void StartSelection(const SelectionSnapshot &snapshot) {
   const auto now = Clock::now();
   g_execution = std::make_unique<ExecutionState>(
       ExecutionState{.selection = snapshot,
-                     .startedAt = now,
                      .nextStepAt = now,
                      .phase = snapshot.shouldUnselect ? Phase::PrepareUnselect : Phase::PrepareSelect});
+  g_execution->timer.Start(now);
 }
 
 void StartDone(const DoneSnapshot &snapshot) {
@@ -396,11 +397,9 @@ void StartDone(const DoneSnapshot &snapshot) {
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(ExecutionState{.done = snapshot,
-                                                                .startedAt = now,
-                                                                .nextStepAt = now + kVisualDelay,
-                                                                .phase = Phase::ClickDone,
-                                                                .finishing = true});
+  g_execution = std::make_unique<ExecutionState>(
+      ExecutionState{.done = snapshot, .nextStepAt = now + kVisualDelay, .phase = Phase::ClickDone, .finishing = true});
+  g_execution->timer.Start(now);
 }
 
 bool IsExecuting() { return g_execution != nullptr; }
@@ -419,6 +418,7 @@ bool Process(bool unobstructed) {
   auto *menu = GetMenu();
   const bool menuOpen = menu && IsTopMenu(menu);
   if (g_execution) {
+    g_execution->timer.Tick(unobstructed && menuOpen);
     if (unobstructed)
       AdvanceExecution();
     return g_execution != nullptr || menuOpen;
