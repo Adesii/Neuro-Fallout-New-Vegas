@@ -31,7 +31,7 @@ struct PopupButton {
 struct ExecutionState {
   SelectionSnapshot selection;
   std::string label;
-  Clock::time_point startedAt;
+  ScopedState::StepTimer timer; // counts only while the popup is the top menu
   Clock::time_point clickAt;
   bool selected = false;
   bool clicked = false;
@@ -49,6 +49,19 @@ MessageMenu *GetOpenMenu() {
   if (!menu || !menu->tile || StartMenu::Get() || !UIUtils::IsTopMenu(menu, Interface::Message))
     return nullptr;
   return menu;
+}
+
+// The popup is still in the menu stack but something else (another menu or popup) is on top of it. Different from
+// gone: nothing may be concluded about a covered popup, and its timers must not run.
+bool IsCovered() { return Menu::IsMenuVisible(Interface::Message); }
+
+bool HasButton(MessageMenu *menu, Tile *tile) {
+  for (auto *entry = menu->buttonList.GetHead(); entry; entry = entry->GetNext()) {
+    auto *item = entry->GetItem();
+    if (item && item->tile == tile)
+      return true;
+  }
+  return false;
 }
 
 std::vector<PopupButton> GetButtons(MessageMenu *menu) {
@@ -129,6 +142,8 @@ void AdvanceExecution(MessageMenu *menu) {
   if (!g_execution)
     return;
   if (!menu) {
+    if (IsCovered())
+      return; // paused: the popup comes back to the top once whatever covers it is gone
     if (g_execution->clicked) {
       ReportChosen(*g_execution);
       _MESSAGE("Popup visual selection completed");
@@ -143,7 +158,7 @@ void AdvanceExecution(MessageMenu *menu) {
     return;
   }
   const auto now = Clock::now();
-  if (now - g_execution->startedAt > kExecutionTimeout) {
+  if (g_execution->timer.Expired(kExecutionTimeout)) {
     StopExecution("The visual popup selection timed out.");
     return;
   }
@@ -152,8 +167,9 @@ void AdvanceExecution(MessageMenu *menu) {
   const std::string signature =
       BuildSignature(UIUtils::GetTileString(menu->titleTile), UIUtils::GetTileString(menu->messageText), buttons);
   if (g_execution->clicked) {
-    // A different popup following the chosen one means the click was accepted.
-    if (signature != g_execution->selection.signature) {
+    // The click was accepted when the popup changed, or when the clicked button is gone: an identical popup that
+    // follows the chosen one has the same text but is built from new buttons.
+    if (signature != g_execution->selection.signature || !HasButton(menu, g_execution->selection.tile)) {
       ReportChosen(*g_execution);
       _MESSAGE("Popup visual selection completed; another popup followed");
       g_execution.reset();
@@ -240,15 +256,15 @@ void StartExecution(const SelectionSnapshot &snapshot) {
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(ExecutionState{.selection = snapshot,
-                                                                .label = UIUtils::GetTileString(snapshot.tile),
-                                                                .startedAt = now,
-                                                                .clickAt = now + kSelectionDelay});
+  g_execution = std::make_unique<ExecutionState>(ExecutionState{
+      .selection = snapshot, .label = UIUtils::GetTileString(snapshot.tile), .clickAt = now + kSelectionDelay});
+  g_execution->timer.Start(now);
 }
 
 bool Process() {
   auto *menu = GetOpenMenu();
   if (g_execution) {
+    g_execution->timer.Tick(menu != nullptr);
     AdvanceExecution(menu);
     return g_execution != nullptr || menu != nullptr;
   }
