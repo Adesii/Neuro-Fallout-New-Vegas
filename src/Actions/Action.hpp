@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace Actions {
 
@@ -40,6 +41,17 @@ struct PreparedAction {
   static PreparedAction Success(std::function<void()> execute,
                                 std::function<std::optional<std::string>()> revalidate = {});
 };
+
+// Turns "is this still valid, and if not why" (`check(error)` returns true while valid) into the revalidation callback
+// of a prepared action.
+template <class Check> std::function<std::optional<std::string>()> Revalidator(Check check) {
+  return [check = std::move(check)]() -> std::optional<std::string> {
+    std::string error;
+    if (!check(error))
+      return error;
+    return std::nullopt;
+  };
+}
 
 class IAction {
 public:

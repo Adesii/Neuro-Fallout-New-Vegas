@@ -19,8 +19,8 @@
 namespace Menus::InventoryHandler {
 namespace {
 
-using PipBoyHandler::Clock;
-using PipBoyHandler::kStepDelay;
+using Pacing::Clock;
+using Pacing::kStepDelay;
 constexpr auto kExecutionTimeout = std::chrono::seconds(60);
 
 struct StackState {
@@ -51,7 +51,6 @@ struct Execution {
 };
 
 Actions::PersistentActionSet g_actions;
-bool g_actionsBuilt = false;
 InventoryMenu *g_owner = nullptr;
 uint64_t g_session = 0;
 bool g_announced = false;
@@ -587,14 +586,13 @@ void AdvanceExecution() {
 }
 
 void BuildActions() {
-  if (g_actionsBuilt)
+  if (!g_actions.Empty())
     return;
   g_actions.Add(std::make_unique<Actions::Inventory::QueryOwnItemsAction>())
       .Add(std::make_unique<Actions::Inventory::EquipItemAction>())
       .Add(std::make_unique<Actions::Inventory::UnequipItemAction>())
       .Add(std::make_unique<Actions::Inventory::UseItemAction>())
       .Add(std::make_unique<Actions::Inventory::DropItemAction>());
-  g_actionsBuilt = true;
 }
 
 } // namespace
@@ -641,10 +639,7 @@ bool Process() {
   BuildActions();
   // A query owns navigation and replacement of the published snapshot. Item
   // actions keep a stable set registered so different listed indexes queue FIFO.
-  if (g_announced && (g_queue.empty() || !g_queue.front().query))
-    g_actions.Register();
-  else
-    g_actions.Unregister();
+  g_actions.Sync(g_announced && (g_queue.empty() || !g_queue.front().query));
   return true;
 }
 

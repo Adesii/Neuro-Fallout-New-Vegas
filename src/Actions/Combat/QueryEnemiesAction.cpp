@@ -24,12 +24,9 @@ PreparedAction QueryEnemiesAction::Validate(const Request &request) {
   if (!ActionData::ValidateNoParameters(request.data, error) || !GameplayHandler::ValidateGameplayAction(error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([]() { CombatHandler::QueryEnemies(); },
-                                 []() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!GameplayHandler::ValidateGameplayAction(revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([](std::string &revalidationError) {
+                                   return GameplayHandler::ValidateGameplayAction(revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Combat

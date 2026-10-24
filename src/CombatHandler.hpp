@@ -44,6 +44,5 @@ bool AimAtTarget(const TargetSelection &selection, float deltaTime);
 
 // The player's health, radiation, AP and weapon/ammo as Markdown bullets under a "## Your status" heading.
 std::string BuildPlayerStatus();
-float FrameTime();
 
 } // namespace CombatHandler

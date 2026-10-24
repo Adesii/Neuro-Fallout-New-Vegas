@@ -7,6 +7,7 @@
 #include "Actions/Gameplay/SelectQuestAction.hpp"
 #include "Actions/Gameplay/StopMoveAction.hpp"
 #include "Actions/Gameplay/TargetObjectAction.hpp"
+#include "Actions/IdList.hpp"
 #include "Actions/PersistentActionSet.hpp"
 #include "Actions/PipBoy/OpenInventoryAction.hpp"
 #include "CombatHandler.hpp"
@@ -24,6 +25,7 @@
 #include "common.hpp"
 #include "decoding.h"
 #include "nvse/GameForms.h"
+#include "utils/TimeUtils.hpp"
 #include "utils/WorldUtils.hpp"
 #include "utils/math.h"
 #include <algorithm>
@@ -91,7 +93,6 @@ Actions::PersistentActionSet g_worldActions;
 Actions::PersistentActionSet g_questActions;
 // Walker commands pause across menus rather than ending, so stopping one stays possible while a menu is open.
 Actions::PersistentActionSet g_moveActions;
-bool g_actionsBuilt = false;
 bool g_ready = false;
 bool g_gameplayBlocked = true;
 std::vector<QuestEntry> g_quests;
@@ -116,7 +117,7 @@ std::chrono::steady_clock::time_point g_nextPlaceObservation{};
 std::chrono::steady_clock::time_point g_lastPlaceObservation{};
 
 void BuildActions() {
-  if (g_actionsBuilt)
+  if (!g_questActions.Empty())
     return;
   g_questActions.Add(std::make_unique<Actions::Gameplay::QueryQuestsAction>())
       .Add(std::make_unique<Actions::Gameplay::SelectQuestAction>());
@@ -127,7 +128,6 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Gameplay::ExploreAction>())
       .Add(std::make_unique<Actions::PipBoy::OpenInventoryAction>());
   g_moveActions.Add(std::make_unique<Actions::Gameplay::StopMoveAction>());
-  g_actionsBuilt = true;
 }
 
 TESQuest *LookupQuest(uint32_t formId) {
@@ -453,31 +453,17 @@ std::string DescribeQuestLocation(const QuestEntry &entry) {
 }
 
 std::string ValidQuestIds() {
-  if (g_quests.empty())
-    return "There are no currently selectable quest targets. Run query_quests to refresh the list.";
-  std::ostringstream stream;
-  stream << "Valid quest ids are ";
-  for (size_t index = 0; index < g_quests.size(); ++index) {
-    if (index)
-      stream << ", ";
-    stream << g_quests[index].id;
-  }
-  stream << ".";
-  return stream.str();
+  std::vector<int> ids;
+  for (const auto &entry : g_quests)
+    ids.push_back(entry.id);
+  return Actions::FormatValidIds("quest", ids, "query_quests");
 }
 
 std::string ValidObjectIds() {
-  if (g_objects.empty())
-    return "There are no current nearby-object ids. Run query_nearby to refresh the list.";
-  std::ostringstream stream;
-  stream << "Valid nearby object ids are ";
-  for (size_t index = 0; index < g_objects.size(); ++index) {
-    if (index)
-      stream << ", ";
-    stream << g_objects[index].id;
-  }
-  stream << ".";
-  return stream.str();
+  std::vector<int> ids;
+  for (const auto &entry : g_objects)
+    ids.push_back(entry.id);
+  return Actions::FormatValidIds("nearby object", ids, "query_nearby");
 }
 
 void ObserveQuests() {
@@ -683,8 +669,7 @@ void ContinueCurrentQuest() {
   }
   auto *target = ResolveQuestTarget(objective, g_currentQuestRoute->targetFormId);
   if (!target) {
-    auto *time = TimeGlobal::Get();
-    g_questResolveTime += time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
+    g_questResolveTime += TimeUtils::FrameSeconds();
     if (g_questResolveTime >= kQuestResolveTimeout) {
       NeuroSDK::SendContext(
           ("Could not resolve the next route step for " + g_currentQuestRoute->description + ".").c_str(), false);
@@ -723,10 +708,7 @@ void Process(bool gameplayBlocked) {
   BuildActions();
   // Menus are meaningful availability boundaries, not a reason to expose unusable world actions.
   // Quest inspection/selection remains useful in menus; unchanged frames send no registration messages.
-  if (gameplayBlocked)
-    g_worldActions.Unregister();
-  else
-    g_worldActions.Register();
+  g_worldActions.Sync(!gameplayBlocked);
   g_questActions.Register();
   g_moveActions.Register();
   ProcessWalkerEvents();

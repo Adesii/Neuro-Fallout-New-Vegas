@@ -57,14 +57,11 @@ PreparedAction SetSpecialAction::Validate(const Request &request) {
   const void *owner = LoveTester::GetMenu();
   const int page = LoveTester::GetData()->currentPage;
   const int total = LoveTester::GetData()->totalPoints;
-  return PreparedAction::Success(
-      [values]() { Menus::SpecialAllocationHandler::StartExecution(values); },
-      [values, owner, page, total]() -> std::optional<std::string> {
-        std::string revalidationError;
-        if (!Menus::SpecialAllocationHandler::RevalidateAllocation(values, owner, page, total, revalidationError))
-          return revalidationError;
-        return std::nullopt;
-      });
+  return PreparedAction::Success([values]() { Menus::SpecialAllocationHandler::StartExecution(values); },
+                                 Revalidator([values, owner, page, total](std::string &revalidationError) {
+                                   return Menus::SpecialAllocationHandler::RevalidateAllocation(
+                                       values, owner, page, total, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Menu

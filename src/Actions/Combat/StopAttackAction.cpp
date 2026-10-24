@@ -20,13 +20,9 @@ PreparedAction StopAttackAction::Validate(const Request &request) {
   std::string error;
   if (!ActionData::ValidateNoParameters(request.data, error) || !CombatHandler::ValidateStopAttack(error))
     return PreparedAction::Failure(std::move(error));
-  return PreparedAction::Success([]() { CombatHandler::StopAttack(); },
-                                 []() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!CombatHandler::ValidateStopAttack(revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+  return PreparedAction::Success([]() { CombatHandler::StopAttack(); }, Revalidator([](std::string &revalidationError) {
+                                   return CombatHandler::ValidateStopAttack(revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Combat

@@ -20,12 +20,9 @@ PreparedAction VatsCancelAction::Validate(const Request &request) {
   if (!ActionData::ValidateNoParameters(request.data, error) || !Menus::VatsHandler::ValidateCancel(error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([]() { Menus::VatsHandler::StartCancel(); },
-                                 []() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!Menus::VatsHandler::ValidateCancel(revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([](std::string &revalidationError) {
+                                   return Menus::VatsHandler::ValidateCancel(revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Combat

@@ -14,6 +14,15 @@ public:
   // reset (reconnect, load) so the set is restored at once. `now` is a test seam.
   bool Register(ScopedState::Clock::time_point now = ScopedState::Clock::now());
   bool Unregister();
+  // Registers when `wanted`, otherwise unregisters: the per-frame "should this set be published now" tail of a handler.
+  void Sync(bool wanted) {
+    if (wanted)
+      Register();
+    else
+      Unregister();
+  }
+  // No action was added yet: handlers build their sets lazily on first use instead of keeping a "built" flag.
+  bool Empty() const { return m_actions.empty(); }
 
   static constexpr auto kRetryDelay = std::chrono::seconds(2);
 

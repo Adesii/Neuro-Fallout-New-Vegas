@@ -30,26 +30,18 @@ const Definition &TargetObjectAction::GetDefinition() const { return m_definitio
 
 PreparedAction TargetObjectAction::Validate(const Request &request) {
   std::string error;
-  auto data = ActionData::Parse(request.data, error);
-  if (!data)
-    return PreparedAction::Failure(std::move(error));
-  if (!data->IsObject() || data->Size() != 1)
-    return PreparedAction::Failure("Expected exactly one integer property named id.");
   int id = 0;
-  if (!data->GetInteger(kId, id))
-    return PreparedAction::Failure("id must be an integer.");
+  if (!ActionData::ParsePositiveId(request.data, kId, id, error))
+    return PreparedAction::Failure(std::move(error));
 
   GameplayHandler::ObjectSelection selection;
   if (!GameplayHandler::ValidateObjectSelection(id, selection, error))
     return PreparedAction::Failure(std::move(error));
   const Walker::Intent intent = m_interact ? Walker::Intent::Interact : Walker::Intent::Move;
   return PreparedAction::Success([selection, intent]() { GameplayHandler::StartObjectAction(selection, intent); },
-                                 [selection]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!GameplayHandler::RevalidateObjectSelection(selection, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([selection](std::string &revalidationError) {
+                                   return GameplayHandler::RevalidateObjectSelection(selection, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Gameplay

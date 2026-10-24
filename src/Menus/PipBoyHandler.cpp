@@ -24,7 +24,6 @@ struct Transition {
 };
 
 Actions::PersistentActionSet g_actions;
-bool g_actionsBuilt = false;
 bool g_observedOpen = false;
 uint64_t g_session = 0;
 std::optional<Transition> g_transition;
@@ -175,15 +174,10 @@ bool Process() {
   // Add future Stats/Data observation and executors here. Only the active tab
   // publishes actions; shared navigation waits for tab-specific execution.
   const bool inventoryBlocks = InventoryHandler::Process();
-  if (!g_actionsBuilt) {
+  if (g_actions.Empty())
     g_actions.Add(std::make_unique<Actions::PipBoy::ClosePipBoyAction>());
-    g_actionsBuilt = true;
-  }
   const auto tab = CurrentTab();
-  if (tab && IsActive(*tab) && !IsExecuting())
-    g_actions.Register();
-  else
-    g_actions.Unregister();
+  g_actions.Sync(tab && IsActive(*tab) && !IsExecuting());
   return open || IsTransitioning() || inventoryBlocks;
 }
 

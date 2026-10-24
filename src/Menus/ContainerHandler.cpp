@@ -12,6 +12,7 @@
 #include "Inventory/ItemListing.hpp"
 #include "Inventory/MenuItems.hpp"
 #include "Inventory/QuantityPrompt.hpp"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/ScopedState.hpp"
@@ -26,10 +27,11 @@
 namespace Menus::ContainerHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
-constexpr auto kStepDelay = std::chrono::milliseconds(350);
+using Pacing::Clock;
+using Pacing::kCloseTimeout;
+using Pacing::kStepDelay;
+
 constexpr auto kTransferTimeout = std::chrono::seconds(60);
-constexpr auto kCloseTimeout = std::chrono::seconds(5);
 
 struct Transfer {
   Inventory::ItemIdentity identity;
@@ -62,7 +64,6 @@ constexpr int kMaxPublishAttempts = 5;
 constexpr auto kPublishRetryDelay = std::chrono::seconds(1);
 
 Actions::PersistentActionSet g_actions;
-bool g_actionsBuilt = false;
 std::optional<CloseRequest> g_close;
 std::optional<PendingQuery> g_pendingQuery;
 ScopedState::Backoff g_publishRetry{kPublishRetryDelay};
@@ -134,7 +135,7 @@ bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool openin
 }
 
 void BuildActions() {
-  if (g_actionsBuilt)
+  if (!g_actions.Empty())
     return;
   g_actions.Add(std::make_unique<Actions::Container::LootItemAction>())
       .Add(std::make_unique<Actions::Container::QueryItemsAction>())
@@ -142,7 +143,6 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Container::QueryOwnItemsAction>())
       .Add(std::make_unique<Actions::Container::StowAwayItemAction>())
       .Add(std::make_unique<Actions::Container::CloseContainerAction>());
-  g_actionsBuilt = true;
 }
 
 void StopTransfers(const std::string &reason) {

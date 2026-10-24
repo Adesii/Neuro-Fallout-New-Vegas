@@ -3,16 +3,6 @@
 #include "Movement/AimLogic.hpp"
 
 namespace Math {
-float GetDistance2D(const NiPoint3 *posA, const NiPoint3 *posB) {
-  if (!posA || !posB)
-    return 0.0f;
-
-  float dx = posA->x - posB->x;
-  float dy = posA->y - posB->y;
-
-  return sqrtf(dx * dx + dy * dy);
-}
-
 // Signed heading from (x1, y1) towards (x2, y2) relative to a facing of angle1, in radians.
 // angle1 is the current facing in DEGREES; the returned heading is normalised to [-pi, pi].
 float GetHeadingBetweenPoints(float x1, float y1, float angle1, float x2, float y2) {

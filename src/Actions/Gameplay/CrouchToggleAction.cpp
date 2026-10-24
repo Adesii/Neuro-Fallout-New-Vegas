@@ -21,12 +21,9 @@ PreparedAction CrouchToggleAction::Validate(const Request &request) {
   if (!ActionData::ValidateNoParameters(request.data, error) || !StanceHandler::ValidateCrouchToggle(error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([]() { StanceHandler::ToggleCrouch(); },
-                                 []() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!StanceHandler::ValidateCrouchToggle(revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([](std::string &revalidationError) {
+                                   return StanceHandler::ValidateCrouchToggle(revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Gameplay

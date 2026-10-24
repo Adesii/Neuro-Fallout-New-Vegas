@@ -417,12 +417,9 @@ bool ParseAttackRequest(std::string_view json, AttackRequest &request, std::stri
     error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby).";
     return false;
   }
-  const char *key = hasEnemy ? "enemy_id" : "object_id";
   int id = 0;
-  if (!data->GetInteger(key, id) || id < 1) {
-    error = std::string(key) + " must be a positive integer.";
+  if (!data->GetPositiveInteger(hasEnemy ? "enemy_id" : "object_id", id, error))
     return false;
-  }
   request = {};
   (hasEnemy ? request.enemyId : request.objectId) = id;
   return true;
@@ -442,10 +439,8 @@ bool ParseOptionalEnemyId(std::string_view json, std::optional<int> &enemyId, st
   if (data->Size() == 0)
     return true;
   int id = 0;
-  if (!data->GetInteger("enemy_id", id) || id < 1) {
-    error = "enemy_id must be a positive integer.";
+  if (!data->GetPositiveInteger("enemy_id", id, error))
     return false;
-  }
   enemyId = id;
   return true;
 }

@@ -10,6 +10,7 @@
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/InputUtils.hpp"
+#include "utils/TimeUtils.hpp"
 #include <algorithm>
 #include <memory>
 
@@ -20,20 +21,13 @@ namespace {
 constexpr float kTapSeconds = 0.12f;
 
 Actions::PersistentActionSet g_actions;
-bool g_actionsBuilt = false;
 InputUtils::PulseQueue g_pulses{InputCore::Owner::StancePulse};
 Stance::CrouchVerifier g_verifier;
 
 void BuildActions() {
-  if (g_actionsBuilt)
+  if (!g_actions.Empty())
     return;
   g_actions.Add(std::make_unique<Actions::Gameplay::CrouchToggleAction>());
-  g_actionsBuilt = true;
-}
-
-float FrameTime() {
-  auto *time = TimeGlobal::Get();
-  return time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
 }
 
 // False when the mover is not available yet (loading, no game).
@@ -53,19 +47,15 @@ void CancelPending() {
 
 void Process(bool gameplayBlocked) {
   auto *player = PlayerCharacter::GetSingleton();
-  std::string ignored;
-  if (!player || !GameplayHandler::ValidateQuestAction(ignored)) {
+  if (!player || !GameplayHandler::IsReady()) {
     CancelPending();
     g_actions.Unregister();
     return;
   }
   BuildActions();
-  if (gameplayBlocked)
-    g_actions.Unregister();
-  else
-    g_actions.Register();
+  g_actions.Sync(!gameplayBlocked);
 
-  const float deltaTime = FrameTime();
+  const float deltaTime = TimeUtils::FrameSeconds();
   g_pulses.Advance(deltaTime);
   // The state is only meaningful with gameplay running: a menu would freeze the toggle mid-way.
   if (gameplayBlocked || !g_verifier.IsPending())

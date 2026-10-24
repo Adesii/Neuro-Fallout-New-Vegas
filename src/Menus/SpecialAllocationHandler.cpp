@@ -5,6 +5,7 @@
 #include "GameAPI.h"
 #include "GameObjects.h"
 #include "GameUI.h"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "defs/LoveTesterMenu.hpp"
@@ -19,7 +20,8 @@
 namespace Menus::SpecialAllocationHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
+using Pacing::Clock;
+using Pacing::kRegisterRetryDelay;
 
 constexpr auto kValueChangeDelay = std::chrono::milliseconds(180);
 constexpr auto kPageChangeDelay = std::chrono::milliseconds(1500);
@@ -49,8 +51,6 @@ struct ExecutionState {
   bool confirmationClicked = false;
 };
 
-constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
-
 std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
@@ -78,12 +78,7 @@ std::string BuildCompletionSummary(const SpecialValues &values) {
   return summary;
 }
 
-bool IsTopMenu() {
-  auto *interfaceManager = InterfaceManager::GetSingleton();
-  auto *menu = LoveTester::GetMenu();
-  return Interface::GetTopMenuID() == Interface::LoveTester ||
-         (interfaceManager && interfaceManager->IsInMenuMode() && menu && interfaceManager->activeMenu == menu);
-}
+bool IsTopMenu() { return UIUtils::IsTopMenu(LoveTester::GetMenu(), Interface::LoveTester); }
 
 bool IsValidMenuData(const LoveTester::Data *data) {
   return data && data->currentPage >= 0 && data->currentPage <= 8 && data->totalPoints >= 7 && data->totalPoints <= 70;

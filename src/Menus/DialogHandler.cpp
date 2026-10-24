@@ -4,6 +4,7 @@
 #include "Actions/Menu/SelectDialogAction.hpp"
 #include "GameTiles.h"
 #include "GameUI.h"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/ScopedState.hpp"
@@ -16,10 +17,11 @@
 namespace Menus::DialogHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
+using Pacing::Clock;
+using Pacing::kRegisterRetryDelay;
+using Pacing::kSelectionDelay;
 
 // Runtime layout and XML names verified against JIP LN NVSE and menus/dialog/dialog_menu.xml.
-constexpr auto kSelectionDelay = std::chrono::milliseconds(1500);
 constexpr auto kExecutionTimeout = std::chrono::seconds(10);
 constexpr size_t kMaxPendingSpeechLines = 64;
 
@@ -42,8 +44,6 @@ struct ExecutionState {
   bool clicked = false;
 };
 
-constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
-
 std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
@@ -58,11 +58,7 @@ bool g_wasShowingText = false;
 
 DialogMenu *GetMenu() { return *reinterpret_cast<DialogMenu **>(0x11D9510); }
 
-bool IsTopMenu(DialogMenu *menu) {
-  auto *interfaceManager = InterfaceManager::GetSingleton();
-  return menu && (Interface::GetTopMenuID() == Interface::Dialog ||
-                  (interfaceManager && interfaceManager->IsInMenuMode() && interfaceManager->activeMenu == menu));
-}
+bool IsTopMenu(DialogMenu *menu) { return UIUtils::IsTopMenu(menu, Interface::Dialog); }
 
 bool IsDialogVisible(DialogMenu *menu) { return menu && Menu::IsMenuVisible(Interface::Dialog); }
 

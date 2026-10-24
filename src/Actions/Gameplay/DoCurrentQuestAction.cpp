@@ -5,14 +5,17 @@
 #include <utility>
 
 namespace Actions::Gameplay {
+namespace {
 
-DoCurrentQuestAction::DoCurrentQuestAction()
-    : m_definition({.name = "do_current_quest",
-                    .description = "Follow the currently selected quest objective, navigating to and interacting with "
-                                   "its target when needed.",
-                    .schema = {}}) {}
+const Definition kDefinition = {.name = "do_current_quest",
+                                .description =
+                                    "Follow the currently selected quest objective, navigating to and interacting with "
+                                    "its target when needed.",
+                                .schema = {}};
 
-const Definition &DoCurrentQuestAction::GetDefinition() const { return m_definition; }
+} // namespace
+
+const Definition &DoCurrentQuestAction::GetDefinition() const { return kDefinition; }
 
 PreparedAction DoCurrentQuestAction::Validate(const Request &request) {
   std::string error;
@@ -22,12 +25,9 @@ PreparedAction DoCurrentQuestAction::Validate(const Request &request) {
   if (!GameplayHandler::PrepareCurrentQuest(selection, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([selection]() { GameplayHandler::DoCurrentQuest(selection); },
-                                 [selection]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!GameplayHandler::RevalidateCurrentQuest(selection, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([selection](std::string &revalidationError) {
+                                   return GameplayHandler::RevalidateCurrentQuest(selection, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Gameplay

@@ -3,6 +3,7 @@
 #include "Actions/Combat/OpenVatsAction.hpp"
 #include "Actions/Combat/QueryEnemiesAction.hpp"
 #include "Actions/Combat/StopAttackAction.hpp"
+#include "Actions/IdList.hpp"
 #include "Actions/PersistentActionSet.hpp"
 #include "Combat/DamageLogic.hpp"
 #include "Context/Distance.hpp"
@@ -22,6 +23,7 @@
 #include "WalkerHandler.hpp"
 #include "utils/AimUtils.hpp"
 #include "utils/InputUtils.hpp"
+#include "utils/TimeUtils.hpp"
 #include "utils/UIUtils.hpp"
 #include "utils/WorldUtils.hpp"
 #include <algorithm>
@@ -100,7 +102,6 @@ struct WeaponState {
 
 Actions::PersistentActionSet g_worldActions;
 Actions::PersistentActionSet g_stopActions;
-bool g_actionsBuilt = false;
 bool g_gameplayBlocked = true;
 
 std::vector<EnemyEntry> g_enemies;
@@ -142,13 +143,12 @@ float g_healthCurrent = 1.0f;
 bool g_deathReported = false;
 
 void BuildActions() {
-  if (g_actionsBuilt)
+  if (!g_worldActions.Empty())
     return;
   g_worldActions.Add(std::make_unique<Actions::Combat::QueryEnemiesAction>())
       .Add(std::make_unique<Actions::Combat::AttackAction>())
       .Add(std::make_unique<Actions::Combat::OpenVatsAction>());
   g_stopActions.Add(std::make_unique<Actions::Combat::StopAttackAction>());
-  g_actionsBuilt = true;
 }
 
 // --- Input ----------------------------------------------------------------------------------------------------
@@ -358,17 +358,10 @@ std::string DescribeEnemyBrief(const EnemyEntry &entry) {
 }
 
 std::string ValidEnemyIds() {
-  if (g_enemies.empty())
-    return "There are no current enemy ids. Run query_enemies to refresh the list.";
-  std::ostringstream stream;
-  stream << "Valid enemy ids are ";
-  for (size_t index = 0; index < g_enemies.size(); ++index) {
-    if (index)
-      stream << ", ";
-    stream << g_enemies[index].id;
-  }
-  stream << ". Run query_enemies to refresh the list.";
-  return stream.str();
+  std::vector<int> ids;
+  for (const auto &entry : g_enemies)
+    ids.push_back(entry.id);
+  return Actions::FormatValidIds("enemy", ids, "query_enemies");
 }
 
 // --- Engagement -----------------------------------------------------------------------------------------------
@@ -770,11 +763,6 @@ bool CheckAttackTarget(PlayerCharacter *player, TESObjectREFR *ref, std::string 
 
 // --- Public interface -----------------------------------------------------------------------------------------
 
-float FrameTime() {
-  auto *time = TimeGlobal::Get();
-  return time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
-}
-
 void Process(bool gameplayBlocked) {
   g_gameplayBlocked = gameplayBlocked;
   auto *player = PlayerCharacter::GetSingleton();
@@ -788,12 +776,9 @@ void Process(bool gameplayBlocked) {
   BuildActions();
   // stop_attack must stay available while a menu is open: the engagement survives menus.
   g_stopActions.Register();
-  if (gameplayBlocked)
-    g_worldActions.Unregister();
-  else
-    g_worldActions.Register();
+  g_worldActions.Sync(!gameplayBlocked);
 
-  const float deltaTime = FrameTime();
+  const float deltaTime = TimeUtils::FrameSeconds();
   g_clock += deltaTime;
   TrackHealth(player, deltaTime);
   ProcessEngagement(player, deltaTime, gameplayBlocked);

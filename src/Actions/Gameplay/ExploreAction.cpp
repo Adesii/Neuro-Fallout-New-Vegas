@@ -5,14 +5,16 @@
 #include <utility>
 
 namespace Actions::Gameplay {
+namespace {
 
-ExploreAction::ExploreAction()
-    : m_definition(
-          {.name = "explore",
-           .description = "Explore toward a varied, interesting, not-recently-visited object in the loaded area.",
-           .schema = {}}) {}
+const Definition kDefinition = {
+    .name = "explore",
+    .description = "Explore toward a varied, interesting, not-recently-visited object in the loaded area.",
+    .schema = {}};
 
-const Definition &ExploreAction::GetDefinition() const { return m_definition; }
+} // namespace
+
+const Definition &ExploreAction::GetDefinition() const { return kDefinition; }
 
 PreparedAction ExploreAction::Validate(const Request &request) {
   std::string error;
@@ -22,12 +24,9 @@ PreparedAction ExploreAction::Validate(const Request &request) {
   if (!GameplayHandler::PrepareExploration(selection, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([selection]() { GameplayHandler::StartExploration(selection); },
-                                 [selection]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!GameplayHandler::RevalidateObjectSelection(selection, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([selection](std::string &revalidationError) {
+                                   return GameplayHandler::RevalidateObjectSelection(selection, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Gameplay

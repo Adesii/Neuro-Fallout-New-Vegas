@@ -25,12 +25,9 @@ PreparedAction StopMoveAction::Validate(const Request &request) {
   if (!GameplayHandler::PrepareStopMove(stop, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([stop]() { GameplayHandler::StopMove(stop); },
-                                 [stop]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!GameplayHandler::RevalidateStopMove(stop, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([stop](std::string &revalidationError) {
+                                   return GameplayHandler::RevalidateStopMove(stop, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Gameplay

@@ -21,12 +21,9 @@ PreparedAction VatsExecuteAction::Validate(const Request &request) {
   if (!ActionData::ValidateNoParameters(request.data, error) || !Menus::VatsHandler::ValidateExecute(error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([]() { Menus::VatsHandler::StartExecute(); },
-                                 []() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!Menus::VatsHandler::ValidateExecute(revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([](std::string &revalidationError) {
+                                   return Menus::VatsHandler::ValidateExecute(revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Combat

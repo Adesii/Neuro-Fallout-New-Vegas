@@ -1,5 +1,5 @@
 #include "DelayedGuard.hpp"
-#include "GameData.h"
+#include "TimeUtils.hpp"
 #include <unordered_map>
 
 namespace DelayedGuard {
@@ -16,7 +16,7 @@ bool Delay(std::string idname, float delaySeconds) {
     countMap[idname] = 0.0f;
     return false;
   } else {
-    float currentTime = countMap[idname] + TimeGlobal::Get()->secondsPassed;
+    float currentTime = countMap[idname] + TimeUtils::FrameSeconds();
     if (currentTime >= delayMap[idname]) {
       return true;
     } else {

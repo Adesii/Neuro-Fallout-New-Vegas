@@ -10,11 +10,13 @@
 #include "GameTiles.h"
 #include "GameUI.h"
 #include "GameplayHandler.hpp"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "defs/VatsMenu.hpp"
 #include "utils/InputUtils.hpp"
 #include "utils/ScopedState.hpp"
+#include "utils/TimeUtils.hpp"
 #include "utils/UIUtils.hpp"
 #include "utils/WorldUtils.hpp"
 #include <algorithm>
@@ -26,10 +28,12 @@
 namespace Menus::VatsHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
+using Pacing::Clock;
+using Pacing::kRegisterRetryDelay;
+using Pacing::kStepDelay;
+
 using WorldUtils::LookupReference;
 
-constexpr auto kStepDelay = std::chrono::milliseconds(350);
 constexpr auto kSwitchDelay = std::chrono::milliseconds(650);
 constexpr auto kAimTimeout = std::chrono::seconds(3);
 constexpr auto kOpenTimeout = std::chrono::seconds(3);
@@ -38,7 +42,6 @@ constexpr auto kPlaybackStartTimeout = std::chrono::seconds(4);
 constexpr auto kCancelTimeout = std::chrono::seconds(4);
 // Playback and the kill camera are brief; a mode that never returns to none must not lock the game out for good.
 constexpr auto kPlaybackWatchdog = std::chrono::seconds(90);
-constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
 constexpr float kPulseSeconds = 0.12f;
 constexpr uint32_t kProjectileTargetType = 2; // itr-nvse VATSTargetType_Projectile: not an actor to shoot
 
@@ -446,7 +449,7 @@ bool ProcessFrame(bool unobstructed) {
   const bool top = menu && UIUtils::IsTopMenu(menu, Interface::VATS);
   const bool selecting = IsSelecting(menu);
   const bool playbackBlocks = PlaybackBlocks(mode);
-  const float deltaTime = CombatHandler::FrameTime();
+  const float deltaTime = TimeUtils::FrameSeconds();
   g_pulses.Advance(deltaTime);
 
   if (g_open) {

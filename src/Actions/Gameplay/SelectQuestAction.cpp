@@ -21,33 +21,25 @@ Definition BuildDefinition() {
           .schema = std::move(schema)};
 }
 
+const Definition kDefinition = BuildDefinition();
+
 } // namespace
 
-SelectQuestAction::SelectQuestAction() : m_definition(BuildDefinition()) {}
-
-const Definition &SelectQuestAction::GetDefinition() const { return m_definition; }
+const Definition &SelectQuestAction::GetDefinition() const { return kDefinition; }
 
 PreparedAction SelectQuestAction::Validate(const Request &request) {
   std::string error;
-  auto data = ActionData::Parse(request.data, error);
-  if (!data)
-    return PreparedAction::Failure(std::move(error));
-  if (!data->IsObject() || data->Size() != 1)
-    return PreparedAction::Failure("Expected exactly one integer property named id.");
   int id = 0;
-  if (!data->GetInteger(kId, id))
-    return PreparedAction::Failure("id must be an integer.");
+  if (!ActionData::ParsePositiveId(request.data, kId, id, error))
+    return PreparedAction::Failure(std::move(error));
 
   GameplayHandler::QuestSelection selection;
   if (!GameplayHandler::ValidateQuestSelection(id, selection, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([selection]() { GameplayHandler::SelectQuest(selection); },
-                                 [selection]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!GameplayHandler::RevalidateQuestSelection(selection, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([selection](std::string &revalidationError) {
+                                   return GameplayHandler::RevalidateQuestSelection(selection, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Gameplay

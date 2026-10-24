@@ -6,6 +6,7 @@
 #include "GameForms.h"
 #include "GameTiles.h"
 #include "GameUI.h"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/ScopedState.hpp"
@@ -19,7 +20,8 @@
 namespace Menus::TraitsHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
+using Pacing::Clock;
+using Pacing::kRegisterRetryDelay;
 
 constexpr auto kVisualDelay = std::chrono::milliseconds(1200);
 constexpr auto kVerifyDelay = std::chrono::milliseconds(400);
@@ -54,8 +56,6 @@ struct ExecutionState {
   bool finishing = false;
 };
 
-constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
-
 std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
@@ -64,11 +64,7 @@ std::unique_ptr<ExecutionState> g_execution;
 
 TraitMenu *GetMenu() { return *reinterpret_cast<TraitMenu **>(0x11DAF74); }
 
-bool IsTopMenu(TraitMenu *menu) {
-  auto *interfaceManager = InterfaceManager::GetSingleton();
-  return menu && (Interface::GetTopMenuID() == Interface::Traits ||
-                  (interfaceManager && interfaceManager->IsInMenuMode() && interfaceManager->activeMenu == menu));
-}
+bool IsTopMenu(TraitMenu *menu) { return UIUtils::IsTopMenu(menu, Interface::Traits); }
 
 bool IsSelected(Tile *tile) {
   auto *value = tile ? tile->GetValueName("_selected") : nullptr;

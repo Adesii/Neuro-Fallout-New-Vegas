@@ -40,12 +40,9 @@ PreparedAction AttackAction::Validate(const Request &request) {
   if (!CombatHandler::ValidateAttack(attack, selection, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([selection]() { CombatHandler::StartAttack(selection); },
-                                 [selection]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!CombatHandler::RevalidateAttack(selection, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([selection](std::string &revalidationError) {
+                                   return CombatHandler::RevalidateAttack(selection, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Combat

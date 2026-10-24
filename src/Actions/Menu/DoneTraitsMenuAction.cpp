@@ -25,12 +25,9 @@ PreparedAction DoneTraitsMenuAction::Validate(const Request &request) {
   if (!Menus::TraitsHandler::ValidateDone(snapshot, error))
     return PreparedAction::Failure(std::move(error));
   return PreparedAction::Success([snapshot]() { Menus::TraitsHandler::StartDone(snapshot); },
-                                 [snapshot]() -> std::optional<std::string> {
-                                   std::string revalidationError;
-                                   if (!Menus::TraitsHandler::RevalidateDone(snapshot, revalidationError))
-                                     return revalidationError;
-                                   return std::nullopt;
-                                 });
+                                 Revalidator([snapshot](std::string &revalidationError) {
+                                   return Menus::TraitsHandler::RevalidateDone(snapshot, revalidationError);
+                                 }));
 }
 
 } // namespace Actions::Menu

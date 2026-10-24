@@ -2,6 +2,7 @@
 #include "Actions/Menu/CloseMenuAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
 #include "GameUI.h"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "utils/ScopedState.hpp"
@@ -15,9 +16,9 @@
 namespace Menus::StubMenuHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
-constexpr auto kStepDelay = std::chrono::milliseconds(350);
-constexpr auto kCloseTimeout = std::chrono::seconds(5);
+using Pacing::Clock;
+using Pacing::kCloseTimeout;
+using Pacing::kStepDelay;
 
 struct Entry {
   unsigned menuId;

@@ -79,3 +79,47 @@ TEST("action data: moving transfers ownership") {
   CHECK(second.GetInteger("n", value));
   CHECK(!first.IsObject());
 }
+
+TEST("action data: integer edge cases (negative zero, 1.0, 1e2, duplicate keys, huge values)") {
+  int value = 5;
+  CHECK(Parsed(R"({"n":-0})").GetInteger("n", value));
+  CHECK_EQ(value, 0);
+  CHECK(!Parsed(R"({"n":1.0})").GetInteger("n", value));
+  CHECK(!Parsed(R"({"n":1e2})").GetInteger("n", value));
+  CHECK(Parsed(R"({"n":1,"n":2})").GetInteger("n", value));
+  CHECK_EQ(value, 1); // the first duplicate wins
+  CHECK(!Parsed(R"({"n":2147483648})").GetInteger("n", value));
+  CHECK(Parsed(R"({"n":2147483647})").GetInteger("n", value));
+  CHECK_EQ(value, 2147483647);
+  CHECK(Parsed(R"({"n":-2147483648})").GetInteger("n", value));
+}
+
+TEST("action data: the reason an integer failed is distinguishable") {
+  using R = ActionData::IntegerResult;
+  int value = 0;
+  CHECK(Parsed(R"({"n":3})").ReadInteger("n", value) == R::Ok);
+  CHECK(Parsed(R"({"m":3})").ReadInteger("n", value) == R::Missing);
+  CHECK(Parsed(R"({"n":"3"})").ReadInteger("n", value) == R::NotAnInteger);
+  CHECK(Parsed(R"({"n":1.5})").ReadInteger("n", value) == R::NotAnInteger);
+  CHECK(Parsed(R"({"n":99999999999})").ReadInteger("n", value) == R::OutOfRange);
+}
+
+TEST("action data: a single positive id") {
+  int id = 0;
+  std::string error;
+  CHECK(ActionData::ParsePositiveId(R"({"id":4})", "id", id, error));
+  CHECK_EQ(id, 4);
+  for (const char *bad : {"", "{}", R"({"id":0})", R"({"id":-3})", R"({"id":"4"})", R"({"id":1.5})", R"({"other":4})",
+                          R"({"id":4,"extra":1})", "[4]"}) {
+    error.clear();
+    CHECK(!ActionData::ParsePositiveId(bad, "id", id, error));
+    CHECK(!error.empty());
+  }
+  CHECK_EQ(id, 4); // a failed parse leaves the output alone
+  error.clear();
+  CHECK(!ActionData::ParsePositiveId(R"({"id":0})", "id", id, error));
+  CHECK(error.find("positive") != std::string::npos);
+  error.clear();
+  CHECK(!ActionData::ParsePositiveId(R"({"id":99999999999})", "id", id, error));
+  CHECK(error.find("too large") != std::string::npos);
+}

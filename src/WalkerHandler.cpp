@@ -15,6 +15,7 @@
 #include "nvse/GameUI.h"
 #include "utils/AimUtils.hpp"
 #include "utils/InputUtils.hpp"
+#include "utils/TimeUtils.hpp"
 #include "utils/WorldUtils.hpp"
 #include "utils/math.h"
 #include <algorithm>
@@ -160,11 +161,6 @@ using AimUtils::SetYaw;
 
 bool IsInteractable(TESObjectREFR *ref) { return WorldUtils::ClassifyObject(ref).interactable; }
 
-float GetFrameTime() {
-  auto *time = TimeGlobal::Get();
-  return time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
-}
-
 // Game time stands still in menus, so the paused-command notice runs on the wall clock.
 float RealFrameDelta() {
   using Clock = std::chrono::steady_clock;
@@ -178,8 +174,6 @@ float RealFrameDelta() {
 bool IsValidPoint(const PathPoint3 &point) {
   return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
 }
-
-float Distance2D(const NiPoint3 &left, const NiPoint3 &right) { return std::hypot(left.x - right.x, left.y - right.y); }
 
 void ReleaseMovementKeys() {
   auto &input = DIHookControl::GetSingleton();
@@ -277,7 +271,7 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
   size_t chosen = path.nodes.size() - 1;
   for (size_t index = 1; index < path.nodes.size(); ++index) {
     const PathPoint3 &node = path.nodes[index];
-    if (std::hypot(node.x - player->pos.x, node.y - player->pos.y) > kWaypointReachedDistance) {
+    if (Math::GetDistance2D(node, player->pos) > kWaypointReachedDistance) {
       chosen = index;
       break;
     }
@@ -320,9 +314,7 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
   bool refresh = !g_state.navigationValid || g_state.navigationAge >= kRepathInterval ||
                  Distance3D(destination, g_state.navigationDestination) > kDestinationMoveTolerance;
   if (!refresh && g_state.navigationAge >= kRepathMinInterval) {
-    const float dx = playerPosition.x - g_state.navigationPoint.x;
-    const float dy = playerPosition.y - g_state.navigationPoint.y;
-    refresh = std::sqrt(dx * dx + dy * dy) < kWaypointReachedDistance;
+    refresh = Math::GetDistance2D(playerPosition, g_state.navigationPoint) < kWaypointReachedDistance;
   }
   if (refresh) {
     g_state.navigationPoint = ResolveNavigationPoint(player, target);
@@ -366,7 +358,7 @@ DoorAhead FindDoorAhead(PlayerCharacter *player) {
     if (ref->extraDataList.GetExtraData(_ExtraDataType::ExtraTeleport))
       return;
     const NiPoint3 there = ref->GetPos();
-    const float distance = Distance2D(here, there);
+    const float distance = Math::GetDistance2D(here, there);
     if (distance > kDoorSearchDistance || distance >= best.distance ||
         std::abs(there.z - here.z) > kDoorMaxHeightDifference)
       return;
@@ -711,7 +703,7 @@ void Process() {
     FinishFailed(player, WalkerLogic::FailureReason::TargetGone);
     return;
   }
-  const float deltaTime = GetFrameTime();
+  const float deltaTime = TimeUtils::FrameSeconds();
   g_state.pauseNotice.Update(deltaTime, false);
   g_jumpPulses.Advance(deltaTime);
 
@@ -729,7 +721,7 @@ void Process() {
   const NiPoint3 playerPosition = player->GetPos();
   float walked = 0.0f;
   if (g_state.positionInitialized) {
-    walked = Distance2D(playerPosition, g_state.lastPlayerPosition);
+    walked = Math::GetDistance2D(playerPosition, g_state.lastPlayerPosition);
     if (walked > WalkerLogic::StuckDetector::kTeleportDistance)
       walked = 0.0f;
   }

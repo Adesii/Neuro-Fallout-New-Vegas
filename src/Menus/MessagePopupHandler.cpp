@@ -3,6 +3,7 @@
 #include "Actions/ActionWindow.hpp"
 #include "Actions/Menu/SelectPopupOptionAction.hpp"
 #include "GameUI.h"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "PopupPolicy.hpp"
 #include "Utils/DebugLog.hpp"
@@ -16,12 +17,12 @@
 namespace Menus::MessagePopupHandler {
 namespace {
 
-using Clock = ScopedState::Clock;
+using Pacing::Clock;
+using Pacing::kRegisterRetryDelay;
+using Pacing::kSelectionDelay;
 
 constexpr auto kAcceptDelay = std::chrono::milliseconds(1500);
-constexpr auto kSelectionDelay = std::chrono::milliseconds(1500);
 constexpr auto kExecutionTimeout = std::chrono::seconds(10);
-constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
 
 struct PopupButton {
   Tile *tile = nullptr;

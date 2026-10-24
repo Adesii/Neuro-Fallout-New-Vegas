@@ -7,6 +7,7 @@
 #include "GameForms.h"
 #include "GameTiles.h"
 #include "GameUI.h"
+#include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "defs/CharGenMenu.hpp"
@@ -21,7 +22,9 @@
 namespace Menus::CharGenHandler {
 namespace {
 
-using Clock = std::chrono::steady_clock;
+using Pacing::Clock;
+using Pacing::kRegisterRetryDelay;
+
 using MenuData = CharacterGeneration::MenuData;
 
 constexpr auto kVisualDelay = std::chrono::milliseconds(1200);
@@ -57,8 +60,6 @@ struct ExecutionState {
   bool finishing = false;
 };
 
-constexpr auto kRegisterRetryDelay = std::chrono::seconds(2);
-
 std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
@@ -67,12 +68,7 @@ std::unique_ptr<ExecutionState> g_execution;
 
 Menu *AsMenu(MenuData *menu) { return reinterpret_cast<Menu *>(menu); }
 
-bool IsTopMenu(MenuData *menu) {
-  auto *interfaceManager = InterfaceManager::GetSingleton();
-  return menu &&
-         (Interface::GetTopMenuID() == Interface::CharGen ||
-          (interfaceManager && interfaceManager->IsInMenuMode() && interfaceManager->activeMenu == AsMenu(menu)));
-}
+bool IsTopMenu(MenuData *menu) { return UIUtils::IsTopMenu(AsMenu(menu), Interface::CharGen); }
 
 bool IsSkillMenu(MenuData *menu) { return menu && menu->isTagSkills != 0; }
 
