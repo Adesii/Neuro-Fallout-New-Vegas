@@ -76,6 +76,9 @@ Apply these rules when designing the user-facing integration, not only when seri
   first encounter. Put information needed for the immediate forced decision in that force's `state`.
 - Context may be sent while an action result is pending; the server queues it and preserves delivery order. Still send
   the result first whenever possible so Neuro is not blocked waiting.
+- Distances in any text for Neuro are meters, produced only by `Units::FormatDistance` (`src/Context/Distance.*`, about
+  70 game units per meter). Never print raw game units or range words ("nearby", "very close"); thresholds in code stay in
+  game units.
 - Give Neuro only information available to a human player. Moderate explicit lists (roughly 20 items) are acceptable;
   clearly state their meaning instead of expecting inference.
 

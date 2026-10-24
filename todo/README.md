@@ -47,7 +47,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 36 | [Cross-module duplication and hygiene](36-shared-utilities-cleanup.md) | Cleanup |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) | Cleanup |
 | 38 | [Engine-free extraction and missing host tests](38-engine-free-extraction-and-tests.md) | Tests |
-| 39 | [Report all distances to Neuro in metres](39-distances-in-metres.md) | Context formatting |
 
 ## To verify (implemented, waiting for an in-game test)
 
@@ -60,6 +59,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 31 | [Menu window lifecycle and timeout fixes (popup starvation)](to_verify/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
 | 33 | [Action registry, scripts and tooling correctness](to_verify/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
+| 39 | [Report all distances to Neuro in metres](to_verify/39-distances-in-metres.md) (factor sourced, not yet measured in game) | Context formatting |
 
 ## Archive
 

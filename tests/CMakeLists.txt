@@ -25,6 +25,7 @@ add_executable(neuro_fnv_tests
     SpeakerMatchTests.cpp
     AimLogicTests.cpp
     WalkerLogicTests.cpp
+    DistanceTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"

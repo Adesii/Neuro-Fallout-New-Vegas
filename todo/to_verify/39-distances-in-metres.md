@@ -1,6 +1,6 @@
 # 39 - Report all distances to Neuro in metres
 
-Status: open
+Status: to verify
 Area: Context formatting (all modules that print a distance)
 Source: designer decision 2026-10-21; `docs/code-review.md` section A (message wording)
 
@@ -38,6 +38,29 @@ Distances reach Neuro as raw game units ("2000 game units"). An LLM judges "2000
   in-game measurement before replacing any message.
 - Decimals for very close things (e.g. "0.5 m", "3.5 m"), or round everything to whole metres? Default: whole metres,
   "less than 1 meter" under 1 m.
+
+## Result (2026-10-24)
+Built:
+- `Units::kUnitsPerMeter = 69.99125671386719f`, `Units::ToMeters`, and `Units::FormatDistance` printing whole meters
+  ("3 meters", "1 meter", "less than 1 meter"). Source of the factor: JohnnyGuitarNVSE `shared/Defines.hpp`
+  (`dM2NI = 69.99125671386719`, "1 Meter to Ni"); itr-nvse `DialogueCameraHandler.cpp` uses a game-to-Havok scale of
+  1/7 (a Havok unit is a decimeter, so 7 units = 10 cm), which agrees.
+- Every print site now goes through the formatter: quest locations (same area and door distance), `query_nearby`,
+  the enemy brief and `query_enemies`, besides the walk progress text that already used it. `RangeWord`,
+  `kVeryCloseDistance`, `kNearbyDistance` and the inline 450/1500 are gone. Internal thresholds stay in game units.
+- `tests/DistanceTests.cpp` (rounding, below one meter, nonsense input, no "unit" in output). The `neuro-fnv-actions`
+  skill records the convention.
+- No action description or schema mentioned units (grepped `src/Actions`).
+
+Unverified: the factor has a source but no in-game measurement yet. Decimals were not added (whole meters, as the
+designer's default).
+
+Manual in-game checks:
+1. Stand next to a door or a doorframe and `query_nearby`: a door you can touch reads "1 meter" or "less than 1
+   meter"; a character about 5 steps away reads about 3-4 meters (a player step is roughly 0.7-0.8 m).
+2. Measure a known distance: the console command `player.getdistance <ref>` prints game units; divide by 70 and compare
+   with the "N meters" Neuro was told for the same reference. Record the result here.
+3. `query_enemies`, `query_quests` and a long walk's progress message show meters and never "units" or "nearby".
 
 ## Done when
 No message sent to Neuro contains "units", all distances come from one formatter, the conversion factor is justified

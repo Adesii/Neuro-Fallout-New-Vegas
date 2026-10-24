@@ -4,6 +4,7 @@
 #include "Actions/Combat/QueryEnemiesAction.hpp"
 #include "Actions/Combat/StopAttackAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
+#include "Context/Distance.hpp"
 #include "GameAPI.h"
 #include "GameData.h"
 #include "GameForms.h"
@@ -39,8 +40,6 @@ using WorldUtils::LookupReference;
 constexpr float kEnemyScanRadius = 4000.0f;
 constexpr size_t kEnemyLimit = 20;
 constexpr size_t kCombatStartListLimit = 5;
-constexpr float kVeryCloseDistance = 450.0f;
-constexpr float kNearbyDistance = 1500.0f;
 
 constexpr float kLineOfSightInterval = 0.1f;
 constexpr float kAimLogInterval = 0.5f; // measurement log for todos 03 / 27 while a free-aim target is engaged
@@ -256,10 +255,6 @@ Combat::PlayerSnapshot SamplePlayer(PlayerCharacter *player) {
   return snapshot;
 }
 
-const char *RangeWord(float distance) {
-  return distance < kVeryCloseDistance ? "very close" : distance < kNearbyDistance ? "nearby" : "farther away";
-}
-
 // --- Enemy scan -----------------------------------------------------------------------------------------------
 
 std::vector<EnemyEntry> ScanEnemies(PlayerCharacter *player, bool withDetails) {
@@ -324,8 +319,7 @@ void RefreshEnemies(PlayerCharacter *player) {
 std::string DescribeEnemyBrief(const EnemyEntry &entry) {
   std::ostringstream text;
   text << "`" << entry.id << "` " << entry.target.name << " (" << Combat::FormatFraction(entry.health, entry.maxHealth)
-       << ", " << static_cast<int>(entry.distance) << " units" << (entry.targetingPlayer ? ", targeting you" : "")
-       << ")";
+       << ", " << Units::FormatDistance(entry.distance) << (entry.targetingPlayer ? ", targeting you" : "") << ")";
   return text.str();
 }
 
@@ -729,7 +723,7 @@ void QueryEnemies() {
     for (const auto &entry : g_enemies) {
       context << "\n- `" << entry.id << "` - **" << Combat::DispositionName(entry.disposition) << "** - "
               << entry.target.name << " - health " << Combat::FormatFraction(entry.health, entry.maxHealth) << " - "
-              << RangeWord(entry.distance) << ", " << static_cast<int>(entry.distance) << " game units - "
+              << Units::FormatDistance(entry.distance) << " away - "
               << (entry.lineOfSight ? "clear line of sight" : "no line of sight (behind cover or a wall)");
       if (!entry.weapon.empty())
         context << " - wielding " << entry.weapon;

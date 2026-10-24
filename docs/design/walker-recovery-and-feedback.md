@@ -31,8 +31,7 @@ Engine-free, host-tested (`src/Movement/WalkerLogic.*`, `tests/WalkerLogicTests.
   Budget 4 (10 for `Owner::Quest`). Travelling 200 units gives the budget back.
 - `ProgressReminder` (40 s / 20 s exploring), `PauseNotice` (one silent note after 30 s on hold), `FailureReason` and the
   text builders `DescribeFailure/Progress/Pause`.
-- Distances go through `Units::FormatDistance` (`src/Context/Distance.*`), which prints game units until todo 39 sets
-  the metre factor from a recorded source.
+- Distances go through `Units::FormatDistance` (`src/Context/Distance.*`), which prints meters (todo 39).
 
 Engine side (`src/WalkerHandler.cpp`):
 - Recovery steps: Jump pulses the bound Jump control (own `InputCore::Owner::WalkerPulse`, skipped when unbound);
@@ -71,5 +70,4 @@ Engine side (`src/WalkerHandler.cpp`):
 See the Result sections of `todo/to_verify/25-...` and `26-...`.
 
 ## Open questions
-- Todo 39: swap `Units::FormatDistance` to metres.
 - Todo 24: the idle poke should count a recent progress reminder as activity.

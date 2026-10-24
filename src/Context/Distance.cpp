@@ -3,10 +3,15 @@
 
 namespace Units {
 
+float ToMeters(float gameUnits) { return gameUnits / kUnitsPerMeter; }
+
 std::string FormatDistance(float gameUnits) {
   if (!std::isfinite(gameUnits) || gameUnits < 0.0f)
     return "an unknown distance";
-  return std::to_string(static_cast<long>(std::lround(gameUnits))) + " units";
+  const long meters = std::lround(ToMeters(gameUnits));
+  if (meters < 1)
+    return "less than 1 meter";
+  return std::to_string(meters) + (meters == 1 ? " meter" : " meters");
 }
 
 } // namespace Units

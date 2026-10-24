@@ -9,6 +9,7 @@
 #include "Actions/PersistentActionSet.hpp"
 #include "Actions/PipBoy/OpenInventoryAction.hpp"
 #include "CombatHandler.hpp"
+#include "Context/Distance.hpp"
 #include "GameData.h"
 #include "GameObjects.h"
 #include "Menus/PipBoyHandler.hpp"
@@ -353,12 +354,12 @@ void BuildQuestCatalog() {
     g_quests[index].id = static_cast<int>(index + 1);
 }
 
-// Says where the objective is and what it takes to get there. Distances are straight-line game units; for another
-// area the distance is to the door, since the objective itself is somewhere beyond it.
+// Says where the objective is and what it takes to get there. Distances are straight-line; for another area the
+// distance is to the door, since the objective itself is somewhere beyond it.
 std::string DescribeQuestLocation(const QuestEntry &entry) {
   std::ostringstream text;
   if (entry.sameTravelSpace) {
-    text << "in your current area, about " << static_cast<int>(entry.distance) << " game units away";
+    text << "in your current area, " << Units::FormatDistance(entry.distance) << " away";
     return text.str();
   }
   text << "NOT in your current area";
@@ -371,7 +372,7 @@ std::string DescribeQuestLocation(const QuestEntry &entry) {
   text << ": you have to enter a door to get there. The door"
        << (entry.doorName.empty() ? std::string() : " \"" + entry.doorName + "\"");
   if (entry.doorDistance >= 0.0f)
-    text << " is about " << static_cast<int>(entry.doorDistance) << " game units away from you";
+    text << " is " << Units::FormatDistance(entry.doorDistance) << " away from you";
   else
     text << " is not in your current area, so you need to travel to another area first";
   text << "; the objective itself is further, beyond it";
@@ -819,9 +820,8 @@ void QueryNearby() {
     context << "\n- None found in the loaded area.";
   } else {
     for (const auto &entry : g_objects) {
-      const char *range = entry.distance < 450.0f ? "very close" : entry.distance < 1500.0f ? "nearby" : "farther away";
-      context << "\n- `" << entry.id << "` - **" << entry.category << "** - " << entry.name << " - " << range << ", "
-              << static_cast<int>(entry.distance) << " game units";
+      context << "\n- `" << entry.id << "` - **" << entry.category << "** - " << entry.name << " - "
+              << Units::FormatDistance(entry.distance);
     }
   }
   NeuroSDK::SendContext(context.str().c_str(), true);
