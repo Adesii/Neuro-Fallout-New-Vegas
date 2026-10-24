@@ -18,8 +18,6 @@
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
-#include "itr/internal/EngineFunctions.h"
-#include "itr/internal/RayCast.h"
 #include "utils/AimUtils.hpp"
 #include "utils/InputUtils.hpp"
 #include "utils/UIUtils.hpp"
@@ -44,16 +42,8 @@ constexpr size_t kCombatStartListLimit = 5;
 constexpr float kVeryCloseDistance = 450.0f;
 constexpr float kNearbyDistance = 1500.0f;
 
-// Heights above an actor's feet that a shot should aim at; engine bounds are not read for this.
-constexpr float kCharacterAimHeight = 70.0f;
-constexpr float kCreatureAimHeight = 35.0f;
-constexpr float kObjectAimHeight = 20.0f;
-
-constexpr uint8_t kLineOfSightLayer =
-    37; // LAYER_LINEOFSIGHT, the engine vision filter (see src/itr/NavmeshCommands.cpp)
-constexpr float kLineOfSightStartOffset = 35.0f; // start past the player's own body
-constexpr float kLineOfSightPullback = 60.0f;    // end short of the target so its own collision does not block the ray
 constexpr float kLineOfSightInterval = 0.1f;
+constexpr float kAimLogInterval = 0.5f; // measurement log for todos 03 / 27 while a free-aim target is engaged
 
 constexpr float kMeleeBaseRange = 100.0f; // matches Walker's interaction distance; scaled by weapon reach
 constexpr float kRangedHeadingTolerance = 0.05f;
@@ -101,6 +91,7 @@ Combat::Engagement g_engagement;
 TargetSelection g_target;
 uint32_t g_startSpace = 0;
 float g_lineOfSightTimer = 0.0f;
+float g_aimLogTimer = 0.0f;
 bool g_lineOfSight = false;
 Combat::WeaponKind g_engagedWeaponKind = Combat::WeaponKind::Unarmed;
 
@@ -149,24 +140,12 @@ void ReleaseInputs() {
 
 // --- Engine reads ---------------------------------------------------------------------------------------------
 
-bool IsCreatureRef(TESObjectREFR *ref) {
-  return ref && ref->baseForm && ref->baseForm->eFormType == _FormType::TESCreature;
-}
-
 std::string NameOf(TESObjectREFR *ref) {
   const char *name = ref ? ref->GetFullName() : nullptr;
   return name && name[0] ? name : "Unnamed";
 }
 
-NiPoint3 AimPoint(TESObjectREFR *ref) {
-  NiPoint3 point = ref->GetPos();
-  const float scale = std::clamp(ref->GetScale(), 0.3f, 4.0f);
-  const float height = !ref->IsActor()      ? kObjectAimHeight
-                       : IsCreatureRef(ref) ? kCreatureAimHeight
-                                            : kCharacterAimHeight;
-  point.z += height * scale;
-  return point;
-}
+NiPoint3 AimPoint(TESObjectREFR *ref) { return AimUtils::TargetPoint(ref, AimUtils::Purpose::Shoot); }
 
 uint32_t SpaceOf(TESObjectREFR *ref) {
   auto *cell = ref ? ref->GetParentCell() : nullptr;
@@ -207,43 +186,6 @@ void ReadHealth(Actor *actor, float &current, float &maximum) {
   maximum = actor->avOwner.GetPermanentActorValueF(eActorVal_Health);
   if (!(maximum > 0.0f))
     maximum = std::max(current, 1.0f);
-}
-
-bool RayBlocked(const NiPoint3 &from, const NiPoint3 &to) {
-  RayCastData ray = {};
-  ray.pos0[0] = from.x * kHavokScale;
-  ray.pos0[1] = from.y * kHavokScale;
-  ray.pos0[2] = from.z * kHavokScale;
-  ray.pos1[0] = to.x * kHavokScale;
-  ray.pos1[1] = to.y * kHavokScale;
-  ray.pos1[2] = to.z * kHavokScale;
-  ray.hitFraction = 1.0f;
-  ray.unk44[0] = 0xFFFFFFFF;
-  ray.unk44[6] = 0xFFFFFFFF;
-  ray.layerType = kLineOfSightLayer;
-  if (!Engine::TESPickObject(&ray, true))
-    return false; // no cast was performed; do not claim a blockage that was not observed
-  return ray.hitFraction < 1.0f;
-}
-
-// A clear Havok ray on the engine's line-of-sight layer between the player's eye and the target, or the crosshair
-// already resting on the target (the engine's own reticle pick can only land on something it can see).
-bool HasLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint) {
-  if (player->reticleActor && player->reticleActor == target)
-    return true;
-  NiPoint3 eye = player->GetPos();
-  eye.z += AimUtils::kEyeHeight;
-  const float dx = targetPoint.x - eye.x;
-  const float dy = targetPoint.y - eye.y;
-  const float dz = targetPoint.z - eye.z;
-  const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
-  if (!(length > kLineOfSightStartOffset + kLineOfSightPullback))
-    return true; // already within arm's reach of it
-  const float start = kLineOfSightStartOffset / length;
-  const float end = 1.0f - kLineOfSightPullback / length;
-  const NiPoint3 from = {eye.x + dx * start, eye.y + dy * start, eye.z + dz * start};
-  const NiPoint3 to = {eye.x + dx * end, eye.y + dy * end, eye.z + dz * end};
-  return !RayBlocked(from, to);
 }
 
 // The HUD's ammo text is "loaded/reserve" (FalloutNVAccess/src/menus/HUDMainMenuHandler.cpp reads the same tile).
@@ -358,7 +300,7 @@ std::vector<EnemyEntry> ScanEnemies(PlayerCharacter *player, bool withDetails) {
       auto *ref = LookupReference(entry.target.referenceFormId);
       if (!ref)
         continue;
-      entry.lineOfSight = HasLineOfSight(player, ref, AimPoint(ref));
+      entry.lineOfSight = WorldUtils::HasLineOfSight(player, ref, AimPoint(ref));
       auto *actor = static_cast<Actor *>(ref);
       if (HighProcessOf(actor)) {
         if (TESObjectWEAP *weapon = actor->GetEquippedWeapon()) {
@@ -422,6 +364,27 @@ void FinishEngagement(Combat::StopReason reason) {
   NeuroSDK::SendContext(message.c_str(), reason == Combat::StopReason::Requested);
 }
 
+// Measurements todo 03 / 27 ask for: where the eye, the target and the aim point are, and how far the view still is
+// from the point. Only for non-actor targets (bottles, props), a couple of lines per second.
+void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &point, const AimUtils::Error &error,
+                float deltaTime) {
+  if (target->IsActor())
+    return;
+  g_aimLogTimer -= deltaTime;
+  if (g_aimLogTimer > 0.0f)
+    return;
+  g_aimLogTimer = kAimLogInterval;
+  const NiPoint3 eye = AimUtils::EyePosition(player);
+  const NiPoint3 origin = target->GetPos();
+  _MESSAGE(
+      "Aim %s: eye (%.1f %.1f %.1f) crouching %d scale %.2f; target origin (%.1f %.1f %.1f) scale %.2f; aim point "
+      "z+%.1f; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; reticle on target %d",
+      g_target.name.c_str(), eye.x, eye.y, eye.z, AimUtils::IsCrouching(player) ? 1 : 0, player->GetScale(), origin.x,
+      origin.y, origin.z, target->GetScale(), point.z - origin.z, Distance3D(eye, point),
+      AimUtils::EffectiveYaw(player), error.heading, AimUtils::CameraPitch(), error.pitch,
+      player->reticleActor && player->reticleActor == target ? 1 : 0);
+}
+
 bool AimIsOnTarget(PlayerCharacter *player, TESObjectREFR *target, const AimUtils::Error &error,
                    Combat::WeaponKind kind) {
   if (player->reticleActor && player->reticleActor == target)
@@ -476,13 +439,14 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
   const NiPoint3 point = AimPoint(target);
   g_lineOfSightTimer -= deltaTime;
   if (g_lineOfSightTimer <= 0.0f) {
-    const bool lineOfSight = HasLineOfSight(player, target, point);
+    const bool lineOfSight = WorldUtils::HasLineOfSight(player, target, point);
     if (lineOfSight != g_lineOfSight)
       _DMESSAGE("Combat line of sight to %s changed: %s", g_target.name.c_str(), lineOfSight ? "clear" : "blocked");
     g_lineOfSight = lineOfSight;
     g_lineOfSightTimer = kLineOfSightInterval;
   }
   const AimUtils::Error error = AimUtils::AimAt(player, point, deltaTime);
+  LogFreeAim(player, target, point, error, deltaTime);
 
   input.fightDisabled = (player->pcControlFlags & PlayerCharacter::kControlFlag_Fight) != 0;
   input.lineOfSight = g_lineOfSight;
@@ -820,7 +784,7 @@ bool ValidateAttack(const Combat::AttackRequest &request, TargetSelection &selec
   }
 
   auto *ref = LookupReference(selection.referenceFormId);
-  if (!ref || !HasLineOfSight(player, ref, AimPoint(ref))) {
+  if (!ref || !WorldUtils::HasLineOfSight(player, ref, AimPoint(ref))) {
     error = selection.name +
             " is not in your line of sight (behind a wall or cover). Move to get a clear view, then try again.";
     return false;

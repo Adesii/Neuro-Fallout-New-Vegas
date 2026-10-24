@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Movement/AimLogic.hpp"
+
 class NiPoint3;
 class PlayerCharacter;
+class TESObjectREFR;
 
 namespace AimUtils {
 
@@ -22,8 +25,18 @@ struct Error {
 Error AimAt(PlayerCharacter *player, const NiPoint3 &point, float deltaTime);
 
 // Pitch that points the view from the player's eye at `point` (negative looks up, matching SetPitch).
-float DesiredPitch(const PlayerCharacter *player, const NiPoint3 &point);
+float DesiredPitch(PlayerCharacter *player, const NiPoint3 &point);
 
-constexpr float kEyeHeight = 100.0f;
+using AimLogic::Purpose;
+
+// The single answer to "where on this reference do I look or shoot", used by Walker and Combat. The height tables live
+// in AimLogic.
+NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose);
+
+// Eye height above the player's feet for the current scale and stance (crouching). See AimLogic::kCrouchEyeRatio.
+float EyeHeight(PlayerCharacter *player);
+// The player's eye in world space (feet position raised by EyeHeight).
+NiPoint3 EyePosition(PlayerCharacter *player);
+bool IsCrouching(PlayerCharacter *player);
 
 } // namespace AimUtils

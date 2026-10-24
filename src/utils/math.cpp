@@ -1,5 +1,6 @@
 #include "math.h"
 #include "Gamebryo/NiPoint3.hpp"
+#include "Movement/AimLogic.hpp"
 
 namespace Math {
 float GetDistance2D(const NiPoint3 *posA, const NiPoint3 *posB) {
@@ -19,11 +20,8 @@ float GetHeadingBetweenPoints(float x1, float y1, float angle1, float x2, float 
   // Calculate the difference between the two angles
   float angleDifference = atan2f(x2 - x1, y2 - y1) * 180.0f / PI - angle1;
 
-  // Normalize the angle difference to the range [-180, 180]
-  while (angleDifference > 180.0f)
-    angleDifference -= 360.0f;
-  while (angleDifference < -180.0f)
-    angleDifference += 360.0f;
+  // Normalize the angle difference to the range [-180, 180]; non-finite input gives 0 instead of looping.
+  angleDifference = AimLogic::WrapDegrees(angleDifference);
 
   return ToRadians(angleDifference); // This is the heading from point A to point B relative to angle1
 }

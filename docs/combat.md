@@ -52,7 +52,7 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
 
 ## Unverified, needs the game
 
-1. Whether line of sight works: the ray start is moved 35 units past the player and ends 60 units before the target to
+1. Whether line of sight works (the ray now lives in `WorldUtils::HasLineOfSight`, shared with Walker): the ray start is moved 35 units past the player and ends 60 units before the target to
    avoid self/target collision. If `query_enemies` reports "no line of sight" for visible enemies, this is why. The
    `Combat line of sight ... changed` debug lines in the log show every transition.
 2. Melee reach: 100 units, scaled by `weapon->reach` when above 1. The real engine reach is not read.
@@ -84,7 +84,7 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
    moves her without cancelling the engagement; `stop_attack` ends it and Walker stops.
 6. `attack` a second enemy while engaged: retargets. Open the Pip-Boy mid-fight and equip another weapon: the engagement
    resumes after closing; no mouse button stays stuck in any case (also test disconnect and loading a save mid-fight).
-7. `attack` a bottle by `object_id`: short burst, then a stop message. An explicit ally/companion is rejected from both
+7. `attack` a bottle by `object_id`: short burst, then a stop message; the log gets `Aim <name>:` lines (todo 03 / 27 measurements). An explicit ally/companion is rejected from both
    `enemy_id` and `object_id`.
 8. Combat start/end messages and updates (health bands, rads, empty magazine, kills) arrive once each, not per frame.
 9. `open_vats`, with and without `enemy_id`: menu opens, window lists targets and body parts with hit chances.

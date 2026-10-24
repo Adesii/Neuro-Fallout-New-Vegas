@@ -1,6 +1,6 @@
 # 03 - Attacking objects misses (bottles on the fence)
 
-Status: open
+Status: in progress (measurement logging added; waiting for in-game numbers)
 
 ## Problem
 In the quest "Back in the Saddle" (shooting the bottles on the fence) the automatic `attack` with `object_id` misses:
@@ -28,3 +28,9 @@ for a distant one. Report the measured error (pitch degrees or units) before cho
 ## Done when
 Shooting the Goodsprings fence bottles with `attack` hits reliably at close and medium range; unit test for any new
 engine-free aim maths.
+
+## Progress (2026-10-24)
+No aim constant was changed. Combat now writes an `Aim <object>:` line to the log every 0.5 s while it free-aims a
+non-actor (eye, crouch flag, target origin/scale, aim point offset, distance, yaw/pitch, remaining errors, reticle on
+target). Aim point and eye height come from the unified code described in `27-aim-unification.md`. Needs: the log
+lines from shooting the fence bottles (close, far, standing, crouched), then pick the fix from the data.

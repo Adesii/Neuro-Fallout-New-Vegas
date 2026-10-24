@@ -1,6 +1,7 @@
 #include "AimUtils.hpp"
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
+#include "Movement/StanceLogic.hpp"
 #include "utils/math.h"
 #include <algorithm>
 #include <cmath>
@@ -18,17 +19,32 @@ auto *const kCameraPitch = reinterpret_cast<float *>(0x11E0764);
 auto *const kCameraYaw = reinterpret_cast<float *>(0x11E076C);
 
 constexpr float kPitchLimit = 1.5533f;
-constexpr float kTurnResponse = 10.0f;
-constexpr float kMaxTurnRate = 7.0f;
+// Combat's snap-to-target turn. Walker has its own, slower, smoothed turn (kWalkTurnRate in WalkerHandler.cpp).
+constexpr float kCombatTurnResponse = 10.0f;
+constexpr float kCombatTurnRate = 7.0f;
 constexpr float kPitchResponse = 12.0f;
 
-float WrapAngle(float angle) {
-  const float pi = static_cast<float>(Math::PI);
-  while (angle > pi)
-    angle -= pi * 2.0f;
-  while (angle < -pi)
-    angle += pi * 2.0f;
-  return angle;
+using AimLogic::WrapAngle;
+
+AimLogic::TargetKind ClassifyTarget(TESObjectREFR *ref) {
+  if (ref->IsActor())
+    return ref->baseForm && ref->baseForm->eFormType == _FormType::TESCreature ? AimLogic::TargetKind::Creature
+                                                                               : AimLogic::TargetKind::Character;
+  if (!ref->baseForm)
+    return AimLogic::TargetKind::Object;
+  switch (ref->baseForm->eFormType) {
+  case _FormType::TESObjectACTI:
+  case _FormType::BGSTalkingActivator:
+  case _FormType::TESObjectDOOR:
+  case _FormType::TESObjectCONT:
+  case _FormType::BGSTerminal:
+  case _FormType::TESFurniture:
+    return AimLogic::TargetKind::Activator;
+  case _FormType::TESFlora:
+    return AimLogic::TargetKind::Flora;
+  default:
+    return AimLogic::TargetKind::Object;
+  }
 }
 
 } // namespace
@@ -54,11 +70,27 @@ void SetPitch(PlayerCharacter *player, float pitch) {
   *kCameraPitch = pitch;
 }
 
-float DesiredPitch(const PlayerCharacter *player, const NiPoint3 &point) {
-  const float x = point.x - player->pos.x;
-  const float y = point.y - player->pos.y;
-  const float z = point.z - (player->pos.z + kEyeHeight);
-  return -std::atan2(z, std::sqrt(x * x + y * y));
+bool IsCrouching(PlayerCharacter *player) {
+  return player && player->actorMover && Stance::IsSneakingFlags(player->GetMovementFlags());
+}
+
+float EyeHeight(PlayerCharacter *player) { return AimLogic::EyeHeight(player->GetScale(), IsCrouching(player)); }
+
+NiPoint3 EyePosition(PlayerCharacter *player) {
+  NiPoint3 eye = player->GetPos();
+  eye.z += EyeHeight(player);
+  return eye;
+}
+
+NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose) {
+  NiPoint3 point = ref->GetPos();
+  point.z += AimLogic::ScaledTargetHeight(ClassifyTarget(ref), purpose, ref->GetScale());
+  return point;
+}
+
+float DesiredPitch(PlayerCharacter *player, const NiPoint3 &point) {
+  const NiPoint3 eye = EyePosition(player);
+  return AimLogic::PitchTo(point.x - eye.x, point.y - eye.y, point.z - eye.z);
 }
 
 Error AimAt(PlayerCharacter *player, const NiPoint3 &point, float deltaTime) {
@@ -70,7 +102,7 @@ Error AimAt(PlayerCharacter *player, const NiPoint3 &point, float deltaTime) {
   float heading =
       Math::GetHeadingBetweenPoints(player->pos.x, player->pos.y, Math::ToDegrees(currentYaw), point.x, point.y);
   if (deltaTime > 0.0f) {
-    float turn = std::clamp(heading * kTurnResponse, -kMaxTurnRate, kMaxTurnRate) * deltaTime;
+    float turn = std::clamp(heading * kCombatTurnResponse, -kCombatTurnRate, kCombatTurnRate) * deltaTime;
     if (std::abs(turn) > std::abs(heading))
       turn = heading;
     SetYaw(player, currentYaw + turn);

@@ -44,7 +44,8 @@ constexpr float kCloseLookDistance = 400.0f;
 constexpr float kLookAlignmentTolerance = 0.12f;
 constexpr int kMaxRecoveryAttempts = 3;
 constexpr float kLookTargetResponse = 4.0f;
-constexpr float kMaxTurnRate = 3.0f;
+// Walker's smoothed turn; combat's snap-to-target turn is AimUtils::kCombatTurnRate.
+constexpr float kWalkTurnRate = 3.0f;
 constexpr float kTurnSpeedResponse = 4.0f;
 constexpr float kTurnAccelerationResponse = 7.0f;
 constexpr float kTurnReversalResponse = 2.5f;
@@ -368,7 +369,7 @@ void UpdateLook(PlayerCharacter *player, const NiPoint3 &lookTarget, float delta
     g_state.turnVelocity = 0.0f;
     return;
   }
-  const float desiredVelocity = std::clamp(headingError * kTurnSpeedResponse, -kMaxTurnRate, kMaxTurnRate);
+  const float desiredVelocity = std::clamp(headingError * kTurnSpeedResponse, -kWalkTurnRate, kWalkTurnRate);
   const float response =
       desiredVelocity * g_state.turnVelocity < 0.0f ? kTurnReversalResponse : kTurnAccelerationResponse;
   const float velocityAlpha = 1.0f - std::exp(-response * deltaTime);
@@ -382,34 +383,10 @@ void UpdateLook(PlayerCharacter *player, const NiPoint3 &lookTarget, float delta
   SetYaw(player, currentYaw + turnAmount);
 }
 
-float GetTargetAimHeight(TESObjectREFR *target) {
-  if (!target || !target->baseForm)
-    return 0.0f;
-  if (target->IsActor())
-    return 100.0f;
-  switch (target->baseForm->eFormType) {
-  case _FormType::TESObjectACTI:
-  case _FormType::BGSTalkingActivator:
-  case _FormType::TESObjectDOOR:
-  case _FormType::TESObjectCONT:
-  case _FormType::BGSTerminal:
-  case _FormType::TESFurniture:
-    return 50.0f;
-  case _FormType::TESFlora:
-    return 20.0f;
-  default:
-    return 0.0f;
-  }
-}
-
 float UpdatePitch(PlayerCharacter *player, TESObjectREFR *target, bool closeToTarget, float deltaTime) {
   float desiredPitch = 0.0f;
-  if (closeToTarget) {
-    const float x = target->pos.x - player->pos.x;
-    const float y = target->pos.y - player->pos.y;
-    const float z = target->pos.z + GetTargetAimHeight(target) - (player->pos.z + AimUtils::kEyeHeight);
-    desiredPitch = -std::atan2(z, std::sqrt(x * x + y * y));
-  }
+  if (closeToTarget)
+    desiredPitch = AimUtils::DesiredPitch(player, AimUtils::TargetPoint(target, AimUtils::Purpose::Look));
   const float alpha = 1.0f - std::exp(-kLookTargetResponse * deltaTime);
   const float pitch = AimUtils::CameraPitch() + (desiredPitch - AimUtils::CameraPitch()) * alpha;
   SetPitch(player, pitch);
