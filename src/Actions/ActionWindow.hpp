@@ -23,6 +23,9 @@ public:
                          NeuroSDK::ActionPriority priority = NeuroSDK::ActionPriority::High,
                          bool ephemeralContext = true);
 
+  // True while any window owns the process-wide force (Neuro is expected to answer it).
+  static bool ForceOutstanding();
+
   bool Register();
   bool End();
   void Abandon();

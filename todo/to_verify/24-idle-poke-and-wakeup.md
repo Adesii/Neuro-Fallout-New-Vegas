@@ -1,6 +1,6 @@
 # 24 - Idle poke and post-action wake-up
 
-Status: open
+Status: to verify
 Area: Context / scheduling
 Source: `docs/code-review.md` A1, A7.2 (greeting)
 
@@ -45,6 +45,25 @@ commented out at `Socket.cpp:1229,1292`).
 - Final phrase list (Fallout-flavoured; designer to approve the draft).
 - (Answered) The poke must **not** fire during long dialogue/menu waits, or in general while any force / action window is
   active.
+
+## Result (2026-10-24)
+Built (design note: `docs/design/idle-poke.md`):
+- `src/Context/IdlePoker.*`: engine-free poke scheduler (6-10 s jitter, x1.7 backoff to a 30-60 s cap, 1 s post-action
+  poke from the falling edge of "busy" when Neuro acted, 3 s minimum gap, reset on action, prompted-by-context counts as
+  activity) plus `GreetingTimer` (10 min). 13 host tests in `tests/IdlePokerTests.cpp`.
+- `src/Context/Greeting.*` builds the silent greeting. Owed on connect, load, new game and every 10 minutes; after a
+  reconnect the status message leads with it instead.
+- `NeuroSDK::ProcessIdlePoke` is the only scheduler owner; busy covers menus, loading, no game, death, Walker, combat
+  engagement/context, Pip-Boy execution, an outstanding force (`ActionWindow::ForceOutstanding`) and pending results
+  (`ActionRegistry::HasPendingResults`).
+- The six phrases are a **draft**: the designer asked to approve the list before coding; the table is in
+  `IdlePoker.cpp` and the same list is in the design note. Replace them there if they should change.
+
+Unverified: everything in game (timing, that menus/loading block the poke, how the interval feels on stream). Compile and
+host tests only.
+
+Manual in-game checks: see `docs/design/idle-poke.md` (walk and wait 1 s, idle 30 s, Pip-Boy while idle, fight, load,
+reconnect, 10 minute greeting).
 
 ## Done when
 Walk completion and idle gameplay both lead to a nudge within the agreed window, repeated nudges back off, nothing is

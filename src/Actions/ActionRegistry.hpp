@@ -23,6 +23,7 @@ public:
   // Results owed for request ids of a dead connection can never be delivered usefully.
   void DropPendingResults();
   bool HasPendingResult(const std::string &actionName) const;
+  bool HasPendingResults() const { return !m_pendingResults.empty(); }
   // Incremented by every Reset(), so owners with their own retry state can tell that the world was reset.
   uint64_t Generation() const { return m_generation; }
 

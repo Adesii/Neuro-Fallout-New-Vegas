@@ -21,6 +21,8 @@ struct TargetSelection {
 void Process(bool gameplayBlocked);
 void Reset();
 bool IsEngaged();
+// True from the combat-start context message to the combat-end one (the game's "in combat" state, debounced).
+bool IsInCombat();
 // True for an actor that is explicitly friendly (ally/friend relation or teammate) and not fighting the player.
 bool IsExplicitlyFriendly(TESObjectREFR *ref);
 

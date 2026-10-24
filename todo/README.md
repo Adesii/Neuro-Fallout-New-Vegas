@@ -38,7 +38,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
 | 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
-| 24 | [Idle poke, post-action wake-up and greeting](24-idle-poke-and-wakeup.md) | Context / scheduling |
 | 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) (done except in-game measurements) | Aim / Combat |
 | 28 | [Location notices and throttled "you see" push](28-location-and-world-context.md) | Context |
 | 29 | [Damage, death and combat-start messages](29-player-status-and-damage-context.md) | Context / Combat |
@@ -55,6 +54,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](to_verify/26-walker-interaction-and-feedback.md) | Walker / Context |
+| 24 | [Idle poke, post-action wake-up and greeting](to_verify/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
 | 30 | [Context reliability: disconnects, dedupe, subtitles](to_verify/30-sdk-context-reliability.md) | SDK / Context |
 | 31 | [Menu window lifecycle and timeout fixes (popup starvation)](to_verify/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |

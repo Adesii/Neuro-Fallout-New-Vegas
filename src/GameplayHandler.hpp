@@ -22,11 +22,15 @@ struct ObjectSelection {
 void Process(bool gameplayBlocked);
 void Reset();
 void SetReady(bool ready);
+// A game is loaded and the player exists (the probe other handlers used to get from ValidateQuestAction).
+bool IsReady();
 bool ValidateQuestAction(std::string &error);
 bool ValidateGameplayAction(std::string &error);
 
-// The orientation message sent after a reconnect; empty until a game is loaded.
+// The orientation message sent after a reconnect; empty until a game is loaded. It leads with the greeting.
 std::string BuildFreshStatus();
+// The silent greeting (connect, load, new game, every ten minutes); empty until a game is loaded.
+std::string BuildGreeting();
 
 void QueryQuests();
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error);

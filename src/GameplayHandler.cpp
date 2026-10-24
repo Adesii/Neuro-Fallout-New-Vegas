@@ -10,6 +10,7 @@
 #include "Actions/PipBoy/OpenInventoryAction.hpp"
 #include "CombatHandler.hpp"
 #include "Context/Distance.hpp"
+#include "Context/Greeting.hpp"
 #include "GameData.h"
 #include "GameObjects.h"
 #include "Menus/PipBoyHandler.hpp"
@@ -602,6 +603,8 @@ void SetReady(bool ready) {
     Reset();
 }
 
+bool IsReady() { return g_ready && PlayerCharacter::GetSingleton(); }
+
 bool ValidateQuestAction(std::string &error) {
   if (!g_ready || !PlayerCharacter::GetSingleton()) {
     error = "Quest actions are unavailable until a game is loaded.";
@@ -637,6 +640,12 @@ void Reset() {
   g_nextQuestObservation = {};
 }
 
+std::string BuildGreeting() {
+  if (!IsReady())
+    return {};
+  return Context::BuildGreeting({});
+}
+
 std::string BuildFreshStatus() {
   if (!g_ready || !PlayerCharacter::GetSingleton())
     return {};
@@ -646,7 +655,7 @@ std::string BuildFreshStatus() {
   status << "## Status after reconnecting\n"
          << "Your connection to the game was restored. Anything that happened while you were disconnected was not "
             "reported to you; this is where things stand now.";
-  // Slots for the greeting (todo 24) and the current location (todo 28) go here once those tasks exist.
+  status << "\n\n" << BuildGreeting();
   status << "\n\n" << CombatHandler::BuildPlayerStatus();
 
   // Names only: this must not rebuild the query_quests catalog, whose ids Neuro may already be using.

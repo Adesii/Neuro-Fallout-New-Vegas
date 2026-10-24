@@ -1,6 +1,7 @@
 
 #include "NeuroSDK.hpp"
 #include "Actions/ActionRegistry.hpp"
+#include "Actions/ActionWindow.hpp"
 #include "Actions/TransportRules.hpp"
 #include "CachedScripts.hpp"
 #include "CombatHandler.hpp"
@@ -8,6 +9,7 @@
 #include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
 #include "Menus/PipBoyHandler.hpp"
+#include "Menus/VatsHandler.hpp"
 #include "StanceHandler.hpp"
 #include "Utils/DebugLog.hpp"
 #include "WalkerHandler.hpp"
@@ -17,6 +19,7 @@
 #include "nvse/CommandTable.h"
 #include "nvse/GameObjects.h"
 #include "nvse/PluginAPI.h"
+#include <algorithm>
 #include <cstring>
 #include <mutex>
 #include <utility>
@@ -40,6 +43,8 @@ constexpr int kContextFlags = 0;
 #endif
 
 constexpr auto kReconnectDelay = std::chrono::seconds(10);
+// A frame longer than this (a load, a debugger stop) must not count as that much idleness.
+constexpr float kMaxFrameSeconds = 1.0f;
 
 char DEFAULT_EMPTY[] = "";
 
@@ -162,9 +167,12 @@ void NeuroSDK::MainLoop() {
       return;
     connectionReady = true;
     g_contextGate.Connected();
-    // The first connection of a session gets no status (the greeting is todo 24); a reconnect does.
+    // The first connection of a session gets the silent greeting only; a reconnect gets the status, which leads with
+    // it.
     freshStatusPending = hasConnectedBefore;
+    greetingPending = true;
     hasConnectedBefore = true;
+    idlePoker.Reset();
     _MESSAGE("NeuroSDK connected; startup and action registration are being restored");
   }
 
@@ -175,12 +183,21 @@ void NeuroSDK::MainLoop() {
     return;
   }
 
+  const auto now = std::chrono::steady_clock::now();
+  const float frameSeconds =
+      lastFrameTime.time_since_epoch().count() == 0
+          ? 0.0f
+          : std::min(std::chrono::duration<float>(now - lastFrameTime).count(), kMaxFrameSeconds);
+  lastFrameTime = now;
+
   SendFreshStatus();
+  SendGreeting(frameSeconds);
 
   const bool menuBlocksGameplay = MenuHandler::Process();
   GameplayHandler::Process(menuBlocksGameplay);
   CombatHandler::Process(menuBlocksGameplay);
   StanceHandler::Process(menuBlocksGameplay);
+  const bool neuroActed = !actionInbox.empty();
   Actions::ActionRegistry::Get().Dispatch(TakeActionInbox());
 
   // Opening is accepted after menu observation. Pause Walker on that same frame,
@@ -189,9 +206,12 @@ void NeuroSDK::MainLoop() {
     Walker::Pause(menuBlocksGameplay ? Walker::PauseReason::Menu : Walker::PauseReason::PipBoy);
   else
     Walker::Process();
+
+  ProcessIdlePoke(frameSeconds, menuBlocksGameplay, neuroActed);
 }
 
 void NeuroSDK::ResetAutomation(bool connectionLost) {
+  idlePoker.Reset();
   MenuHandler::Reset();
   GameplayHandler::Reset();
   CombatHandler::Reset();
@@ -221,7 +241,41 @@ void NeuroSDK::SendFreshStatus() {
   if (SendContext(status.c_str(), false)) {
     _MESSAGE("Sent the status after reconnecting to Neuro");
     freshStatusPending = false;
+    // The status leads with the greeting.
+    greetingPending = false;
+    greetingTimer.Sent();
   }
+}
+
+void NeuroSDK::SendGreeting(float dt) {
+  if (greetingTimer.Update(dt))
+    greetingPending = true;
+  // After a reconnect the status message carries the greeting, so the two never arrive back to back.
+  if (!greetingPending || freshStatusPending)
+    return;
+  const std::string greeting = GameplayHandler::BuildGreeting();
+  if (greeting.empty())
+    return;
+  if (SendContext(greeting.c_str(), true)) {
+    _MESSAGE("Sent the greeting to Neuro");
+    greetingPending = false;
+    greetingTimer.Sent();
+  }
+}
+
+// The one owner of the idle timer: everything that makes "doing nothing" not idle is read here, after the handlers ran.
+void NeuroSDK::ProcessIdlePoke(float dt, bool menuBlocksGameplay, bool neuroActed) {
+  auto *player = PlayerCharacter::GetSingleton();
+  const bool busy = menuBlocksGameplay || !GameplayHandler::IsReady() || !player || player->GetDead() ||
+                    Walker::IsActive() || CombatHandler::IsEngaged() || CombatHandler::IsInCombat() ||
+                    Menus::PipBoyHandler::IsExecuting() || Menus::VatsHandler::IsActive() ||
+                    Actions::ActionWindow::ForceOutstanding() || Actions::ActionRegistry::Get().HasPendingResults();
+  const auto poke = idlePoker.Update({.dt = dt, .busy = busy, .neuroActed = neuroActed});
+  if (!poke.poke)
+    return;
+  const char *phrase = Context::IdlePoker::Phrase(poke.phrase);
+  _DMESSAGE("Idle poke (repeat %d, next after %.0f s)", idlePoker.Repeats(), idlePoker.Threshold());
+  SendContext(phrase, false);
 }
 
 bool NeuroSDK::SendContext(const char *message, bool silent) {
@@ -256,7 +310,11 @@ bool NeuroSDK::SendContext(const char *message, bool silent) {
                            }};
 
   _DMESSAGE("Sending context message: %s", message);
-  return sdk->SendSDKMessage(context_message);
+  const bool sent = sdk->SendSDKMessage(context_message);
+  // She was just prompted, so a nudge now would only repeat it.
+  if (sent && !silent)
+    sdk->idlePoker.NotifyPrompted();
+  return sent;
 }
 
 bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitions) {

@@ -673,6 +673,8 @@ void Reset() {
 
 bool IsEngaged() { return g_engagement.IsActive(); }
 
+bool IsInCombat() { return g_inCombat; }
+
 bool IsExplicitlyFriendly(TESObjectREFR *ref) {
   auto *player = PlayerCharacter::GetSingleton();
   return player && ref && ref->IsActor() && ClassifyActor(static_cast<Actor *>(ref), player) == Disposition::Friendly;

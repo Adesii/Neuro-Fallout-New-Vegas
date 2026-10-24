@@ -60,6 +60,8 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     break;
   case NVSEMessagingInterface::kMessage_PostLoadGame:
     GameplayHandler::SetReady(msg->data != nullptr);
+    if (g_neuroSDK && msg->data != nullptr)
+      g_neuroSDK->RequestGreeting();
     break;
   case NVSEMessagingInterface::kMessage_PostPostLoad:
     break;
@@ -75,6 +77,8 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
     GameplayHandler::SetReady(true);
+    if (g_neuroSDK)
+      g_neuroSDK->RequestGreeting();
     break;
   case NVSEMessagingInterface::kMessage_DeleteGameName:
     break;

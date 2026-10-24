@@ -20,6 +20,8 @@ ActionWindow::~ActionWindow() {
     g_forcedWindow = nullptr;
 }
 
+bool ActionWindow::ForceOutstanding() { return g_forcedWindow != nullptr; }
+
 ActionWindow &ActionWindow::Add(std::unique_ptr<IAction> action) {
   if (m_state == State::Building && action)
     m_actions.push_back(std::move(action));

@@ -1,5 +1,6 @@
 #pragma once
 #include "Actions/Action.hpp"
+#include "Context/IdlePoker.hpp"
 #include "common/ISingleton.h"
 #include "neurosdk.h"
 #include "nvse/CommandTable.h"
@@ -20,6 +21,8 @@ public:
   // connectionLost additionally drops results still owed for request ids of the dead session.
   void ResetAutomation(bool connectionLost = false);
   void RegisterCommands(NVSEInterface *nvse);
+  // A game was loaded or started: the greeting is owed again (sent silent once the player exists).
+  void RequestGreeting() { greetingPending = true; }
 
   static std::string GetCharacterDisplayName();
 
@@ -35,6 +38,11 @@ private:
   // sent.
   bool freshStatusPending = false;
   bool hasConnectedBefore = false;
+  // The greeting is owed to Neuro: set on connect, load, new game and by the ten-minute timer; cleared once sent.
+  bool greetingPending = false;
+  Context::IdlePoker idlePoker;
+  Context::GreetingTimer greetingTimer;
+  std::chrono::steady_clock::time_point lastFrameTime{};
   std::vector<Actions::Request> actionInbox;
   // neurosdk_context_create blocks for seconds while connecting, so it runs off the game thread.
   std::future<ConnectResult> pendingConnect;
@@ -46,6 +54,8 @@ private:
   void DropContext();
   bool StartupMessage();
   void SendFreshStatus();
+  void SendGreeting(float dt);
+  void ProcessIdlePoke(float dt, bool menuBlocksGameplay, bool neuroActed);
   bool SendSDKMessage(neurosdk_message_t &message);
   bool PollMessages();
   std::vector<Actions::Request> TakeActionInbox();

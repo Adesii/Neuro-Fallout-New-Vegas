@@ -70,4 +70,4 @@ Engine side (`src/WalkerHandler.cpp`):
 See the Result sections of `todo/to_verify/25-...` and `26-...`.
 
 ## Open questions
-- Todo 24: the idle poke should count a recent progress reminder as activity.
+- Todo 24 (done): a non-silent progress reminder counts as activity for the idle poker.
