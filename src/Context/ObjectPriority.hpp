@@ -37,8 +37,9 @@ struct Classification {
 };
 
 // Importance tier, higher is more important: quest targets first, then living people, containers, terminals, doors,
-// harvestables, useful items, corpses, furniture and activators, and plain loot (clutter) last. `questTarget` is any
-// reference an active quest objective points at (or the door on the way to one).
+// weapons, aid, harvestables, armor, ammo, readables, furniture, corpses, activators, and plain loot (clutter) last.
+// The numbers are in ObjectPriority.cpp. `questTarget` is any reference an active quest objective points at (or the
+// door on the way to one).
 int Tier(Category category, bool questTarget);
 
 struct Candidate {

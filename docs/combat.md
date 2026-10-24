@@ -58,7 +58,10 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
 
 - Hits: NVSE's built-in `OnHit` event through `NVSEEventManagerInterface::SetNativeEventHandler` (JG `PluginAPI.h`);
   xNVSE `EventManager.cpp` `HandleGameEvent` / `EventCallback::Invoke` hand the native handler `{victim, attacker}`
-  (`s_lastOnHitVictim = source; s_lastOnHitAttacker = object`). Registered on `kMessage_DeferredInit`.
+  (`s_lastOnHitVictim = source; s_lastOnHitAttacker = object`). Registered on `kMessage_DeferredInit`. The event name
+  is matched case-insensitively (`s_eventInfoMap` is an NVSE `UnorderedMap<const char*, ...>` whose keys hash with
+  `StrHashCI`), so `"OnHit"` finds the `"onhit"` built-in. A hit by her own thrown weapon or explosion arrives with the player
+  as attacker and is reported as a hazard ("your own weapon or explosive"), never as an actor.
 - Killer: `Actor::killer` at 0xC0 (JG `GameObjects.h`), read only when the pointer is one of the loaded references.
 
 ## Unverified, needs the game

@@ -11,6 +11,10 @@
 
 namespace Combat {
 
+// How a hit by the player's own thrown weapon, mine or explosion is named: not an actor, so the death report treats it
+// as a hazard instead of naming her as her own killer.
+inline constexpr const char *kSelfSource = "your own weapon or explosive";
+
 struct HitInfo {
   uint32_t attackerId = 0;
   std::string attackerName; // empty when the source has no name

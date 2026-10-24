@@ -170,3 +170,17 @@ TEST("combat reporter: outside combat only health and radiation are reported") {
   // The silently tracked weapon is not announced again when combat begins.
   CHECK(reporter.Update(player, true).empty());
 }
+
+TEST("death report: her own grenade is a hazard, never her own killer") {
+  HitNotes notes;
+  const HitInfo self = {0x14, kSelfSource, "", false};
+  CHECK_EQ(*notes.Record(self, 1.0f), std::string("You were hurt by your own weapon or explosive."));
+
+  DeathInput input;
+  input.now = 2.0f;
+  input.lastHit = notes.Last();
+  CHECK(ClassifyDeath(input) == DeathCause::Hazard);
+  const std::string text = DeathReporter(5).Describe(input);
+  CHECK(text.find("killed by") == std::string::npos);
+  CHECK(text.find("your own weapon or explosive") != std::string::npos);
+}

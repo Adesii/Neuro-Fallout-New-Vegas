@@ -141,6 +141,7 @@ float g_healthTrailTimer = 0.0f;
 float g_healthPrevious = 1.0f;
 float g_healthCurrent = 1.0f;
 bool g_deathReported = false;
+std::string g_deathText; // built on the first dead frame and re-sent until it goes out
 
 void BuildActions() {
   if (!g_worldActions.Empty())
@@ -624,6 +625,13 @@ std::string OptionalName(TESObjectREFR *ref) {
 Combat::HitInfo DescribeHit(uint32_t attackerId) {
   Combat::HitInfo hit;
   hit.attackerId = attackerId;
+  auto *player = PlayerCharacter::GetSingleton();
+  if (player && attackerId == player->GetFormID()) {
+    // Her own grenade, mine or explosion: not an actor that "hits you", and never her own killer.
+    hit.attackerIsActor = false;
+    hit.attackerName = Combat::kSelfSource;
+    return hit;
+  }
   auto *ref = attackerId ? LookupReference(attackerId) : nullptr;
   hit.attackerIsActor = ref && ref->IsActor();
   hit.attackerName = OptionalName(ref);
@@ -680,26 +688,30 @@ void TrackHealth(PlayerCharacter *player, float deltaTime) {
 void ReportDeath(PlayerCharacter *player) {
   if (!player->GetDead()) {
     g_deathReported = false;
+    g_deathText.clear();
     return;
   }
   if (g_deathReported)
     return;
-  Combat::DeathInput input;
-  input.killerName = LiveActorName(static_cast<Actor *>(player)->killer, player);
-  input.lastHit = g_hitNotes.Last();
-  input.now = g_clock;
-  input.radiation = player->avOwner.GetActorValueF(eActorVal_RadLevel);
-  input.healthFractionBefore = std::max(g_healthPrevious, g_healthCurrent);
-  input.healthFractionAtFightStart = g_fightStartHealth;
-  input.inCombat = g_inCombat;
-  if (g_engagement.IsActive())
-    input.activity = "attacking " + g_target.name;
-  else if (Walker::IsActive())
-    input.activity =
-        "walking to " + (Walker::GetDescription().empty() ? std::string("a destination") : Walker::GetDescription());
-  const std::string text = g_deathReporter.Describe(input);
-  _MESSAGE("Player died: %s", text.c_str());
-  if (NeuroSDK::SendContext(text.c_str(), false)) {
+  if (g_deathText.empty()) {
+    Combat::DeathInput input;
+    input.killerName = LiveActorName(static_cast<Actor *>(player)->killer, player);
+    input.lastHit = g_hitNotes.Last();
+    input.now = g_clock;
+    input.radiation = player->avOwner.GetActorValueF(eActorVal_RadLevel);
+    input.healthFractionBefore = std::max(g_healthPrevious, g_healthCurrent);
+    input.healthFractionAtFightStart = g_fightStartHealth;
+    input.inCombat = g_inCombat;
+    if (g_engagement.IsActive())
+      input.activity = "attacking " + g_target.name;
+    else if (Walker::IsActive())
+      input.activity =
+          "walking to " + (Walker::GetDescription().empty() ? std::string("a destination") : Walker::GetDescription());
+    g_deathText = g_deathReporter.Describe(input);
+    _MESSAGE("Player died: %s", g_deathText.c_str());
+  }
+  // A failed send (disconnected) is retried next frame with the same text.
+  if (NeuroSDK::SendContext(g_deathText.c_str(), false)) {
     g_deathReported = true;
     g_pendingNotes.clear(); // anything still queued is overtaken by the death report
   }
@@ -817,6 +829,7 @@ void Reset() {
   g_healthPrevious = 1.0f;
   g_healthCurrent = 1.0f;
   g_deathReported = false;
+  g_deathText.clear();
 }
 
 void InstallHitEvent() {

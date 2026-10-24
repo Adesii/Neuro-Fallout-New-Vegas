@@ -57,4 +57,7 @@ Location (`src/Context/Location.*`, engine-free, `tests/LocationTests.cpp`):
 4. Stand still near a container and an NPC: one "You see" summary (silent) within a few seconds, then nothing repeats for the
    same objects; step into view of a quest target: a non-silent summary leading with "Quest target:".
 5. Fight, open the Pip-Boy or talk to someone: no "You see" lines until it is over.
-6. Log lines to look for: `Location: ...`, `You-see push (...)`. Report if markers never show up in the wasteland.
+6. Watch for hitches while walking the wasteland: outdoors in an unnamed cell the place observation walks the worldspace's
+   persistent cell every 0.5 s and the "you see" push scans every 2 s. If the frame rate dips periodically, lengthen those
+   intervals (`kPlaceObservationInterval`, `kSeeObservationInterval`).
+7. Log lines to look for: `Location: ...`, `You-see push (...)`. Report if markers never show up in the wasteland.
