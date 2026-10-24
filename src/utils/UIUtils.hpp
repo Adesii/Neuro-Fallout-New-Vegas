@@ -14,6 +14,8 @@ std::string GetTileString(Tile *tile);
 // True when the menu is the top menu or the active menu in menu mode. Never infer this from the
 // menu singleton alone: engine singletons stay allocated after their menu closes.
 bool IsTopMenu(Menu *menu, uint32_t menuId);
+// ClickTile, but only when the tile is visible and enabled (IsControlAvailable); false otherwise.
+bool ClickAvailable(Menu *menu, Tile *tile);
 bool ClickTile(Menu *menu, Tile *tile);
 Tile *GetControl(Menu *menu, const char *name);
 bool ClickControl(Menu *menu, const char *name);

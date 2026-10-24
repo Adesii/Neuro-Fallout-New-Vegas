@@ -173,3 +173,15 @@ TEST("inventory listing: lookup and consume share one slot rule") {
   listing.Clear();
   CHECK(listing.Find(16) == nullptr);
 }
+
+TEST("inventory query help: names every accepted query type and says that type defaults to All") {
+  using namespace Inventory;
+  const std::string help = QueryTypesHelp();
+  for (auto type : {ItemQueryType::All, ItemQueryType::Weapons, ItemQueryType::Equipment, ItemQueryType::Consumerable,
+                    ItemQueryType::WeaponMods, ItemQueryType::Keys, ItemQueryType::Misc}) {
+    CHECK(help.find(std::string(ItemQueryTypeName(type))) != std::string::npos);
+    ItemQueryType parsed = ItemQueryType::All;
+    CHECK(ParseItemQueryType(ItemQueryTypeName(type), parsed) && parsed == type);
+  }
+  CHECK(help.find("defaults to All") != std::string::npos);
+}

@@ -45,9 +45,8 @@ struct Execution {
   std::vector<Inventory::ListedItem> items;
   size_t total = 0;
   std::vector<StackState> before;
-  Clock::time_point startedAt{};
+  ScopedState::StepTimer timer; // counts only while the Pip-Boy inventory or its quantity prompt owns the controls
   Clock::time_point nextStepAt{};
-  Clock::time_point pausedAt{};
 };
 
 Actions::PersistentActionSet g_actions;
@@ -194,7 +193,7 @@ Navigation Navigate(Execution &execution, std::string &error) {
   const uint32_t category = execution.category == kCategoryKeys ? kCategoryMisc : execution.category;
   if (g_owner->filter != category) {
     auto *button = CategoryButton(category);
-    if (!UIUtils::IsControlAvailable(button) || !UIUtils::ClickTile(g_owner, button)) {
+    if (!UIUtils::ClickAvailable(g_owner, button)) {
       error = "The native inventory category control is unavailable.";
       return Navigation::Failed;
     }
@@ -375,9 +374,8 @@ bool SendListing(int page, Inventory::ItemQueryType type, size_t total, std::vec
   if (opening)
     context << "\nInventory actions: query_own_items, equip_item, unequip_item, use_item, drop_item, close_pipboy. "
                "Equip and unequip apply to weapons, armor and clothing; use_item consumes one aid item; drop_item "
-               "drops the whole stack. Query types: All, Weapons, Equipment, Consumerable, WeaponMods, Keys, Misc; "
-               "type defaults to All. Weapons includes ammunition; Consumerable includes food, drinks, chems and "
-               "ingredients. Queries and closing wait for accepted item actions to finish.";
+               "drops the whole stack. "
+            << Inventory::QueryTypesHelp() << " Queries and closing wait for accepted item actions to finish.";
   if (!NeuroSDK::SendContext(context.str().c_str(), true))
     return false;
   g_listing.Replace(std::move(items), first + 1);
@@ -463,21 +461,17 @@ void AdvanceExecution() {
   auto &execution = g_queue.front();
   const auto now = Clock::now();
   const bool quantityActive = Interface::GetTopMenuID() == Interface::Quantity;
-  if (!IsActive() && !quantityActive) {
-    // Pause for warnings, repairs and other menus without touching their
-    // controls. Time spent paused does not count toward the timeout.
-    if (execution.pausedAt == Clock::time_point{})
-      execution.pausedAt = now;
+  // Pause for warnings, repairs and other menus without touching their controls. Time spent paused does not count
+  // toward the timeout.
+  const bool running = IsActive() || quantityActive;
+  execution.timer.Tick(running, now);
+  if (!running)
     return;
-  }
-  if (execution.startedAt == Clock::time_point{}) {
-    execution.startedAt = now;
+  if (!execution.timer.Started()) {
+    execution.timer.Start(now);
     execution.nextStepAt = now + kStepDelay;
-  } else if (execution.pausedAt != Clock::time_point{}) {
-    execution.startedAt += now - execution.pausedAt;
   }
-  execution.pausedAt = {};
-  if (now - execution.startedAt > kExecutionTimeout) {
+  if (execution.timer.Expired(kExecutionTimeout)) {
     auto *quantity = Inventory::ActiveQuantityMenu();
     if (quantity && quantity == execution.quantityOwner)
       Inventory::CancelQuantity(*quantity);

@@ -21,6 +21,10 @@ Actions::Json::JsonSchema BuildItemQuerySchema();
 bool ParseItemIndex(const Actions::ActionData &data, int &index, std::string &error);
 Actions::Json::JsonSchema BuildItemIndexSchema();
 
+// The "Query types: ..." sentence for the opening listing of a container or the Pip-Boy inventory. The type names come
+// from the same table the schema and the parser use, so the help text cannot drift from what is accepted.
+std::string QueryTypesHelp();
+
 // Pages hold kItemsPerPage stacks; an empty list still has page 0.
 size_t PageCount(size_t total);
 // Null when `page` (zero-based; the parser already guarantees it is not negative) exists for `total` stacks, otherwise

@@ -227,7 +227,7 @@ void FailOpen(const std::string &reason) {
 
 bool ClickIfAvailable(Menu *menu, const char *path) {
   auto *control = UIUtils::GetControl(menu, path);
-  return control && UIUtils::IsControlAvailable(control) && UIUtils::ClickTile(menu, control);
+  return UIUtils::ClickAvailable(menu, control);
 }
 
 void AdvanceOpen(Menu *menu, bool selecting, float deltaTime) {

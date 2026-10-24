@@ -12,6 +12,7 @@
 #include "Inventory/ItemListing.hpp"
 #include "Inventory/MenuItems.hpp"
 #include "Inventory/QuantityPrompt.hpp"
+#include "Menus/NativeExit.hpp"
 #include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
@@ -28,7 +29,6 @@ namespace Menus::ContainerHandler {
 namespace {
 
 using Pacing::Clock;
-using Pacing::kCloseTimeout;
 using Pacing::kStepDelay;
 
 // The pane filter value that shows every item (the "All" arrow position).
@@ -42,16 +42,8 @@ struct Transfer {
   bool stow = false;
   bool all = false;
   enum class Phase { Select, Click, Confirm, Observe } phase = Phase::Select;
-  Clock::time_point startedAt{};
+  ScopedState::StepTimer timer; // counts only while the container or its quantity prompt owns the controls
   Clock::time_point nextStepAt{};
-  Clock::time_point pausedAt{};
-};
-
-// An accepted close_container: the native Exit button is clicked after a visible step, then the menu must leave.
-struct CloseRequest {
-  ScopedState::StepTimer timer; // counts only while the container is the active menu (a popup on top pauses it)
-  Clock::time_point nextStepAt{};
-  bool clicked = false;
 };
 
 // An accepted query whose listing could not be sent yet; the send is retried instead of silently leaving the old
@@ -125,11 +117,8 @@ bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool openin
   if (opening)
     context << "\nContainer actions: loot_item, query_items, loot_all, query_own_items, stow_away_item, "
                "close_container (leave without taking anything). "
-               "Query your own items before stowing anything. Query types: All, Weapons, Equipment, Consumerable, "
-               "WeaponMods, "
-               "Keys, Misc; type defaults to All. Weapons includes ammunition; Equipment is armor and clothing; "
-               "Consumerable is food, drinks, chems and ingredients; WeaponMods is weapon attachments; Keys is keys; "
-               "Misc is books, notes, bottles, junk, crafting components and currency.";
+               "Query your own items before stowing anything. "
+            << Inventory::QueryTypesHelp();
   if (!NeuroSDK::SendContext(context.str().c_str(), true))
     return false;
   Listing(own).Replace(std::move(listed), first + 1);
@@ -179,21 +168,16 @@ void AdvanceTransfer() {
   auto &transfer = g_transfers.front();
   const auto now = Clock::now();
   const bool quantityActive = Interface::GetTopMenuID() == Interface::Quantity;
-  if (!IsActive() && !quantityActive) {
-    // A warning or another popup owns its own controls. Time spent waiting for
-    // it does not count toward the transfer timeout.
-    if (transfer.pausedAt == Clock::time_point{})
-      transfer.pausedAt = now;
+  // A warning or another popup owns its own controls. Time spent waiting for it does not count toward the timeout.
+  const bool running = IsActive() || quantityActive;
+  transfer.timer.Tick(running, now);
+  if (!running)
     return;
-  }
-  if (transfer.startedAt == Clock::time_point{}) {
-    transfer.startedAt = now;
+  if (!transfer.timer.Started()) {
+    transfer.timer.Start(now);
     transfer.nextStepAt = now + kStepDelay;
-  } else if (transfer.pausedAt != Clock::time_point{}) {
-    transfer.startedAt += now - transfer.pausedAt;
   }
-  transfer.pausedAt = {};
-  if (now - transfer.startedAt > kTransferTimeout) {
+  if (transfer.timer.Expired(kTransferTimeout)) {
     if (quantityActive && transfer.phase == Transfer::Phase::Confirm)
       if (auto *quantity = Inventory::ActiveQuantityMenu())
         Inventory::CancelQuantity(*quantity);
@@ -236,7 +220,7 @@ void AdvanceTransfer() {
     }
     // Take All uses the same native control as the keyboard A shortcut.
     auto *control = UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_TakeAllButton");
-    if (!UIUtils::IsControlAvailable(control) || !UIUtils::ClickTile(g_owner, control)) {
+    if (!UIUtils::ClickAvailable(g_owner, control)) {
       StopTransfers("Take All is unavailable in this container.");
       return;
     }
@@ -338,32 +322,24 @@ void FailClose(const std::string &reason) {
   NeuroSDK::SendContext(("## Container\n" + reason + " The container is still open.").c_str(), false);
 }
 
+// The Exit button is the native control behind the keyboard E shortcut (container_menu.xml, CM_ExitButton).
+constexpr const char *kExitControl = "NOGLOW_BRANCH/CM_ButtonRect/CM_ExitButton";
+
 void AdvanceClose() {
   if (!g_close)
     return;
-  const auto now = Clock::now();
   // A popup over the container owns the controls: neither click Exit underneath it nor count the wait as a failure.
-  const bool active = IsActive();
-  g_close->timer.Tick(active, now);
-  if (!active)
-    return;
-  if (!g_close->timer.Started()) {
-    g_close->timer.Start(now);
-    g_close->nextStepAt = now + kStepDelay;
-  }
-  if (g_close->timer.Expired(kCloseTimeout)) {
+  switch (AdvanceNativeClose(*g_close, g_owner, kExitControl, IsActive())) {
+  case CloseStep::TimedOut:
     FailClose("The container did not close.");
-    return;
-  }
-  if (g_close->clicked || now < g_close->nextStepAt)
-    return;
-  // The Exit button is the native control behind the keyboard E shortcut (container_menu.xml, CM_ExitButton).
-  auto *control = UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ButtonRect/CM_ExitButton");
-  if (!UIUtils::IsControlAvailable(control) || !UIUtils::ClickTile(g_owner, control)) {
+    break;
+  case CloseStep::ControlUnavailable:
     FailClose("The Exit button is unavailable.");
-    return;
+    break;
+  case CloseStep::Waiting:
+  case CloseStep::Clicked:
+    break;
   }
-  g_close->clicked = true;
 }
 
 } // namespace

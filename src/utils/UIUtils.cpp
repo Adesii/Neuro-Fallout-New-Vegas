@@ -30,6 +30,8 @@ bool IsTopMenu(Menu *menu, uint32_t menuId) {
   return manager && manager->IsInMenuMode() && manager->activeMenu == menu;
 }
 
+bool ClickAvailable(Menu *menu, Tile *tile) { return IsControlAvailable(tile) && ClickTile(menu, tile); }
+
 bool ClickTile(Menu *menu, Tile *tile) {
   if (!menu || !tile)
     return false;

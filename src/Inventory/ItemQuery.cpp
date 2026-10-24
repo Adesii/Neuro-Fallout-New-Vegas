@@ -117,6 +117,19 @@ Actions::Json::JsonSchema BuildItemIndexSchema() {
   return schema;
 }
 
+std::string QueryTypesHelp() {
+  std::string names;
+  for (const auto candidate : kQueryTypes) {
+    if (!names.empty())
+      names += ", ";
+    names += ItemQueryTypeName(candidate);
+  }
+  return "Query types: " + names +
+         "; type defaults to All. Weapons includes ammunition; Equipment is armor and clothing; Consumerable is food, "
+         "drinks, chems and ingredients; WeaponMods is weapon attachments; Keys is keys; Misc is books, notes, "
+         "bottles, junk, crafting components and currency.";
+}
+
 size_t PageCount(size_t total) { return std::max(size_t{1}, (total + kItemsPerPage - 1) / kItemsPerPage); }
 
 std::optional<std::string> ValidatePage(size_t total, int page) {
