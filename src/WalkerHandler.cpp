@@ -158,35 +158,7 @@ using AimUtils::EffectiveYaw;
 using AimUtils::SetPitch;
 using AimUtils::SetYaw;
 
-bool IsInteractable(TESObjectREFR *ref) {
-  if (!ref || !ref->baseForm)
-    return false;
-  if (ref->IsActor())
-    return true;
-
-  const UINT8 type = ref->baseForm->eFormType;
-  if (type == _FormType::TESObjectACTI || type == _FormType::BGSTalkingActivator || type == _FormType::TESObjectDOOR ||
-      type == _FormType::TESObjectCONT || type == _FormType::BGSTerminal || type == _FormType::TESFlora ||
-      type == _FormType::TESFurniture)
-    return true;
-  if (ref->extraDataList.GetExtraData(_ExtraDataType::ExtraPrimitive))
-    return false;
-  switch (type) {
-  case _FormType::TESObjectWEAP:
-  case _FormType::TESObjectARMO:
-  case _FormType::TESObjectCLOT:
-  case _FormType::TESAmmo:
-  case _FormType::AlchemyItem:
-  case _FormType::IngredientItem:
-  case _FormType::TESObjectBOOK:
-  case _FormType::BGSNote:
-  case _FormType::TESKey:
-  case _FormType::TESObjectMISC:
-    return true;
-  default:
-    return false;
-  }
-}
+bool IsInteractable(TESObjectREFR *ref) { return WorldUtils::ClassifyObject(ref).interactable; }
 
 float GetFrameTime() {
   auto *time = TimeGlobal::Get();

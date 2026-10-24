@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Context/ObjectPriority.hpp"
 #include <cstdint>
 #include <functional>
 
@@ -13,6 +14,12 @@ namespace WorldUtils {
 // The reference for a numeric form id, or null when it is missing, not a reference, deleted or disabled.
 TESObjectREFR *LookupReference(uint32_t formId);
 float Distance3D(const NiPoint3 &left, const NiPoint3 &right);
+
+// The one decision about what a reference is and whether Neuro can act on it: `query_nearby`, exploration and Walker's
+// interaction all use it. Actors (living or dead) and the built-in world (doors, containers, terminals, activators,
+// flora, furniture) are interactable; loose items are too unless they carry ExtraPrimitive (an invisible volume, not a
+// thing you can pick up). Everything else is Category::None.
+Objects::Classification ClassifyObject(TESObjectREFR *ref);
 
 // How far a line-of-sight ray is trimmed at each end so the player's own body and the target's own collision do not
 // block it. Combat's defaults suit shooting at range; Walker uses shorter trims for interaction within about a metre.

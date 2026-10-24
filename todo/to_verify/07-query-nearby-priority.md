@@ -1,6 +1,6 @@
 # 07 - query_nearby: top 20 with priority
 
-Status: open
+Status: to verify (implemented together with todo 35; tiers are a proposal)
 
 ## Problem
 `query_nearby` fills up with junk (unusable or worthless objects) while more valuable things slightly further away
@@ -28,3 +28,11 @@ Return at most 20 entries, chosen by importance first and distance second, so va
 
 ## Done when
 Goodsprings queries show important things first with a cap of 20, scoring is covered by host tests, in-game checklist given.
+
+## Result (2026-10-24)
+Implemented through todo 35 item 3: cap 20, ranking by importance tier then distance with ids following the ranking, quest
+targets tagged and ranked first, a "Showing N of M" note, scoring in `src/Context/ObjectPriority.*` with host tests
+(`tests/ObjectPriorityTests.cpp`). The tier values (people 900, containers 700, terminals 650, doors 600, weapons 550, aid 520,
+harvestables 500, armor 450, ammo 420, readables 380, furniture 350, corpses 300, activators 250, loot 100) are my
+proposal: change them in `Objects::Tier` if Goodsprings looks wrong. The "you see" push (todo 28) reuses the same scorer.
+In-game checklist: see the Result of todo 35.

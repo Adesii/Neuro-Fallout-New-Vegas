@@ -22,7 +22,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) (measurement log added, waiting for numbers) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
 | 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
-| 07 | [query_nearby top 20 with priority](07-query-nearby-priority.md) | Gameplay actions |
 | 09 | [Hacking menu (terminal lock minigame)](09-hacking-menu.md) | Menus |
 | 10 | [Terminal / computers menu](10-terminal-menu.md) | Menus |
 | 11 | [Level-up menu](11-level-up-menu.md) | Menus |
@@ -40,7 +39,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
 | 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) (done except in-game measurements) | Aim / Combat |
 | 28 | [Location notices and throttled "you see" push](28-location-and-world-context.md) | Context |
-| 35 | [Quest routing and object classification fixes](35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
 | 36 | [Cross-module duplication and hygiene](36-shared-utilities-cleanup.md) | Cleanup |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) | Cleanup |
 | 38 | [Engine-free extraction and missing host tests](38-engine-free-extraction-and-tests.md) | Tests |
@@ -59,6 +57,8 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
 | 33 | [Action registry, scripts and tooling correctness](to_verify/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
+| 07 | [query_nearby top 20 with priority](to_verify/07-query-nearby-priority.md) (tier values are a proposal) | Gameplay actions |
+| 35 | [Quest routing and object classification fixes](to_verify/35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
 | 39 | [Report all distances to Neuro in metres](to_verify/39-distances-in-metres.md) (factor sourced, not yet measured in game) | Context formatting |
 
 ## Archive

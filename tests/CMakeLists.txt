@@ -29,6 +29,7 @@ add_executable(neuro_fnv_tests
     IdlePokerTests.cpp
     DamageTests.cpp
     LocationTests.cpp
+    ObjectPriorityTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -41,6 +42,7 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Context/IdlePoker.cpp"
     "${REPO}/src/Context/Greeting.cpp"
     "${REPO}/src/Context/Location.cpp"
+    "${REPO}/src/Context/ObjectPriority.cpp"
     "${REPO}/src/Inventory/ItemQuery.cpp"
     "${REPO}/src/Movement/StanceLogic.cpp"
     "${REPO}/src/Movement/AimLogic.cpp"

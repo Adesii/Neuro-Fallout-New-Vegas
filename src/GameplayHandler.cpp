@@ -12,6 +12,7 @@
 #include "Context/Distance.hpp"
 #include "Context/Greeting.hpp"
 #include "Context/Location.hpp"
+#include "Context/ObjectPriority.hpp"
 #include "GameData.h"
 #include "GameExtraData.h"
 #include "GameObjects.h"
@@ -43,7 +44,7 @@ using WorldUtils::LookupReference;
 constexpr float kNearbyRadius = 2500.0f;
 constexpr float kExploreRadius = 5000.0f;
 constexpr float kExploreMinimumDistance = 300.0f;
-constexpr size_t kNearbyLimit = 30;
+constexpr size_t kNearbyLimit = 20;
 constexpr size_t kRecentExplorationLimit = 8;
 constexpr float kQuestResolveTimeout = 10.0f;
 constexpr auto kQuestObservationInterval = std::chrono::milliseconds(500);
@@ -71,7 +72,8 @@ struct QuestEntry : QuestSelection {
 struct ObjectEntry : ObjectSelection {
   int id = 0;
   float distance = 0.0f;
-  std::string category;
+  Objects::Category category = Objects::Category::None;
+  bool questTarget = false;
 };
 
 struct ObjectiveObservation {
@@ -233,26 +235,52 @@ BGSQuestObjective *FindObjective(uint32_t questFormId, uint32_t objectiveId) {
   return nullptr;
 }
 
-TESObjectREFR *ResolveQuestTarget(BGSQuestObjective *objective, uint32_t preferredTargetId) {
+// A target the objective currently points at: it exists, is enabled and its conditions hold.
+bool IsUsableTarget(BGSQuestObjective::Target *target) {
+  if (!target || !target->target || target->target->GetDeleted() || target->target->GetDisabled())
+    return false;
+  bool conditionResult = false;
+  return target->conditions.Empty() || target->conditions.Evaluate(target->target, nullptr, &conditionResult, false);
+}
+
+// One thing Walker can head for to make progress on an objective: the target itself when it is in the player's area,
+// otherwise the door that leads toward it.
+struct QuestStep {
+  BGSQuestObjective::Target *target = nullptr;
+  TESObjectREFR *step = nullptr;
+  bool sameSpace = false;
+  float distance = 0.0f;
+};
+
+// Every usable target of the objective that has a way to it, in the order to try them: targets in the player's area
+// first (closest first), then targets behind a door. A target in another area whose door is unknown is skipped, not a
+// reason to stop looking. `preferredTargetId` restricts the list to that one target.
+std::vector<QuestStep> CollectQuestSteps(BGSQuestObjective *objective, uint32_t preferredTargetId) {
+  std::vector<QuestStep> steps;
   auto *player = PlayerCharacter::GetSingleton();
   if (!player || !objective)
-    return nullptr;
-
+    return steps;
   for (auto iter = objective->targets.Begin(); !iter.End(); ++iter) {
     auto *target = iter.Get();
-    if (!target || !target->target || target->target->GetDeleted() || target->target->GetDisabled())
+    if (!IsUsableTarget(target) || (preferredTargetId && target->target->GetFormID() != preferredTargetId))
       continue;
-    bool conditionResult = false;
-    if (!target->conditions.Empty() && !target->conditions.Evaluate(target->target, nullptr, &conditionResult, false))
-      continue;
-    if (preferredTargetId && target->target->GetFormID() != preferredTargetId)
-      continue;
-
-    if (IsInSameTravelSpace(player, target->target))
-      return target->target;
-    return FindEntryDoor(target);
+    if (IsInSameTravelSpace(player, target->target)) {
+      steps.push_back({target, target->target, true, Distance3D(player->GetPos(), target->target->GetPos())});
+    } else if (auto *door = FindEntryDoor(target)) {
+      steps.push_back({target, door, false, 0.0f});
+    }
   }
-  return nullptr;
+  std::stable_sort(steps.begin(), steps.end(), [](const QuestStep &left, const QuestStep &right) {
+    if (left.sameSpace != right.sameSpace)
+      return left.sameSpace;
+    return left.distance < right.distance;
+  });
+  return steps;
+}
+
+TESObjectREFR *ResolveQuestTarget(BGSQuestObjective *objective, uint32_t preferredTargetId) {
+  const auto steps = CollectQuestSteps(objective, preferredTargetId);
+  return steps.empty() ? nullptr : steps.front().step;
 }
 
 BGSQuestObjective::Target *FindObjectiveTarget(BGSQuestObjective *objective, uint32_t targetFormId) {
@@ -280,49 +308,31 @@ void ActivateQuest(TESQuest *quest) {
   ThisCall<void>(0x60F110, quest, &player->questTargetList, &player->questObjectiveList);
 }
 
-std::string CategoryFor(TESObjectREFR *ref) {
-  if (!ref || !ref->baseForm)
-    return {};
-  if (ref->IsActor()) {
-    auto *actor = static_cast<Actor *>(ref);
-    return actor->GetDead() ? "corpse" : "actor";
+// References the active quest objectives point at, and the doors on the way to targets in other areas.
+std::unordered_set<uint32_t> CollectQuestTargetIds() {
+  std::unordered_set<uint32_t> ids;
+  auto *player = PlayerCharacter::GetSingleton();
+  if (!player)
+    return ids;
+  for (auto iter = player->questObjectiveList.Begin(); !iter.End(); ++iter) {
+    auto *objective = iter.Get();
+    if (!objective || !objective->quest ||
+        (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed ||
+        (objective->quest->flags & kQuestFlagFinished))
+      continue;
+    for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
+      auto *target = targetIter.Get();
+      if (!IsUsableTarget(target))
+        continue;
+      ids.insert(target->target->GetFormID());
+      if (auto *door = FindEntryDoor(target))
+        ids.insert(door->GetFormID());
+    }
   }
-  switch (ref->baseForm->eFormType) {
-  case _FormType::TESObjectACTI:
-  case _FormType::BGSTalkingActivator:
-    return "activator";
-  case _FormType::TESObjectCONT:
-    return "container";
-  case _FormType::TESObjectDOOR:
-    return "door";
-  case _FormType::BGSTerminal:
-    return "terminal";
-  case _FormType::TESFlora:
-    return "harvestable";
-  case _FormType::TESFurniture:
-    return "furniture";
-  case _FormType::TESObjectWEAP:
-    return "weapon";
-  case _FormType::TESObjectARMO:
-  case _FormType::TESObjectCLOT:
-    return "armor";
-  case _FormType::TESAmmo:
-    return "ammo";
-  case _FormType::AlchemyItem:
-  case _FormType::IngredientItem:
-    return "aid";
-  case _FormType::TESObjectBOOK:
-  case _FormType::BGSNote:
-    return "readable";
-  case _FormType::TESKey:
-  case _FormType::TESObjectMISC:
-    return "loot";
-  default:
-    return {};
-  }
+  return ids;
 }
 
-std::vector<ObjectEntry> ScanObjects(float radius) {
+std::vector<ObjectEntry> ScanObjects(float radius, const std::unordered_set<uint32_t> &questTargets = {}) {
   std::vector<ObjectEntry> objects;
   auto *player = PlayerCharacter::GetSingleton();
   if (!player)
@@ -334,13 +344,17 @@ std::vector<ObjectEntry> ScanObjects(float radius) {
     const char *name = ref->GetFullName();
     if (!name || !name[0])
       return;
-    std::string category = CategoryFor(ref);
-    if (category.empty())
+    const Objects::Classification classification = WorldUtils::ClassifyObject(ref);
+    if (classification.category == Objects::Category::None || !classification.interactable)
       return;
     const float distance = Distance3D(player->GetPos(), ref->GetPos());
     if (!std::isfinite(distance) || distance > radius)
       return;
-    objects.push_back({{ref->GetFormID(), cell->GetFormID(), name}, 0, distance, std::move(category)});
+    objects.push_back({{ref->GetFormID(), cell->GetFormID(), name},
+                       0,
+                       distance,
+                       classification.category,
+                       questTargets.contains(ref->GetFormID())});
   });
 
   std::sort(objects.begin(), objects.end(), [](const ObjectEntry &left, const ObjectEntry &right) {
@@ -366,10 +380,7 @@ void BuildQuestCatalog() {
     const std::string description = QuestName(objective->quest) + ": " + ObjectiveText(objective);
     for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
       auto *target = targetIter.Get();
-      if (!target || !target->target || target->target->GetDeleted() || target->target->GetDisabled())
-        continue;
-      bool conditionResult = false;
-      if (!target->conditions.Empty() && !target->conditions.Evaluate(target->target, nullptr, &conditionResult, false))
+      if (!IsUsableTarget(target))
         continue;
       const bool sameSpace = IsInSameTravelSpace(player, target->target);
       const float distance = sameSpace ? Distance3D(player->GetPos(), target->target->GetPos()) : 0.0f;
@@ -491,13 +502,30 @@ void ObserveQuests() {
   }
 
   if (g_observationInitialized) {
-    for (const auto &[questId, flags] : currentQuestFlags) {
-      const uint8_t previous = g_questFlags.contains(questId) ? g_questFlags[questId] : flags;
+    auto reportFlagChange = [&](uint32_t questId, uint8_t previous, uint8_t flags) {
       auto *quest = LookupQuest(questId);
-      if (!(previous & kQuestFlagCompleted) && (flags & kQuestFlagCompleted))
+      if (!(previous & kQuestFlagCompleted) && (flags & kQuestFlagCompleted)) {
         notifications.push_back("Quest completed: " + QuestName(quest));
-      if (!(previous & kQuestFlagFailed) && (flags & kQuestFlagFailed))
+        _MESSAGE("Quest completed: %s (%08X)", QuestName(quest).c_str(), questId);
+      }
+      if (!(previous & kQuestFlagFailed) && (flags & kQuestFlagFailed)) {
         notifications.push_back("Quest failed: " + QuestName(quest));
+        _MESSAGE("Quest failed: %s (%08X)", QuestName(quest).c_str(), questId);
+      }
+    };
+    for (const auto &[questId, flags] : currentQuestFlags) {
+      const auto previous = g_questFlags.find(questId);
+      reportFlagChange(questId, previous != g_questFlags.end() ? previous->second : flags, flags);
+    }
+    // The engine may drop a finished quest's objectives together with the quest; its form still has the final flags.
+    for (const auto &[questId, previousFlags] : g_questFlags) {
+      if (currentQuestFlags.contains(questId))
+        continue;
+      auto *quest = LookupQuest(questId);
+      _MESSAGE("Quest %08X left the objective list (flags %02X -> %02X)", questId, previousFlags,
+               quest ? quest->flags : 0);
+      if (quest)
+        reportFlagChange(questId, previousFlags, quest->flags);
     }
   }
 
@@ -527,9 +555,8 @@ void ProcessWalkerEvents() {
     if (event.owner == Walker::Owner::Quest) {
       if (event.type == Walker::EventType::Completed)
         g_completedQuestStep = event.targetFormId;
-      else if (event.type == Walker::EventType::Failed) {
+      else if (event.type == Walker::EventType::Failed)
         ClearCurrentQuestRoute();
-      }
     }
     if (event.owner == Walker::Owner::Exploration && event.type == Walker::EventType::Completed) {
       g_recentExploration.push_back(event.targetFormId);
@@ -829,33 +856,37 @@ bool PrepareCurrentQuest(QuestSelection &selection, std::string &error) {
     return false;
   }
 
-  // A quest can have several displayed objectives; the one Neuro picked with select_quest comes first.
+  // A quest can have several displayed objectives. The objective Neuro picked with select_quest is tried first (and
+  // inside it the target she picked), then the others in the engine's order; the first one with a way to it wins.
   const bool hasChosen = g_selectedObjective && g_selectedObjective->questFormId == quest->GetFormID();
-  bool hasActiveObjective = false;
-  for (int pass = hasChosen ? 0 : 1; pass < 2; ++pass) {
-    for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
-      auto *objective = objectiveIter.Get();
-      if (!objective || objective->quest != quest ||
-          (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed)
-        continue;
-      if (pass == 0 && objective->objectiveId != g_selectedObjective->objectiveId)
-        continue;
-      hasActiveObjective = true;
-      for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
-        auto *target = targetIter.Get();
-        if (!target || !target->target || !ResolveQuestTarget(objective, target->target->GetFormID()))
-          continue;
-        if (pass == 0 && target->target->GetFormID() != g_selectedObjective->targetFormId)
-          continue;
-        selection = {quest->GetFormID(), objective->objectiveId, target->target->GetFormID(),
-                     QuestName(quest) + ": " + ObjectiveText(objective)};
-        return true;
-      }
+  std::vector<BGSQuestObjective *> objectives;
+  for (auto objectiveIter = player->questObjectiveList.Begin(); !objectiveIter.End(); ++objectiveIter) {
+    auto *objective = objectiveIter.Get();
+    if (objective && objective->quest == quest &&
+        (objective->status & kObjectiveDisplayMask) == BGSQuestObjective::eQObjStatus_displayed)
+      objectives.push_back(objective);
+  }
+  if (hasChosen) {
+    std::stable_partition(objectives.begin(), objectives.end(), [&](BGSQuestObjective *objective) {
+      return objective->objectiveId == g_selectedObjective->objectiveId;
+    });
+  }
+  for (auto *objective : objectives) {
+    auto steps = CollectQuestSteps(objective, 0);
+    if (hasChosen && objective->objectiveId == g_selectedObjective->objectiveId) {
+      std::stable_partition(steps.begin(), steps.end(), [&](const QuestStep &step) {
+        return step.target->target->GetFormID() == g_selectedObjective->targetFormId;
+      });
     }
+    if (steps.empty())
+      continue;
+    selection = {quest->GetFormID(), objective->objectiveId, steps.front().target->target->GetFormID(),
+                 QuestName(quest) + ": " + ObjectiveText(objective)};
+    return true;
   }
 
-  error = hasActiveObjective ? "The current quest objective has no reachable target."
-                             : "The currently selected quest has no active objective.";
+  error = objectives.empty() ? "The currently selected quest has no active objective."
+                             : "The current quest objective has no reachable target.";
   return false;
 }
 
@@ -895,11 +926,21 @@ void DoCurrentQuest(const QuestSelection &selection) {
 }
 
 void QueryNearby() {
-  g_objects = ScanObjects(kNearbyRadius);
-  if (g_objects.size() > kNearbyLimit)
-    g_objects.resize(kNearbyLimit);
-  for (size_t index = 0; index < g_objects.size(); ++index)
-    g_objects[index].id = static_cast<int>(index + 1);
+  auto scanned = ScanObjects(kNearbyRadius, CollectQuestTargetIds());
+  std::vector<Objects::Candidate> candidates;
+  candidates.reserve(scanned.size());
+  for (const auto &entry : scanned)
+    candidates.push_back({entry.referenceFormId, entry.category, entry.distance, entry.questTarget});
+  const size_t total = Objects::Rank(candidates, kNearbyLimit);
+
+  // Ids follow the ranking, so the same surroundings always give the same ids.
+  g_objects.clear();
+  for (const auto &candidate : candidates) {
+    auto found = std::find_if(scanned.begin(), scanned.end(),
+                              [&](const ObjectEntry &entry) { return entry.referenceFormId == candidate.formId; });
+    g_objects.push_back(std::move(*found));
+    g_objects.back().id = static_cast<int>(g_objects.size());
+  }
 
   std::ostringstream context;
   context << "## Nearby objects";
@@ -907,12 +948,16 @@ void QueryNearby() {
     context << "\n- None found in the loaded area.";
   } else {
     for (const auto &entry : g_objects) {
-      context << "\n- `" << entry.id << "` - **" << entry.category << "** - " << entry.name << " - "
-              << Units::FormatDistance(entry.distance);
+      context << "\n- `" << entry.id << "` - **" << Objects::CategoryName(entry.category) << "** - " << entry.name
+              << " - " << Units::FormatDistance(entry.distance) << (entry.questTarget ? " - quest target" : "");
     }
+    const std::string note = Objects::TruncationNote(g_objects.size(), total);
+    if (!note.empty())
+      context << "\n\n" << note;
   }
   NeuroSDK::SendContext(context.str().c_str(), true);
 }
+
 bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error) {
   if (!ValidateGameplayAction(error))
     return false;
@@ -939,9 +984,16 @@ bool RevalidateObjectSelection(const ObjectSelection &selection, std::string &er
   return true;
 }
 
+namespace {
+// Walker refused a command the action had already accepted; Neuro hears why it never started.
+void ReportStartFailure(const std::string &what) {
+  NeuroSDK::SendContext(("Could not start " + what + ".").c_str(), false);
+}
+} // namespace
+
 void StartObjectAction(const ObjectSelection &selection, Walker::Intent intent) {
   if (!Walker::Start(selection.referenceFormId, intent, Walker::Owner::Object, selection.name))
-    NeuroSDK::SendContext(("Could not start moving to " + selection.name + ".").c_str(), false);
+    ReportStartFailure("moving to " + selection.name);
 }
 
 bool PrepareExploration(ObjectSelection &selection, std::string &error) {
@@ -966,7 +1018,7 @@ bool PrepareExploration(ObjectSelection &selection, std::string &error) {
 
 void StartExploration(const ObjectSelection &selection) {
   if (!Walker::Start(selection.referenceFormId, Walker::Intent::Move, Walker::Owner::Exploration, selection.name))
-    NeuroSDK::SendContext(("Could not begin exploring toward " + selection.name + ".").c_str(), false);
+    ReportStartFailure("exploring toward " + selection.name);
 }
 
 bool PrepareStopMove(MoveStop &stop, std::string &error) {

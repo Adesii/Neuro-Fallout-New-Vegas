@@ -27,6 +27,64 @@ float Distance3D(const NiPoint3 &left, const NiPoint3 &right) {
   return std::sqrt(x * x + y * y + z * z);
 }
 
+Objects::Classification ClassifyObject(TESObjectREFR *ref) {
+  using Objects::Category;
+  if (!ref || !ref->baseForm)
+    return {};
+  if (ref->IsActor())
+    return {static_cast<Actor *>(ref)->GetDead() ? Category::Corpse : Category::Actor, true};
+
+  Category category = Category::None;
+  switch (ref->baseForm->eFormType) {
+  case _FormType::TESObjectACTI:
+  case _FormType::BGSTalkingActivator:
+    category = Category::Activator;
+    break;
+  case _FormType::TESObjectCONT:
+    category = Category::Container;
+    break;
+  case _FormType::TESObjectDOOR:
+    category = Category::Door;
+    break;
+  case _FormType::BGSTerminal:
+    category = Category::Terminal;
+    break;
+  case _FormType::TESFlora:
+    category = Category::Harvestable;
+    break;
+  case _FormType::TESFurniture:
+    category = Category::Furniture;
+    break;
+  case _FormType::TESObjectWEAP:
+    category = Category::Weapon;
+    break;
+  case _FormType::TESObjectARMO:
+  case _FormType::TESObjectCLOT:
+    category = Category::Armor;
+    break;
+  case _FormType::TESAmmo:
+    category = Category::Ammo;
+    break;
+  case _FormType::AlchemyItem:
+  case _FormType::IngredientItem:
+    category = Category::Aid;
+    break;
+  case _FormType::TESObjectBOOK:
+  case _FormType::BGSNote:
+    category = Category::Readable;
+    break;
+  case _FormType::TESKey:
+  case _FormType::TESObjectMISC:
+    category = Category::Loot;
+    break;
+  default:
+    return {};
+  }
+  if (Objects::IsLooseItem(category) && ref->extraDataList.GetExtraData(_ExtraDataType::ExtraPrimitive))
+    return {category, false};
+  return {category, true};
+}
+
 namespace {
 constexpr uint8_t kLineOfSightLayer =
     37; // LAYER_LINEOFSIGHT, the engine vision filter (see src/itr/NavmeshCommands.cpp)
