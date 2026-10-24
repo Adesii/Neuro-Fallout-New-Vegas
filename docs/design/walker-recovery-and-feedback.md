@@ -27,7 +27,7 @@ Engine-free, host-tested (`src/Movement/WalkerLogic.*`, `tests/WalkerLogicTests.
 - `StuckDetector`: 50 units / 1.5 s window over real time, grace after a cell change, teleport-jump restarts it.
 - `OscillationDetector`: the old distance-flip detector, unchanged numbers.
 - `ProgressTracker`: remaining distance must improve 25 units per 45 s or the walk fails (`NoProgress`).
-- `RecoveryPlanner`: door in front (once) -> Jump -> Sidestep -> Repath -> Sidestep (other side) -> BackOff, repeating.
+- `RecoveryPlanner`: door in front (once) -> Jump -> Sidestep -> Sidestep (other side) -> BackOff, repeating.
   Budget 4 (10 for `Owner::Quest`). Travelling 200 units gives the budget back.
 - `ProgressReminder` (40 s / 20 s exploring), `PauseNotice` (one silent note after 30 s on hold), `FailureReason` and the
   text builders `DescribeFailure/Progress/Pause`.
@@ -36,8 +36,9 @@ Engine-free, host-tested (`src/Movement/WalkerLogic.*`, `tests/WalkerLogicTests.
 
 Engine side (`src/WalkerHandler.cpp`):
 - Recovery steps: Jump pulses the bound Jump control (own `InputCore::Owner::WalkerPulse`, skipped when unbound);
-  Sidestep/BackOff steer the movement keys a quarter/half turn off the path (works while combat owns the view); Repath
-  drops the cached route; Door turns to a closed, unlocked, non-load door within 200 units and about 57 degrees of the
+  Sidestep/BackOff steer the movement keys a quarter/half turn off the path (works while combat owns the view); every
+  step ends by dropping the cached route, so the next search starts where the step left the player (there is no
+  separate re-path rung: walking already re-paths every 0.25 s, so it would have changed nothing); Door turns to a closed, unlocked, non-load door within 200 units and about 57 degrees of the
   facing, activates it, waits 0.8 s.
 - A locked closed door nearly dead ahead within 130 units fails the walk at once (`DoorLocked`, naming the door); a
   locked one seen further off is named only if the budget runs out.

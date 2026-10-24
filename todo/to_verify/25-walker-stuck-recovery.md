@@ -61,7 +61,7 @@ Built:
 - `src/Movement/WalkerLogic.*` (engine-free): `StuckDetector` (50 units in 1.5 s over real time, grace after a cell
   change, teleport-sized jumps restart the window), `OscillationDetector`, `ProgressTracker` (25 units of improvement
   per 45 s), `RecoveryPlanner`, `PauseNotice`.
-- Recovery ladder: closed unlocked door in front (once) -> Jump -> Sidestep -> Repath -> Sidestep (other side) ->
+- Recovery ladder: closed unlocked door in front (once) -> Jump -> Sidestep -> Sidestep (other side) ->
   BackOff, then repeats. Budget 4, 10 for quest routes; 200 units of real travel hands the budget back. Each step has
   its own duration, and the stuck history restarts after every step.
 - Door step: only ordinary doors (no `ExtraTeleport`), within 200 units and ~57 degrees, closed (`GetOpenState`) and not
@@ -69,7 +69,8 @@ Built:
   further off it is named only if the budget runs out.
 - Jump uses `InputUtils::ResolveControl(Jump)` on its own pulse owner and is skipped when unbound. It is recovery-only,
   as decided. While combat owns the view, no step writes yaw (sidestep and back-off steer the movement keys).
-- Repath: 0.1 s floor, and path nodes already within 60 units of the player are skipped.
+- Repath: every recovery step ends with a fresh route search from where it left the player; there is no separate
+  "re-path" rung (walking already re-paths every 0.25 s, so it would have changed nothing). 0.1 s floor, and path nodes already within 60 units of the player are skipped.
 - Progress-stall timeout fails with "never got meaningfully closer". A command on hold for 30 s sends one silent
   "your walk is on hold: <menu / Pip-Boy / controls disabled>" note (wall-clock timer, because game time stops in menus).
 
@@ -90,4 +91,9 @@ Unverified (needs the game): the lock bit and open-state values (see the design 
 6. Open a menu for over 30 s during a walk: one silent "on hold" note; closing the menu resumes the walk.
 7. Stand on something unreachable (target visible across a gap) and wait: the walk ends with the "never got closer"
    message after about 45 s.
-8. Combat melee approach through an obstacle still ends (combat's 20 s stall) and nothing writes the view meanwhile.
+8. A long quest-route walk around a hill or fence (the path bends away from the target): it must not end with "never got
+   meaningfully closer". The progress stall measures straight-line distance (25 units per 45 s), and a failure on a
+   quest route also clears the route. If it fires wrongly, switch it to `PathResult::distance` (valid when not -1).
+9. Walk while heavily encumbered or with crippled legs (slow enough to cover under 50 units in 1.5 s): no false
+   recovery; if there is one, the stuck window needs a speed-relative threshold.
+10. Combat melee approach through an obstacle still ends (combat's 20 s stall) and nothing writes the view meanwhile.

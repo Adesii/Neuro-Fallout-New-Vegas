@@ -32,5 +32,5 @@ engine-free aim maths.
 ## Progress (2026-10-24)
 No aim constant was changed. Combat now writes an `Aim <object>:` line to the log every 0.5 s while it free-aims a
 non-actor (eye, crouch flag, target origin/scale, aim point offset, distance, yaw/pitch, remaining errors, reticle on
-target). Aim point and eye height come from the unified code described in `27-aim-unification.md`. Needs: the log
+target, plus the crosshair reference). Aim point and eye height come from the unified code described in `27-aim-unification.md`. Needs: the log
 lines from shooting the fence bottles (close, far, standing, crouched), then pick the fix from the data.

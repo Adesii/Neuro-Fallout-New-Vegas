@@ -547,8 +547,6 @@ bool BeginRecovery(PlayerCharacter *player, const char *why) {
   g_state.recovery.doorFormId = choice->step == WalkerLogic::RecoveryStep::Door ? door.ref->GetFormID() : 0;
   g_state.oscillation.Reset();
   g_state.stuck.StartGrace(0.0f);
-  if (choice->step == WalkerLogic::RecoveryStep::Repath)
-    g_state.navigationValid = false;
   _MESSAGE("Walker recovery attempt %d (%s): step %d%s", g_state.planner.Attempts(), why,
            static_cast<int>(choice->step), choice->mirrored ? " mirrored" : "");
   return true;
@@ -597,8 +595,6 @@ MovementPlan StepRecovery(PlayerCharacter *player, float deltaTime) {
     break;
   case RecoveryStep::BackOff:
     plan.headingOffset = kHalfTurn;
-    break;
-  case RecoveryStep::Repath:
     break;
   }
   if (recovery.active && recovery.elapsed >= WalkerLogic::StepDuration(recovery.step))

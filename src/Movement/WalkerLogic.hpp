@@ -107,7 +107,6 @@ enum class RecoveryStep {
   Door,     // open a closed, unlocked door in front of the player
   Jump,     // hop while walking forward (rubble, low ledges)
   Sidestep, // walk sideways across the blocked line
-  Repath,   // throw the cached route away and path again (useful after a sidestep moved the player)
   BackOff,  // walk backwards, then come at it again
 };
 
@@ -115,7 +114,9 @@ enum class RecoveryStep {
 float StepDuration(RecoveryStep step);
 
 // Chooses the next recovery step each time the player is judged stuck, and gives up when the budget is spent.
-// Order: a door in front (once), then Jump, Sidestep (right), Repath, Sidestep (left), BackOff, repeating. Real
+// Order: a door in front (once), then Jump, Sidestep (right), Sidestep (left), BackOff, repeating. Every step ends with
+// a fresh route search from wherever it left the player, so there is no separate "re-path" rung: walking already
+// re-paths every quarter second, which is exactly what was happening when the player got stuck. Real
 // progress (travelling `kProgressDistance` since the last recovery) hands the budget back, so a long walk with a few
 // unrelated snags does not fail.
 class RecoveryPlanner {

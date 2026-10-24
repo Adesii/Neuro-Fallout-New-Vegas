@@ -179,8 +179,6 @@ float StepDuration(RecoveryStep step) {
     return 1.2f;
   case RecoveryStep::Sidestep:
     return 0.8f;
-  case RecoveryStep::Repath:
-    return 1.0f;
   case RecoveryStep::BackOff:
     return 0.7f;
   }
@@ -205,7 +203,7 @@ std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool 
     return Choice{RecoveryStep::Door, false};
   }
 
-  constexpr int kLadderSize = 5;
+  constexpr int kLadderSize = 4;
   for (;;) {
     switch (m_ladder++ % kLadderSize) {
     case 0:
@@ -215,8 +213,6 @@ std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool 
     case 1:
       return Choice{RecoveryStep::Sidestep, false};
     case 2:
-      return Choice{RecoveryStep::Repath, false};
-    case 3:
       return Choice{RecoveryStep::Sidestep, true};
     default:
       return Choice{RecoveryStep::BackOff, false};

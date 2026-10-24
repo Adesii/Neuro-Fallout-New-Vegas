@@ -376,13 +376,18 @@ void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &
   g_aimLogTimer = kAimLogInterval;
   const NiPoint3 eye = AimUtils::EyePosition(player);
   const NiPoint3 origin = target->GetPos();
-  _MESSAGE(
-      "Aim %s: eye (%.1f %.1f %.1f) crouching %d scale %.2f; target origin (%.1f %.1f %.1f) scale %.2f; aim point "
-      "z+%.1f; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; reticle on target %d",
-      g_target.name.c_str(), eye.x, eye.y, eye.z, AimUtils::IsCrouching(player) ? 1 : 0, player->GetScale(), origin.x,
-      origin.y, origin.z, target->GetScale(), point.z - origin.z, Distance3D(eye, point),
-      AimUtils::EffectiveYaw(player), error.heading, AimUtils::CameraPitch(), error.pitch,
-      player->reticleActor && player->reticleActor == target ? 1 : 0);
+  // InterfaceManager::crosshairRef (0xFC in both JG and JIP-LN-NVSE): what the crosshair rests on, for any reference.
+  auto *manager = InterfaceManager::GetSingleton();
+  TESObjectREFR *crosshair = manager ? manager->crosshairRef : nullptr;
+  _MESSAGE("Aim %s: eye (%.1f %.1f %.1f) crouching %d scale %.2f; target origin (%.1f %.1f %.1f) scale %.2f; aim point "
+           "z+%.1f; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; crosshair %08X "
+           "(target %08X), "
+           "reticle actor on target %d",
+           g_target.name.c_str(), eye.x, eye.y, eye.z, AimUtils::IsCrouching(player) ? 1 : 0, player->GetScale(),
+           origin.x, origin.y, origin.z, target->GetScale(), point.z - origin.z, Distance3D(eye, point),
+           AimUtils::EffectiveYaw(player), error.heading, AimUtils::CameraPitch(), error.pitch,
+           crosshair ? crosshair->GetFormID() : 0, target->GetFormID(),
+           player->reticleActor && player->reticleActor == target ? 1 : 0);
 }
 
 bool AimIsOnTarget(PlayerCharacter *player, TESObjectREFR *target, const AimUtils::Error &error,

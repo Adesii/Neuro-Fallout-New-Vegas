@@ -138,9 +138,9 @@ TEST("walker recovery: the ladder escalates in order and skips Jump when it is u
   REQUIRE(first && second && third && fourth && fifth);
   CHECK(first->step == RecoveryStep::Jump);
   CHECK(second->step == RecoveryStep::Sidestep && !second->mirrored);
-  CHECK(third->step == RecoveryStep::Repath);
-  CHECK(fourth->step == RecoveryStep::Sidestep && fourth->mirrored);
-  CHECK(fifth->step == RecoveryStep::BackOff);
+  CHECK(third->step == RecoveryStep::Sidestep && third->mirrored);
+  CHECK(fourth->step == RecoveryStep::BackOff);
+  CHECK(fifth->step == RecoveryStep::Jump); // the ladder starts over
 
   RecoveryPlanner noJump;
   noJump.Reset(10);
@@ -191,8 +191,7 @@ TEST("walker recovery: real progress hands the budget back") {
 }
 
 TEST("walker recovery: every step has a duration") {
-  for (auto step :
-       {RecoveryStep::Door, RecoveryStep::Jump, RecoveryStep::Sidestep, RecoveryStep::Repath, RecoveryStep::BackOff})
+  for (auto step : {RecoveryStep::Door, RecoveryStep::Jump, RecoveryStep::Sidestep, RecoveryStep::BackOff})
     CHECK(StepDuration(step) > 0.0f);
 }
 

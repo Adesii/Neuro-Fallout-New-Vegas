@@ -62,11 +62,13 @@ Built and host-tested; nothing here has run in the game.
   and `math.cpp::GetHeadingBetweenPoints`. Host tests cover inf, NaN and huge multiples.
 - Step 1 support: while Combat free-aims a non-actor, `CombatHandler::LogFreeAim` writes an `Aim <name>:` line to the
   log every 0.5 s with the eye position, crouch flag, target origin and scale, the aim point offset, the distance, yaw,
-  heading error, pitch, pitch error and whether the reticle is on the target.
+  heading error, pitch, pitch error, the crosshair reference (`InterfaceManager::crosshairRef`, valid for non-actors
+  too) and whether the reticle actor is the target.
 - Step 7 not touched: `kRangedPitchTolerance` stays 0.07 rad until the measurements exist.
 
 ## Still open
 1. **Designer, in game** (also todo 03): shoot the Goodsprings fence bottles with `attack object_id` close (~5 m) and
-   far (~15 m), standing and crouched, and send the `Aim` log lines. From them: set `kCrouchEyeRatio`, decide whether
+   far (~15 m), standing and crouched, and send the `Aim` log lines. The pitch error in them is measured against the modelled eye, so also say where the
+   shots land (high or low, roughly how far); the `crosshair` field says whether the crosshair itself is on the bottle. From them: set `kCrouchEyeRatio`, decide whether
    the 20-unit object height and the 0.07 pitch tolerance need to change, and record the numbers here.
 2. Then steps 1 and 7 can be closed and the task moved to `to_verify/`.
