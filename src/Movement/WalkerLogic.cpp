@@ -181,8 +181,17 @@ float StepDuration(RecoveryStep step) {
     return 0.8f;
   case RecoveryStep::BackOff:
     return 0.7f;
+  case RecoveryStep::Wander:
+    return 8.0f;
   }
   return 1.0f;
+}
+
+void DetourOffset(int tier, float random01, float &dx, float &dy) {
+  const float radius = 220.0f + 130.0f * static_cast<float>(std::clamp(tier, 0, 3));
+  const float angle = std::clamp(random01, 0.0f, 1.0f) * 2.0f * 3.14159265358979f;
+  dx = std::cos(angle) * radius;
+  dy = std::sin(angle) * radius;
 }
 
 void RecoveryPlanner::Reset(int budget) {
@@ -190,17 +199,25 @@ void RecoveryPlanner::Reset(int budget) {
   m_attempts = 0;
   m_ladder = 0;
   m_doorTried = false;
-  m_travelled = 0.0f;
+  m_clean = 0.0f;
+  m_spots.clear();
 }
 
-std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool doorAvailable) {
+std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool doorAvailable, float x, float y) {
   if (m_attempts >= m_budget)
     return std::nullopt;
   ++m_attempts;
-  m_travelled = 0.0f;
+  m_clean = 0.0f;
+  m_spots.push_back({x, y});
+  if (m_spots.size() > 16)
+    m_spots.erase(m_spots.begin());
+
+  const int remaining = m_budget - m_attempts;
+  if (remaining < kWanderAttempts && m_budget > kWanderAttempts)
+    return Choice{RecoveryStep::Wander, false, kWanderAttempts - 1 - remaining};
   if (doorAvailable && !m_doorTried) {
     m_doorTried = true;
-    return Choice{RecoveryStep::Door, false};
+    return Choice{RecoveryStep::Door, false, 0};
   }
 
   constexpr int kLadderSize = 4;
@@ -208,28 +225,35 @@ std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool 
     switch (m_ladder++ % kLadderSize) {
     case 0:
       if (canJump)
-        return Choice{RecoveryStep::Jump, false};
+        return Choice{RecoveryStep::Jump, false, 0};
       break;
     case 1:
-      return Choice{RecoveryStep::Sidestep, false};
+      return Choice{RecoveryStep::Sidestep, false, 0};
     case 2:
-      return Choice{RecoveryStep::Sidestep, true};
+      return Choice{RecoveryStep::Sidestep, true, 0};
     default:
-      return Choice{RecoveryStep::BackOff, false};
+      return Choice{RecoveryStep::BackOff, false, 0};
     }
   }
 }
 
-void RecoveryPlanner::NoteTravel(float distance) {
-  if (!(distance > 0.0f) || m_attempts == 0)
+void RecoveryPlanner::Update(float dt, float x, float y) {
+  if (m_attempts == 0)
     return;
-  m_travelled += distance;
-  if (m_travelled >= kProgressDistance) {
-    m_attempts = 0;
-    m_ladder = 0;
-    m_doorTried = false;
-    m_travelled = 0.0f;
+  for (const Spot &spot : m_spots) {
+    if (std::hypot(x - spot.x, y - spot.y) < kProgressDistance) {
+      m_clean = 0.0f;
+      return;
+    }
   }
+  m_clean += dt;
+  if (m_clean < kCleanSeconds)
+    return;
+  m_attempts = 0;
+  m_ladder = 0;
+  m_doorTried = false;
+  m_clean = 0.0f;
+  m_spots.clear();
 }
 
 // --- Reminder and pause -----------------------------------------------------------------------------------------

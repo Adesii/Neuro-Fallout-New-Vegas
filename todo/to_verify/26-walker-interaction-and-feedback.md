@@ -79,3 +79,17 @@ Skyrim's 400 m (not asked for).
    and is not silent.
 4. Force a stuck failure (todo 25 checklist): the message names the cause.
 5. Melee `attack`: no "Closing in on ..." context messages appear any more.
+
+## Follow-up after the first play-test (2026-10-25)
+Designer's report: following a moving quest NPC, she kept walking behind them even about a metre away and never
+interacted. Cause: interaction required distance under 100 units for a full second with the view settled on the target;
+a walking actor leaves that range before the second is up, and the timer reset every time.
+
+Change: for `Intent::Interact` on an **actor** only, she engages at 150 units (`kActorInteractionDistance`), stops
+walking, waits only for a clear ray (no view alignment) and interacts after 0.3 s. Once engaged the range grows to 250
+(`kActorInteractionRelease`) so a step back by the NPC does not cancel it. Everything else (doors, containers, plain
+moves, combat approaches) keeps the 100-unit rule. The stuck/progress checks treat the engaged state as "arrived".
+
+Unverified: that the game accepts an activation (dialogue) from 150 units, and whether 150 feels natural on stream. If
+the activation is rejected from that far the failure will read "The game rejected interaction"; lower the constant.
+Check: follow a walking quest NPC; she should stop and talk within a second or two of getting close.

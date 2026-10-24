@@ -22,6 +22,7 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
+#include <random>
 #include <utility>
 
 namespace Walker {
@@ -32,6 +33,13 @@ using WorldUtils::LookupReference;
 
 constexpr float kInteractionDistance = 100.0f;
 constexpr float kInteractionDelay = 1.0f;
+// Actors that are the object of an interaction (a quest NPC to talk to) walk around, so waiting for a 100-unit approach
+// and a settled view never succeeds. Within this range she stops and interacts at once; once engaged the range grows
+// so a step back by the NPC does not cancel it. The distances are estimates: whether the game accepts an activation
+// from this far is unverified.
+constexpr float kActorInteractionDistance = 150.0f;
+constexpr float kActorInteractionRelease = 250.0f;
+constexpr float kActorInteractionDelay = 0.3f;
 // Unaligned (or with the line of sight blocked) this long within reach: interact anyway and let the game accept or
 // reject it. For a plain move, the same wait before failing with "not reachable from here".
 constexpr float kAlignmentGiveUpDelay = 5.0f;
@@ -74,6 +82,12 @@ constexpr float kDoorOpenWait = 0.8f;
 
 constexpr float kJumpPulseSeconds = 0.12f;
 constexpr float kSecondJumpAt = 0.6f;
+// Wander: a random navmesh point this close to where the player stands is a real change of angle; the point it
+// snapped to must be near the one asked for, and the step is over once the player is this close to it.
+constexpr int kDetourCandidates = 10;
+constexpr float kDetourSnapTolerance = 120.0f;
+constexpr float kDetourMinDistance = 120.0f;
+constexpr float kDetourArrivedDistance = 80.0f;
 constexpr float kQuarterTurn = 1.5707964f;
 constexpr float kHalfTurn = 3.1415927f;
 
@@ -115,6 +129,8 @@ struct Recovery {
   uint32_t doorFormId = 0;
   bool doorActivated = false;
   float doorActivatedAt = 0.0f;
+  bool hasDetour = false;
+  NiPoint3 detour = {0.0f, 0.0f, 0.0f};
 };
 
 struct WalkerState {
@@ -134,9 +150,11 @@ struct WalkerState {
   bool alignmentGaveUp = false;
   bool navigationValid = false;
   bool lineOfSight = false;
+  bool engaged = false; // an actor target is within interaction range
   PathPoint3 navigationPoint{};
   NiPoint3 navigationDestination = {0.0f, 0.0f, 0.0f};
   WalkerLogic::StuckDetector stuck;
+  WalkerLogic::StuckDetector detourStuck; // a Wander step that goes nowhere ends early
   WalkerLogic::OscillationDetector oscillation;
   WalkerLogic::ProgressTracker progress;
   WalkerLogic::RecoveryPlanner planner;
@@ -198,6 +216,7 @@ void ResetRouteState() {
   g_state.blockedTime = 0.0f;
   g_state.lineOfSightTimer = 0.0f;
   g_state.lineOfSight = false;
+  g_state.engaged = false;
   g_state.alignmentGaveUp = false;
   g_state.navigationValid = false;
   g_state.navigationAge = 0.0f;
@@ -205,6 +224,7 @@ void ResetRouteState() {
   g_state.lookTargetInitialized = false;
   g_state.positionInitialized = false;
   g_state.stuck.Reset();
+  g_state.detourStuck.Reset();
   g_state.oscillation.Reset();
   g_state.progress.Reset();
   g_state.planner.Reset(RetryBudget());
@@ -280,8 +300,7 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
   return IsValidPoint(pathPoint);
 }
 
-PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, TESObjectREFR *target) {
-  const NiPoint3 destination = target->GetPos();
+PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &destination) {
   if (Distance3D(player->GetPos(), destination) < kInteractionDistance)
     return {destination.x, destination.y, destination.z};
 
@@ -302,8 +321,9 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, TESObjectREFR *target
   return {destination.x, destination.y, destination.z};
 }
 
+// Steers at the target, or at the Wander spot while a Wander recovery step is running.
 PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, float deltaTime) {
-  const NiPoint3 destination = target->GetPos();
+  const NiPoint3 destination = g_state.recovery.hasDetour ? g_state.recovery.detour : target->GetPos();
   const NiPoint3 playerPosition = player->GetPos();
   if (Distance3D(playerPosition, destination) < kInteractionDistance) {
     g_state.navigationValid = false;
@@ -317,7 +337,7 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
     refresh = Math::GetDistance2D(playerPosition, g_state.navigationPoint) < kWaypointReachedDistance;
   }
   if (refresh) {
-    g_state.navigationPoint = ResolveNavigationPoint(player, target);
+    g_state.navigationPoint = ResolveNavigationPoint(player, destination);
     g_state.navigationDestination = destination;
     g_state.navigationAge = 0.0f;
     g_state.navigationValid = true;
@@ -484,6 +504,38 @@ void EndRecovery() {
   g_state.navigationValid = false; // the next frame paths again, from wherever the step left the player
 }
 
+// A random spot on the navmesh near the player that the pathfinder can actually reach from here. Objects that are not
+// in the navmesh (rubble, clutter) are what trapped the player, so a spot found by walking the navmesh gives a new
+// angle on them. False when no candidate qualified.
+bool PickDetour(PlayerCharacter *player, int tier, NiPoint3 &out) {
+  static std::mt19937 random{std::random_device{}()};
+  std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+  auto *cell = GetNavigationCell(player);
+  if (!cell)
+    return false;
+  const NiPoint3 here = player->GetPos();
+  for (int candidate = 0; candidate < kDetourCandidates; ++candidate) {
+    float dx = 0.0f;
+    float dy = 0.0f;
+    WalkerLogic::DetourOffset(tier, unit(random), dx, dy);
+    const NiPoint3 wanted = {here.x + dx, here.y + dy, here.z};
+    NiPoint4 closest = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
+    Pathing::GetClosestNavMeshTriangle(cell, wanted, false, 0.0f, closest);
+    if (closest.x == FLT_MAX)
+      continue;
+    const NiPoint3 snapped = {closest.x, closest.y, closest.z};
+    if (Math::GetDistance2D(snapped, wanted) > kDetourSnapTolerance ||
+        Math::GetDistance2D(snapped, here) < kDetourMinDistance)
+      continue;
+    PathPoint3 firstNode;
+    if (!BuildPathPoint(player, snapped, firstNode))
+      continue;
+    out = snapped;
+    return true;
+  }
+  return false;
+}
+
 // Chooses and starts a recovery step. False when the walk was failed instead (the command is gone then).
 bool BeginRecovery(PlayerCharacter *player, const char *why) {
   const DoorAhead door = FindDoorAhead(player);
@@ -495,7 +547,8 @@ bool BeginRecovery(PlayerCharacter *player, const char *why) {
     }
   }
   const bool doorOpenable = door.ref && door.closed && !door.locked;
-  const auto choice = g_state.planner.Next(IsJumpBound(), doorOpenable);
+  const NiPoint3 here = player->GetPos();
+  auto choice = g_state.planner.Next(IsJumpBound(), doorOpenable, here.x, here.y);
   if (!choice) {
     if (g_state.lockedDoor.empty())
       FinishFailed(player, WalkerLogic::FailureReason::Stuck);
@@ -504,8 +557,17 @@ bool BeginRecovery(PlayerCharacter *player, const char *why) {
     return false;
   }
 
+  NiPoint3 detour = {0.0f, 0.0f, 0.0f};
+  if (choice->step == WalkerLogic::RecoveryStep::Wander && !PickDetour(player, choice->tier, detour)) {
+    _WARNING("Walker found no reachable spot to wander to; backing off instead");
+    choice->step = WalkerLogic::RecoveryStep::BackOff;
+  }
   g_state.recovery = {};
   g_state.recovery.active = true;
+  g_state.recovery.hasDetour = choice->step == WalkerLogic::RecoveryStep::Wander;
+  g_state.recovery.detour = detour;
+  g_state.detourStuck.Reset();
+  g_state.navigationValid = false; // a Wander step steers at its own spot from the next search on
   g_state.recovery.step = choice->step;
   g_state.recovery.mirrored = choice->mirrored;
   g_state.recovery.doorFormId = choice->step == WalkerLogic::RecoveryStep::Door ? door.ref->GetFormID() : 0;
@@ -560,6 +622,13 @@ MovementPlan StepRecovery(PlayerCharacter *player, float deltaTime) {
   case RecoveryStep::BackOff:
     plan.headingOffset = kHalfTurn;
     break;
+  case RecoveryStep::Wander: {
+    const NiPoint3 here = player->GetPos();
+    if (Math::GetDistance2D(here, recovery.detour) <= kDetourArrivedDistance ||
+        g_state.detourStuck.Update(deltaTime, here.x, here.y, true))
+      EndRecovery();
+    break;
+  }
   }
   if (recovery.active && recovery.elapsed >= WalkerLogic::StepDuration(recovery.step))
     EndRecovery();
@@ -581,14 +650,27 @@ void UpdateLineOfSight(PlayerCharacter *player, TESObjectREFR *target, float del
   g_state.lineOfSight = clear;
 }
 
-void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance, bool aligned, float deltaTime) {
-  if (distance >= kInteractionDistance) {
+// How close the player must get before the command counts as arrived. Only an interaction with an actor reaches
+// further: the actor walks about, so it is engaged from kActorInteractionDistance and stays engaged up to the release
+// distance.
+float InteractionReach(TESObjectREFR *target) {
+  if (g_state.command.intent != Intent::Interact || !target->IsActor())
+    return kInteractionDistance;
+  return g_state.engaged ? kActorInteractionRelease : kActorInteractionDistance;
+}
+
+void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance, float reach, bool aligned,
+                 float deltaTime) {
+  if (distance >= reach) {
+    g_state.engaged = false;
     g_state.interactionTime = 0.0f;
     g_state.unalignedTime = 0.0f;
     g_state.blockedTime = 0.0f;
     g_state.lineOfSightTimer = 0.0f;
     return;
   }
+  const bool chasingActor = g_state.command.intent == Intent::Interact && target->IsActor();
+  g_state.engaged = chasingActor;
   ReleaseMovementKeys();
   UpdateLineOfSight(player, target, deltaTime);
   if (g_state.command.intent == Intent::Move) {
@@ -606,7 +688,8 @@ void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance,
 
   // Interaction prefers the view on the target and a clear ray, but gives up waiting after kAlignmentGiveUpDelay and
   // lets the game accept or reject the activation.
-  if (aligned && g_state.lineOfSight) {
+  // A moving actor never holds still long enough for the view to settle on it, so only the ray is waited for.
+  if ((aligned || chasingActor) && g_state.lineOfSight) {
     g_state.unalignedTime = 0.0f;
   } else {
     g_state.interactionTime = 0.0f;
@@ -620,7 +703,7 @@ void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance,
     }
   }
   g_state.interactionTime += deltaTime;
-  if (g_state.interactionTime < kInteractionDelay)
+  if (g_state.interactionTime < (chasingActor ? kActorInteractionDelay : kInteractionDelay))
     return;
   if (!IsInteractable(target)) {
     FinishFailed(player, WalkerLogic::FailureReason::NotInteractable);
@@ -729,8 +812,9 @@ void Process() {
   g_state.positionInitialized = true;
 
   const float distance = Distance3D(playerPosition, target->GetPos());
-  const bool shouldMove = distance >= kInteractionDistance;
-  const PathPoint3 navigationPoint = GetNavigationPoint(player, target, deltaTime);
+  const float reach = InteractionReach(target);
+  const bool shouldMove = distance >= reach;
+  PathPoint3 navigationPoint = GetNavigationPoint(player, target, deltaTime);
 
   MovementPlan plan;
   plan.move = shouldMove;
@@ -742,7 +826,7 @@ void Process() {
   } else if (g_state.recovery.active) {
     plan = StepRecovery(player, deltaTime);
   } else {
-    g_state.planner.NoteTravel(walked);
+    g_state.planner.Update(deltaTime, playerPosition.x, playerPosition.y);
     if (g_state.progress.Update(deltaTime, distance, true)) {
       FinishFailed(player, WalkerLogic::FailureReason::NoProgress);
       return;
@@ -753,6 +837,7 @@ void Process() {
       if (!BeginRecovery(player, stuck ? "no player movement" : "target distance oscillation"))
         return;
       plan = StepRecovery(player, 0.0f);
+      navigationPoint = GetNavigationPoint(player, target, 0.0f); // a Wander step steers at its own spot
     }
   }
 
@@ -776,7 +861,7 @@ void Process() {
   const bool aligned = std::abs(headingError) <= kLookAlignmentTolerance && pitchError <= kLookAlignmentTolerance;
   UpdateMovement(player, navigationPoint, plan.move, plan.headingOffset);
   UpdateReminder(deltaTime, walked, distance);
-  TryComplete(player, target, distance, aligned, deltaTime);
+  TryComplete(player, target, distance, reach, aligned, deltaTime);
 }
 
 void Pause(PauseReason reason) {

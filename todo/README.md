@@ -39,6 +39,9 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
 | 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) (done except in-game measurements) | Aim / Combat |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) (3, 4, 6 done; 1, 2, 5 left on purpose) | Cleanup |
+| 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) | Context / Menus |
+| 41 | [query_quests should say which quest is already selected](41-query-quests-selected-line.md) | Gameplay actions |
+| 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
 
 ## To verify (implemented, waiting for an in-game test)
 

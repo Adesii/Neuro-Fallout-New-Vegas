@@ -1,6 +1,8 @@
 #include "Movement/WalkerLogic.hpp"
 #include "TestFramework.hpp"
+#include <cmath>
 #include <limits>
+#include <vector>
 
 using namespace WalkerLogic;
 
@@ -129,12 +131,12 @@ TEST("walker progress: leaving the counting state restarts it") {
 
 TEST("walker recovery: the ladder escalates in order and skips Jump when it is unbound") {
   RecoveryPlanner planner;
-  planner.Reset(10);
-  auto first = planner.Next(true, false);
-  auto second = planner.Next(true, false);
-  auto third = planner.Next(true, false);
-  auto fourth = planner.Next(true, false);
-  auto fifth = planner.Next(true, false);
+  planner.Reset(12);
+  auto first = planner.Next(true, false, 0, 0);
+  auto second = planner.Next(true, false, 0, 0);
+  auto third = planner.Next(true, false, 0, 0);
+  auto fourth = planner.Next(true, false, 0, 0);
+  auto fifth = planner.Next(true, false, 0, 0);
   REQUIRE(first && second && third && fourth && fifth);
   CHECK(first->step == RecoveryStep::Jump);
   CHECK(second->step == RecoveryStep::Sidestep && !second->mirrored);
@@ -143,55 +145,122 @@ TEST("walker recovery: the ladder escalates in order and skips Jump when it is u
   CHECK(fifth->step == RecoveryStep::Jump); // the ladder starts over
 
   RecoveryPlanner noJump;
-  noJump.Reset(10);
-  auto step = noJump.Next(false, false);
+  noJump.Reset(12);
+  auto step = noJump.Next(false, false, 0, 0);
   REQUIRE(step);
   CHECK(step->step == RecoveryStep::Sidestep);
 }
 
 TEST("walker recovery: a door in front is tried first, once") {
   RecoveryPlanner planner;
-  planner.Reset(10);
-  auto door = planner.Next(true, true);
+  planner.Reset(12);
+  auto door = planner.Next(true, true, 0, 0);
   REQUIRE(door);
   CHECK(door->step == RecoveryStep::Door);
-  auto next = planner.Next(true, true);
+  auto next = planner.Next(true, true, 0, 0);
   REQUIRE(next);
   CHECK(next->step == RecoveryStep::Jump); // the door did not help; do not keep opening and closing it
+}
+
+TEST("walker recovery: the last attempts before giving up wander to a new angle") {
+  RecoveryPlanner planner;
+  planner.Reset(RecoveryPlanner::kDefaultBudget);
+  std::vector<RecoveryPlanner::Choice> choices;
+  while (auto choice = planner.Next(true, false, 0, 0))
+    choices.push_back(*choice);
+  REQUIRE(static_cast<int>(choices.size()) == RecoveryPlanner::kDefaultBudget);
+  const size_t count = choices.size();
+  CHECK(choices[count - 1].step == RecoveryStep::Wander && choices[count - 1].tier == 1);
+  CHECK(choices[count - 2].step == RecoveryStep::Wander && choices[count - 2].tier == 0);
+  CHECK(choices[count - 3].step != RecoveryStep::Wander);
+  CHECK(choices[0].step != RecoveryStep::Wander);
 }
 
 TEST("walker recovery: the budget runs out and quest routes get more") {
   RecoveryPlanner planner;
   planner.Reset(RecoveryPlanner::kDefaultBudget);
   for (int i = 0; i < RecoveryPlanner::kDefaultBudget; ++i)
-    CHECK(planner.Next(true, false).has_value());
-  CHECK(!planner.Next(true, false).has_value());
+    CHECK(planner.Next(true, false, 0, 0).has_value());
+  CHECK(!planner.Next(true, false, 0, 0).has_value());
   CHECK(RecoveryPlanner::kQuestBudget > RecoveryPlanner::kDefaultBudget);
 
   RecoveryPlanner quest;
   quest.Reset(RecoveryPlanner::kQuestBudget);
   for (int i = 0; i < RecoveryPlanner::kQuestBudget; ++i)
-    CHECK(quest.Next(true, false).has_value());
-  CHECK(!quest.Next(true, false).has_value());
+    CHECK(quest.Next(true, false, 0, 0).has_value());
+  CHECK(!quest.Next(true, false, 0, 0).has_value());
 }
 
-TEST("walker recovery: real progress hands the budget back") {
+TEST("walker recovery: a tiny budget never wanders") {
   RecoveryPlanner planner;
   planner.Reset(2);
-  CHECK(planner.Next(true, false).has_value());
-  CHECK(planner.Next(true, false).has_value());
+  CHECK(planner.Next(true, false, 0, 0)->step != RecoveryStep::Wander);
+  CHECK(planner.Next(true, false, 0, 0)->step != RecoveryStep::Wander);
+}
+
+TEST("walker recovery: sliding back into the same corner never refills the budget") {
+  RecoveryPlanner planner;
+  planner.Reset(RecoveryPlanner::kDefaultBudget);
+  int attempts = 0;
+  // Stuck in the corner at (0, 0); every step frees the player for a few seconds, then it slides back in.
+  for (int round = 0; round < 50; ++round) {
+    if (!planner.Next(true, false, 0, 0))
+      break;
+    ++attempts;
+    for (int frame = 0; frame < 300; ++frame) // 5 s at 60 fps, wandering 60 units around the corner
+      planner.Update(1.0f / 60.0f, 60.0f * std::sin(frame * 0.05f), 40.0f);
+  }
+  CHECK_EQ(attempts, RecoveryPlanner::kDefaultBudget);
+}
+
+TEST("walker recovery: walking away for a clean stretch hands the budget back") {
+  RecoveryPlanner planner;
+  planner.Reset(RecoveryPlanner::kDefaultBudget);
+  CHECK(planner.Next(true, false, 0, 0).has_value());
+  CHECK(planner.Next(true, false, 0, 0).has_value());
   CHECK_EQ(planner.Attempts(), 2);
-  planner.NoteTravel(RecoveryPlanner::kProgressDistance * 0.5f);
+  // Far from the stuck place, but not long enough yet.
+  for (int frame = 0; frame < 300; ++frame)
+    planner.Update(1.0f / 60.0f, 1000.0f, 0.0f);
   CHECK_EQ(planner.Attempts(), 2);
-  planner.NoteTravel(RecoveryPlanner::kProgressDistance * 0.6f);
+  for (int frame = 0; frame < 400; ++frame)
+    planner.Update(1.0f / 60.0f, 1000.0f, 0.0f);
   CHECK_EQ(planner.Attempts(), 0);
-  auto restart = planner.Next(true, false);
+  auto restart = planner.Next(true, false, 1000, 0);
   REQUIRE(restart);
   CHECK(restart->step == RecoveryStep::Jump);
 }
 
+TEST("walker recovery: coming back near a stuck place restarts the clean stretch") {
+  RecoveryPlanner planner;
+  planner.Reset(RecoveryPlanner::kDefaultBudget);
+  CHECK(planner.Next(true, false, 0, 0).has_value());
+  for (int frame = 0; frame < 480; ++frame) // 8 s clean
+    planner.Update(1.0f / 60.0f, 1000.0f, 0.0f);
+  planner.Update(1.0f / 60.0f, 50.0f, 0.0f); // back at the corner
+  for (int frame = 0; frame < 480; ++frame)
+    planner.Update(1.0f / 60.0f, 1000.0f, 0.0f);
+  CHECK_EQ(planner.Attempts(), 1); // 8 s again, not 16
+}
+
+TEST("walker recovery: detour offsets grow with the tier and cover every direction") {
+  float dx = 0.0f;
+  float dy = 0.0f;
+  DetourOffset(0, 0.0f, dx, dy);
+  const float near = std::hypot(dx, dy);
+  DetourOffset(1, 0.0f, dx, dy);
+  CHECK(std::hypot(dx, dy) > near);
+  DetourOffset(0, 0.25f, dx, dy);
+  CHECK(std::abs(dx) < 1.0f && dy > 0.0f);
+  DetourOffset(0, 0.5f, dx, dy);
+  CHECK(dx < 0.0f && std::abs(dy) < 1.0f);
+  DetourOffset(0, 7.0f, dx, dy); // out of range input is clamped, not exploded
+  CHECK(std::isfinite(dx) && std::isfinite(dy));
+}
+
 TEST("walker recovery: every step has a duration") {
-  for (auto step : {RecoveryStep::Door, RecoveryStep::Jump, RecoveryStep::Sidestep, RecoveryStep::BackOff})
+  for (auto step :
+       {RecoveryStep::Door, RecoveryStep::Jump, RecoveryStep::Sidestep, RecoveryStep::BackOff, RecoveryStep::Wander})
     CHECK(StepDuration(step) > 0.0f);
 }
 

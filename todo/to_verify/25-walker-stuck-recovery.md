@@ -97,3 +97,20 @@ Unverified (needs the game): the lock bit and open-state values (see the design 
 9. Walk while heavily encumbered or with crippled legs (slow enough to cover under 50 units in 1.5 s): no false
    recovery; if there is one, the stuck window needs a speed-relative threshold.
 10. Combat melee approach through an obstacle still ends (combat's 20 s stall) and nothing writes the view meanwhile.
+
+## Follow-up after the first play-test (2026-10-25)
+Designer's report: sidestepping out of a corner and sliding back in repeated the whole stuck sequence forever.
+Cause: the recovery budget was refilled by *distance walked* (200 units), and sliding along walls and back into the
+corner added up to that. Changes (engine-free in `RecoveryPlanner`, host-tested):
+- The budget only comes back after 10 s of walking without being judged stuck **and** at least 200 units from every
+  place she was stuck. Coming back near a stuck place restarts that clean stretch.
+- Budget is now 6 (12 for quest routes). The last two attempts are **Wander** steps: she picks a random spot 220 (then
+  350) units away that is on the navmesh, near where it was asked for, and reachable by the pathfinder from here
+  (up to 10 candidates), and paths there. The point is a new angle on obstacles that are not in the navmesh. A Wander
+  ends on arrival (80 units), after 8 s, or when it stalls; with no usable spot it backs off instead.
+- The progress and stuck logic is otherwise unchanged. The 4 / 10 budgets from the earlier answer were a first guess,
+  adjusted after this play-test as that answer said.
+
+Additional checks: stand in a corner so the first sidestep frees you and the path leads straight back in; the log
+should show attempts 1 to 6 ending with two `Wander` steps and then the "stuck" failure, not an endless series.
+Unverified: whether `GetClosestNavMeshTriangle` snapped spots are good Wander targets in tight interiors.

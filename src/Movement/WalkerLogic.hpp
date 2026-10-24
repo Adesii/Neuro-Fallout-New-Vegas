@@ -8,6 +8,7 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace WalkerLogic {
 
@@ -108,42 +109,58 @@ enum class RecoveryStep {
   Jump,     // hop while walking forward (rubble, low ledges)
   Sidestep, // walk sideways across the blocked line
   BackOff,  // walk backwards, then come at it again
+  Wander,   // path to a random navmesh point nearby, to come at the obstacle from a new angle
 };
 
-// Seconds a step runs before the walker judges again.
+// Seconds a step runs before the walker judges again (for Wander: the longest it may take to get there).
 float StepDuration(RecoveryStep step);
 
+// Where a Wander step goes, as an offset from the player. `tier` 0 is the first wander (a short hop away), 1 the second
+// (further). `random01` in [0, 1) picks the direction; the caller supplies it and rejects spots that are not on the
+// navmesh or not reachable, then asks again.
+void DetourOffset(int tier, float random01, float &dx, float &dy);
+
 // Chooses the next recovery step each time the player is judged stuck, and gives up when the budget is spent.
-// Order: a door in front (once), then Jump, Sidestep (right), Sidestep (left), BackOff, repeating. Every step ends with
-// a fresh route search from wherever it left the player, so there is no separate "re-path" rung: walking already
-// re-paths every quarter second, which is exactly what was happening when the player got stuck. Real
-// progress (travelling `kProgressDistance` since the last recovery) hands the budget back, so a long walk with a few
-// unrelated snags does not fail.
+// Order: a door in front (once), then Jump, Sidestep (right), Sidestep (left), BackOff, repeating; the last
+// `kWanderAttempts` attempts are Wander steps instead, so the walk tries a genuinely different angle right before it
+// gives up. Every step ends with a fresh route search from wherever it left the player.
+//
+// The budget only comes back after the player has been walking for `kCleanSeconds` without being judged stuck and is
+// at least `kProgressDistance` from every place it was stuck. Counting distance walked was wrong: sliding back into
+// the same corner after a sidestep kept refilling it and the recovery looped forever.
 class RecoveryPlanner {
 public:
-  static constexpr int kDefaultBudget = 4;
-  static constexpr int kQuestBudget = 10;
+  static constexpr int kDefaultBudget = 6;
+  static constexpr int kQuestBudget = 12;
+  static constexpr int kWanderAttempts = 2;
   static constexpr float kProgressDistance = 200.0f;
+  static constexpr float kCleanSeconds = 10.0f;
 
   struct Choice {
     RecoveryStep step = RecoveryStep::Sidestep;
     bool mirrored = false; // sidestep to the left instead of the right
+    int tier = 0;          // Wander: 0 first, 1 second
   };
 
   void Reset(int budget);
   // Next step, or nothing when the budget is spent. `canJump` is whether a Jump control is bound; `doorAvailable`
-  // whether a closed unlocked door stands in front of the player.
-  std::optional<Choice> Next(bool canJump, bool doorAvailable);
-  // Distance walked this frame while not recovering.
-  void NoteTravel(float distance);
+  // whether a closed unlocked door stands in front of the player; (x, y) is where the player is stuck.
+  std::optional<Choice> Next(bool canJump, bool doorAvailable, float x, float y);
+  // Every frame the walker is going about its business (not recovering).
+  void Update(float dt, float x, float y);
   int Attempts() const { return m_attempts; }
 
 private:
+  struct Spot {
+    float x;
+    float y;
+  };
   int m_budget = kDefaultBudget;
   int m_attempts = 0;
   int m_ladder = 0;
   bool m_doorTried = false;
-  float m_travelled = 0.0f;
+  float m_clean = 0.0f;
+  std::vector<Spot> m_spots;
 };
 
 // --- Progress reminder ------------------------------------------------------------------------------------------
