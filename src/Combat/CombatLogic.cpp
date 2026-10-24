@@ -319,7 +319,7 @@ void CombatReporter::Seed(const PlayerSnapshot &snapshot) {
   m_outOfAmmoReported = snapshot.usesAmmo && snapshot.clip == 0 && snapshot.reserve == 0;
 }
 
-std::vector<std::string> CombatReporter::Update(const PlayerSnapshot &snapshot) {
+std::vector<std::string> CombatReporter::Update(const PlayerSnapshot &snapshot, bool inCombat) {
   std::vector<std::string> notes;
   if (!m_seeded) {
     Seed(snapshot);
@@ -344,18 +344,19 @@ std::vector<std::string> CombatReporter::Update(const PlayerSnapshot &snapshot) 
     m_weaponName = snapshot.weaponName;
     m_clipEmptyReported = false;
     m_outOfAmmoReported = false;
-    notes.push_back("You are now using " +
-                    (snapshot.weaponName.empty() ? std::string("no weapon") : snapshot.weaponName) + " (" +
-                    WeaponKindName(snapshot.weapon) + ").");
+    if (inCombat)
+      notes.push_back("You are now using " +
+                      (snapshot.weaponName.empty() ? std::string("no weapon") : snapshot.weaponName) + " (" +
+                      WeaponKindName(snapshot.weapon) + ").");
   }
 
   if (snapshot.usesAmmo) {
     const bool noAmmoLeft = snapshot.clip == 0 && snapshot.reserve == 0;
     const bool clipEmpty = snapshot.clip == 0 && snapshot.reserve != 0;
     if (noAmmoLeft) {
-      if (!m_outOfAmmoReported)
+      if (!m_outOfAmmoReported && inCombat)
         notes.push_back("You have no ammunition left for " + snapshot.weaponName + ".");
-    } else if (clipEmpty && !m_clipEmptyReported) {
+    } else if (clipEmpty && !m_clipEmptyReported && inCombat) {
       std::string note = "The magazine of " + snapshot.weaponName + " is empty";
       if (snapshot.reserve > 0)
         note += " (" + std::to_string(snapshot.reserve) + " rounds in reserve)";

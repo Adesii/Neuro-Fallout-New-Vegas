@@ -27,6 +27,7 @@ add_executable(neuro_fnv_tests
     WalkerLogicTests.cpp
     DistanceTests.cpp
     IdlePokerTests.cpp
+    DamageTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -34,6 +35,7 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Actions/PersistentActionSet.cpp"
     "${REPO}/src/Actions/Json/JsonSchema.cpp"
     "${REPO}/src/Combat/CombatLogic.cpp"
+    "${REPO}/src/Combat/DamageLogic.cpp"
     "${REPO}/src/Context/ContextGate.cpp"
     "${REPO}/src/Context/IdlePoker.cpp"
     "${REPO}/src/Context/Greeting.cpp"

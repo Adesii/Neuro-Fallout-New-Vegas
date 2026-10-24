@@ -25,8 +25,14 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
   message, because objects have no health to observe.
 - Combat context is event-driven and non-silent: combat start/end, health crossing a band (75/50/25/10%), radiation
   stages (every 200 rads), weapon change, empty magazine / no ammo, kills, and the reason every engagement stopped.
-  The start message includes `attack`-ready enemy ids (the list is refreshed at that moment). Updates are batched at
-  most every 3 s. `query_enemies` results are silent, like `query_nearby`.
+  The start message lists the hostile enemies with their ids (refreshed at that moment, so no query round trip) and the
+  player status, nothing more. Updates are batched at most every 3 s. `query_enemies` results are silent, like `query_nearby`.
+- Damage and death (todo 29, `src/Combat/DamageLogic.*`): hits on the player become one note per attacker per 10 s
+  ("X hits you with W.", batched into the 3 s combat update); health bands and radiation stages are also reported
+  *outside* combat as a "Status update" (falls, radiation ticks, traps), weapon/ammo notes stay combat-only. Dying sends one
+  non-silent "You died" message: the fact that the save reloads, what killed her (and what she was doing) and one lesson
+  line chosen from the cause, plain coaching most of the time and a playful roast about one death in four (seeded, only
+  where she had the information: low health she was told about, radiation stages, a fight she picked).
 - VATS is a menu-scoped action window (`vats_queue_shot`, `vats_execute` once a shot is queued, `vats_cancel`) with a
   Medium-priority force. Walker, engagement and world actions pause for the whole of VATS including playback.
 
@@ -49,6 +55,11 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
   0x11F2258, target list 0x11DB150), cross-checked between FalloutNVAccess and itr-nvse. `vats_menu.xml` (private
   extracts) gives `GlowBranch/accept_button` (id 4), `return_button` (5) and the PC-visible `left_arrow` / `right_arrow`
   (ids 2 and 3).
+
+- Hits: NVSE's built-in `OnHit` event through `NVSEEventManagerInterface::SetNativeEventHandler` (JG `PluginAPI.h`);
+  xNVSE `EventManager.cpp` `HandleGameEvent` / `EventCallback::Invoke` hand the native handler `{victim, attacker}`
+  (`s_lastOnHitVictim = source; s_lastOnHitAttacker = object`). Registered on `kMessage_DeferredInit`.
+- Killer: `Actor::killer` at 0xC0 (JG `GameObjects.h`), read only when the pointer is one of the loaded references.
 
 ## Unverified, needs the game
 
@@ -93,3 +104,28 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
    send them back so the bindings in `VatsHandler.cpp` can be corrected.
 10. Failure symptoms to report: stuck mouse button, permanent Walker lockout after VATS (check the 90 s watchdog log
     line), `Combat engagement ended` log lines with unexpected reasons, VATS refusing to open.
+
+## Damage and death: unverified and checklist (todo 29)
+
+Unverified:
+- That the native `OnHit` handler fires for hits on the player and that its arguments are `{victim, attacker}` in that
+  order (source-backed in xNVSE, never run here); that the attacker is null (or not an actor) for falls and fire.
+- That `Actor::killer` is set when the player dies. It is only a first candidate; the last hit within 8 s and radiation
+  at 900+ rads (the 1000-rad lethal level is not source-verified here) are the fallbacks, then a "sudden loss" best guess.
+- The order of the death message against the game's own save reload (`PreLoadGame` resets the state). The message is
+  sent from the frame loop the first frame the player is dead, whatever menu is open.
+- Whether the lesson tone (coaching vs roast) reads well on stream; the lines are in `DamageLogic.cpp`.
+
+In-game checks:
+1. Get shot by one enemy for 15 s: a "Combat update" with at most one "X hits you with W." per 10 s; two enemies each
+   get their own note.
+2. Fall from a height and survive: a "Status update" (not "Combat update") appears when health crosses a band; no weapon or
+   ammo notes appear outside combat.
+3. Stand in a radiation source: "Your radiation exposure rose..." appears per 200 rads, also outside combat.
+4. Step on a mine or a trap: a note "You were hurt by ..." and, if it kills, the death text names a non-creature source.
+5. Die in a fight at low health: one "You died" message naming the killer, the weapon and what you were doing, then the
+   save reloads; no second death message after the reload. Check `neuro-fnv.log` for the `Player died:` line.
+6. Die from a fall and from radiation (`player.modav radlevel 1000`): the cause text matches.
+7. Start a fight: the "Combat started" message has the hostile list and your status, no usage paragraph.
+8. Failure symptoms: no OnHit log line ("Listening for OnHit events"), hit notes never appearing, a death message
+   arriving twice, or none.

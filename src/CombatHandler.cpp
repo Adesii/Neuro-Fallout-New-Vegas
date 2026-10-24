@@ -4,6 +4,7 @@
 #include "Actions/Combat/QueryEnemiesAction.hpp"
 #include "Actions/Combat/StopAttackAction.hpp"
 #include "Actions/PersistentActionSet.hpp"
+#include "Combat/DamageLogic.hpp"
 #include "Context/Distance.hpp"
 #include "GameAPI.h"
 #include "GameData.h"
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -106,6 +108,20 @@ int g_kills = 0;
 Combat::CombatReporter g_reporter;
 std::vector<std::string> g_pendingNotes;
 std::unordered_map<uint32_t, std::string> g_combatants;
+
+// Damage and death reporting (todo 29). The OnHit handler runs inside the engine and only queues attacker ids; the
+// frame loop turns them into notes.
+Combat::HitNotes g_hitNotes;
+Combat::DeathReporter g_deathReporter;
+std::mutex g_hitQueueMutex;
+std::vector<uint32_t> g_pendingHits;
+bool g_hitEventInstalled = false;
+float g_clock = 0.0f; // seconds of game time since the plugin started, for the per-attacker rate limit
+float g_fightStartHealth = -1.0f;
+float g_healthTrailTimer = 0.0f;
+float g_healthPrevious = 1.0f;
+float g_healthCurrent = 1.0f;
+bool g_deathReported = false;
 
 void BuildActions() {
   if (g_actionsBuilt)
@@ -483,7 +499,7 @@ void FlushNotes(bool force) {
   if (g_pendingNotes.empty() || (!force && g_noteCooldown > 0.0f))
     return;
   std::ostringstream text;
-  text << "## Combat update";
+  text << (g_inCombat ? "## Combat update" : "## Status update");
   for (const auto &note : g_pendingNotes)
     text << "\n- " << note;
   // Cleared only once the send went through: a note that could not be delivered is retried, not lost.
@@ -497,11 +513,13 @@ void StartCombatContext(PlayerCharacter *player) {
   g_inCombat = true;
   g_kills = 0;
   g_combatants.clear();
-  g_pendingNotes.clear();
+  // Notes queued before the fight (a first hit, a fall) are kept: they go out with the first combat update.
   g_noteCooldown = 0.0f;
   g_sampleTimer = 0.0f;
   g_combatantTimer = 0.0f;
-  g_reporter.Seed(SamplePlayer(player));
+  const Combat::PlayerSnapshot snapshot = SamplePlayer(player);
+  g_reporter.Seed(snapshot);
+  g_fightStartHealth = snapshot.maxHealth > 0.0f ? std::clamp(snapshot.health / snapshot.maxHealth, 0.0f, 1.0f) : -1.0f;
 
   // Ids are published with the start message so Neuro can attack straight away without a query round trip.
   RefreshEnemies(player);
@@ -529,8 +547,6 @@ void StartCombatContext(PlayerCharacter *player) {
       text << "\n- and " << (hostile.size() - kCombatStartListLimit) << " more";
   }
   text << "\n\n" << BuildPlayerStatus();
-  text << "\n\nUse the ids above with attack or open_vats (query_enemies refreshes them). stop_attack stops attacking. "
-          "Updates will follow when something important changes.";
   _MESSAGE("Combat started");
   NeuroSDK::SendContext(text.str().c_str(), false);
 }
@@ -539,6 +555,7 @@ void EndCombatContext() {
   FlushNotes(true);
   g_inCombat = false;
   g_combatTimer = 0.0f;
+  g_fightStartHealth = -1.0f;
   std::ostringstream text;
   text << "## Combat ended\n- Enemies defeated during the fight: " << g_kills << "\n\n" << BuildPlayerStatus();
   g_combatants.clear();
@@ -568,32 +585,142 @@ void ObserveCombatants(PlayerCharacter *player) {
   }
 }
 
+// Runs inside the engine when any reference is hit: NVSE's built-in OnHit event passes the victim as its first
+// argument and the attacker as its second (xNVSE EventManager.cpp HandleGameEvent/EventCallback::Invoke). Only the
+// player as victim matters. The attacker is null for damage with no attacker (falls, fire, some hazards).
+void OnHitEvent(TESObjectREFR *, void *parameters) {
+  if (!parameters)
+    return;
+  auto **args = static_cast<void **>(parameters);
+  auto *victim = static_cast<TESObjectREFR *>(args[0]);
+  auto *attacker = static_cast<TESForm *>(args[1]);
+  auto *player = PlayerCharacter::GetSingleton();
+  if (!victim || !player || victim != static_cast<TESObjectREFR *>(player))
+    return;
+  std::lock_guard lock(g_hitQueueMutex);
+  g_pendingHits.push_back(attacker ? attacker->GetFormID() : 0);
+}
+
+std::string OptionalName(TESObjectREFR *ref) {
+  const char *name = ref ? ref->GetFullName() : nullptr;
+  return name && name[0] ? name : "";
+}
+
+Combat::HitInfo DescribeHit(uint32_t attackerId) {
+  Combat::HitInfo hit;
+  hit.attackerId = attackerId;
+  auto *ref = attackerId ? LookupReference(attackerId) : nullptr;
+  hit.attackerIsActor = ref && ref->IsActor();
+  hit.attackerName = OptionalName(ref);
+  if (hit.attackerIsActor && HighProcessOf(static_cast<Actor *>(ref))) {
+    if (TESObjectWEAP *weapon = static_cast<Actor *>(ref)->GetEquippedWeapon()) {
+      const char *name = weapon->fullName.GetFullName();
+      hit.weapon = name && name[0] ? name : "";
+    }
+  }
+  return hit;
+}
+
+void DrainHits() {
+  std::vector<uint32_t> hits;
+  {
+    std::lock_guard lock(g_hitQueueMutex);
+    hits.swap(g_pendingHits);
+  }
+  for (uint32_t attackerId : hits) {
+    const Combat::HitInfo hit = DescribeHit(attackerId);
+    if (auto note = g_hitNotes.Record(hit, g_clock))
+      g_pendingNotes.push_back(std::move(*note));
+  }
+}
+
+// Only a killer the engine's own actor list still holds is read: Actor::killer (JG GameObjects.h, offset 0xC0) is a raw
+// pointer and is never dereferenced unless it is a live loaded reference. Whether the engine sets it for the player is
+// unverified (docs/combat.md).
+std::string LiveActorName(Actor *actor, PlayerCharacter *player) {
+  if (!actor || actor == static_cast<Actor *>(player))
+    return {};
+  std::string name;
+  WorldUtils::ForEachLoadedReference([&](TESObjectREFR *ref, TESObjectCELL *) {
+    if (ref == static_cast<TESObjectREFR *>(actor))
+      name = OptionalName(ref);
+  });
+  return name;
+}
+
+void TrackHealth(PlayerCharacter *player, float deltaTime) {
+  g_healthTrailTimer += deltaTime;
+  if (g_healthTrailTimer < kCombatSampleInterval)
+    return;
+  g_healthTrailTimer = 0.0f;
+  float current = 0.0f;
+  float maximum = 0.0f;
+  ReadHealth(player, current, maximum);
+  g_healthPrevious = g_healthCurrent;
+  g_healthCurrent = std::clamp(current / maximum, 0.0f, 1.0f);
+}
+
+// One non-silent message the first frame the player is dead: the fact, what killed her and a short lesson. The game
+// reloads a save afterwards, which resets this state; it is only marked reported once the message went out.
+void ReportDeath(PlayerCharacter *player) {
+  if (!player->GetDead()) {
+    g_deathReported = false;
+    return;
+  }
+  if (g_deathReported)
+    return;
+  Combat::DeathInput input;
+  input.killerName = LiveActorName(static_cast<Actor *>(player)->killer, player);
+  input.lastHit = g_hitNotes.Last();
+  input.now = g_clock;
+  input.radiation = player->avOwner.GetActorValueF(eActorVal_RadLevel);
+  input.healthFractionBefore = std::max(g_healthPrevious, g_healthCurrent);
+  input.healthFractionAtFightStart = g_fightStartHealth;
+  input.inCombat = g_inCombat;
+  if (g_engagement.IsActive())
+    input.activity = "attacking " + g_target.name;
+  else if (Walker::IsActive())
+    input.activity =
+        "walking to " + (Walker::GetDescription().empty() ? std::string("a destination") : Walker::GetDescription());
+  const std::string text = g_deathReporter.Describe(input);
+  _MESSAGE("Player died: %s", text.c_str());
+  if (NeuroSDK::SendContext(text.c_str(), false)) {
+    g_deathReported = true;
+    g_pendingNotes.clear(); // anything still queued is overtaken by the death report
+  }
+}
+
 void ProcessCombatContext(PlayerCharacter *player, float deltaTime) {
   const bool combat = IsInCombatNow(player);
   if (!g_inCombat) {
     g_combatTimer = combat ? g_combatTimer + deltaTime : 0.0f;
-    if (g_combatTimer >= kCombatEnterDelay)
+    if (g_combatTimer >= kCombatEnterDelay) {
       StartCombatContext(player);
-    return;
+      return;
+    }
+  } else {
+    g_combatTimer = combat ? 0.0f : g_combatTimer + deltaTime;
+    if (g_combatTimer >= kCombatExitDelay) {
+      EndCombatContext();
+      return;
+    }
   }
 
-  g_combatTimer = combat ? 0.0f : g_combatTimer + deltaTime;
-  if (g_combatTimer >= kCombatExitDelay) {
-    EndCombatContext();
-    return;
-  }
-
+  // Hits and banded health/radiation changes are reported inside and outside combat; a fall or a trap needs no fight.
   g_noteCooldown = std::max(0.0f, g_noteCooldown - deltaTime);
+  DrainHits();
   g_sampleTimer += deltaTime;
   if (g_sampleTimer >= kCombatSampleInterval) {
     g_sampleTimer = 0.0f;
-    for (auto &note : g_reporter.Update(SamplePlayer(player)))
+    for (auto &note : g_reporter.Update(SamplePlayer(player), g_inCombat))
       g_pendingNotes.push_back(std::move(note));
   }
-  g_combatantTimer += deltaTime;
-  if (g_combatantTimer >= kCombatantScanInterval) {
-    g_combatantTimer = 0.0f;
-    ObserveCombatants(player);
+  if (g_inCombat) {
+    g_combatantTimer += deltaTime;
+    if (g_combatantTimer >= kCombatantScanInterval) {
+      g_combatantTimer = 0.0f;
+      ObserveCombatants(player);
+    }
   }
   FlushNotes(false);
 }
@@ -646,8 +773,12 @@ void Process(bool gameplayBlocked) {
     g_worldActions.Register();
 
   const float deltaTime = FrameTime();
+  g_clock += deltaTime;
+  TrackHealth(player, deltaTime);
   ProcessEngagement(player, deltaTime, gameplayBlocked);
-  if (!gameplayBlocked)
+  // Death is reported whatever menu is up: the game shows its own screens before it reloads a save.
+  ReportDeath(player);
+  if (!gameplayBlocked && !player->GetDead())
     ProcessCombatContext(player, deltaTime);
 }
 
@@ -669,6 +800,30 @@ void Reset() {
   g_reporter.Reset();
   g_pendingNotes.clear();
   g_combatants.clear();
+  g_hitNotes.Reset();
+  {
+    std::lock_guard lock(g_hitQueueMutex);
+    g_pendingHits.clear();
+  }
+  g_fightStartHealth = -1.0f;
+  g_healthTrailTimer = 0.0f;
+  g_healthPrevious = 1.0f;
+  g_healthCurrent = 1.0f;
+  g_deathReported = false;
+}
+
+void InstallHitEvent() {
+  if (g_hitEventInstalled)
+    return;
+  if (!g_eventInterface || !g_eventInterface->SetNativeEventHandler) {
+    _WARNING("The xNVSE event manager is unavailable; hits on the player cannot be attributed.");
+    return;
+  }
+  g_hitEventInstalled = g_eventInterface->SetNativeEventHandler("OnHit", OnHitEvent);
+  if (g_hitEventInstalled)
+    _MESSAGE("Listening for OnHit events to attribute damage to the player");
+  else
+    _WARNING("Could not register the OnHit event handler; hits on the player cannot be attributed.");
 }
 
 bool IsEngaged() { return g_engagement.IsActive(); }

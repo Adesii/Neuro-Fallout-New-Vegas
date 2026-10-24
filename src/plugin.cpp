@@ -1,3 +1,4 @@
+#include "CombatHandler.hpp"
 #include "GameplayHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
@@ -87,6 +88,7 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_RenameNewGameName:
     break;
   case NVSEMessagingInterface::kMessage_DeferredInit:
+    CombatHandler::InstallHitEvent();
     break;
   case NVSEMessagingInterface::kMessage_ClearScriptDataCache:
     break;

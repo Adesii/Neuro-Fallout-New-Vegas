@@ -1,6 +1,6 @@
 # 29 - Damage, death and combat-start messages
 
-Status: open
+Status: to verify
 Area: Context / Combat (`CombatHandler.cpp`, `src/Combat/CombatLogic.*`)
 Source: `docs/code-review.md` A7.3, A7.7, B9 (FlushNotes), B10
 
@@ -54,6 +54,22 @@ Source: `docs/code-review.md` A7.3, A7.7, B9 (FlushNotes), B10
   deterministic enough to test (seeded RNG in the engine-free module, roast about 1 in 4 deaths, never about
   something she could not have known).
 - Hit notes: **batch** them with the existing combat update (3 s), do not send separately.
+
+## Result (2026-10-24)
+Built (details and checklist in `docs/combat.md`, "Damage and death"):
+- `src/Combat/DamageLogic.*` (new, engine-free, `tests/DamageTests.cpp`): `HitNotes` (one note per attacker per 10 s, every
+  hit remembered) and `DeathReporter` (fact -> cause -> lesson, roast about 1 in 4 from a seeded generator, only for
+  causes she had information about). `CombatReporter::Update` takes `inCombat`: outside combat only health and radiation.
+- `CombatHandler`: an `OnHit` native event handler (victim == player) queues attacker ids; the frame loop turns them into
+  hit notes batched in the 3 s update, and health/radiation bands are also reported outside combat as "Status update".
+  Death is detected the first frame the player is dead, whatever menu is open, and sends one non-silent message.
+- Combat start lost its usage paragraph (hostile ids and the status stay). `FlushNotes` already cleared only after a
+  successful send (done in todo 30); combat start no longer drops notes queued before it.
+- Cause templates and lessons are drafts for the designer (see `DamageLogic.cpp`); the lesson tone follows the
+  designer's answer (mostly neutral, roast 1 in 4).
+
+Unverified (all in game): that `OnHit` fires for the player with `{victim, attacker}`, that `Actor::killer` is set on death,
+the death-message order against the save reload, the lethal radiation threshold. Compile and host tests only.
 
 ## Done when
 Dying, falling, standing in radiation and being shot outside a recognised combat all produce one clear message each,

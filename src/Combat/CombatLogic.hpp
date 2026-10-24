@@ -126,12 +126,14 @@ struct PlayerSnapshot {
 };
 
 // Compares successive snapshots and returns short sentences for meaningful changes only: health crossing a band,
-// a radiation stage, a weapon change, an empty magazine or empty inventory. Never streams small changes.
+// a radiation stage, a weapon change, an empty magazine or empty inventory. Never streams small changes. Outside combat
+// only health and radiation are reported (falls, radiation ticks, traps); weapon and ammo changes are tracked silently
+// so entering a fight does not announce stale ones.
 class CombatReporter {
 public:
   void Reset();
   void Seed(const PlayerSnapshot &snapshot);
-  std::vector<std::string> Update(const PlayerSnapshot &snapshot);
+  std::vector<std::string> Update(const PlayerSnapshot &snapshot, bool inCombat = true);
 
 private:
   bool m_seeded = false;

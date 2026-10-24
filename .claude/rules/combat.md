@@ -12,6 +12,8 @@ paths:
 
 # Combat and VATS scope
 
+- `src/Combat/DamageLogic.*` (hit notes, death report; `tests/DamageTests.cpp`) is the engine-free half of damage and
+  death reporting; `CombatHandler.cpp` feeds it the OnHit queue and engine reads. Notes are only cleared after a send.
 - `src/Combat/CombatLogic.*` is engine-free (classification, the `Engagement` state machine, `CombatReporter`, argument
   parsing) and is covered by `tests/CombatTests.cpp`. Put new decision logic there and add a test; keep game memory
   reads in `src/CombatHandler.cpp`, which only feeds observations in and applies outputs.

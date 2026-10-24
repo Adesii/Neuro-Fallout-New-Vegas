@@ -20,6 +20,8 @@ struct TargetSelection {
 
 void Process(bool gameplayBlocked);
 void Reset();
+// Registers the OnHit listener that attributes damage to the player. Once xNVSE's events exist (DeferredInit).
+void InstallHitEvent();
 bool IsEngaged();
 // True from the combat-start context message to the combat-end one (the game's "in combat" state, debounced).
 bool IsInCombat();
