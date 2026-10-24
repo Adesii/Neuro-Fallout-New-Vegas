@@ -12,6 +12,10 @@ generic non-silent poke, which also fires during idle gameplay). This todo is on
 while the game is busy or blocked. Do not merge the two; make sure a status reminder counts as activity for the poke
 timer so they never stack.
 
+Update (2026-10-24): the poke from todo 24 is in (`Context::IdlePoker`). A non-silent status reminder only has to be sent through
+`NeuroSDK::SendContext`: that already calls `IdlePoker::NotifyPrompted()`, so a reminder counts as activity and the two never
+stack. The poker treats a busy game (menus, Walker, combat, forces) as "not idle" on its own.
+
 ## Goal
 A status reminder sent every ~5-10 s while the game is busy or blocked, describing where she is and what she is doing
 (current menu/phase, active Walker command, combat engagement, dialogue speaker, waiting for ...).

@@ -1,6 +1,6 @@
 # 38 - Engine-free extraction and missing host tests
 
-Status: open
+Status: to verify
 Area: `tests/`, `src/Movement/`, `src/Inventory/`
 Source: `docs/code-review.md` E1-E5
 
@@ -19,6 +19,25 @@ feature todos; this file tracks what is left over and keeps the tests honest.
 5. Tests are listed by hand in `tests/CMakeLists.txt:14-33`; nothing warns about a forgotten new engine-free source.
    Add a small check (CMake glob warning or a script in `tools/test.sh`).
 6. `JsonSchema::AppendNumber` nan/inf (a test first, then fix).
+
+## Result (2026-10-24)
+1. Walker maths: done with todo 25 (`WalkerLogic`).
+2. Untested logic now covered: `PulseQueue` and the angle wrap/height maths (already had tests from 32/27), the id
+   builders (`tests/IdListTests.cpp`), `RetryPendingResults` re-entrancy and destroying a bound `ActionWindow` (todo 33's tests),
+   `ActionData::GetInteger` edge cases (`-0`, `1.0`, `1e2`, duplicate keys, the int limits; new tests in
+   `tests/ActionDataTests.cpp`, which also pin `ReadInteger`'s failure reasons and `ParsePositiveId`). Leading zeros are
+   rejected by the JSON parser before `GetInteger` sees them, so there is nothing to test there.
+3. `FormatItemPage`, the paging maths and `QueryTypesHelp` moved from `MenuItems.cpp` into `ItemQuery.cpp` and are tested
+   (`tests/InventoryTests.cpp`); `ItemListing`'s slot rule is tested too.
+4. Fake transport: signatures were already one shared list (`NeuroSDKTransport.inc`) and the preconditions one shared header
+   (`TransportRules.hpp`); the fake now also refuses a blank/`[]`/null context message and sends nothing while
+   `State().connected` is false, as the real one does (two tests).
+5. `tests/CMakeLists.txt` fails configuration for a `tests/*Tests.cpp` that is not listed and warns about an engine-free
+   source (`src/Combat`, `src/Context`, `src/Movement`) that is not compiled; `tools/test.sh` prints that warning instead of
+   swallowing it. Checked with a throwaway file of each kind.
+6. `JsonSchema::AppendNumber` nan/inf: test first, then the fix (todo 36).
+
+Host tests only; nothing here touches the engine.
 
 ## Done when
 `bash tools/test.sh` covers the listed logic and fails when a precondition of the real transport is violated in the fake.

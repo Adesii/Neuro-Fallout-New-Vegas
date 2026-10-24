@@ -46,7 +46,7 @@ information. One action force at a time (`ActionWindow.cpp`): a poke is never se
   connect (first connection included), after `PostLoadGame` / `NewGame` (`plugin.cpp` calls `RequestGreeting`) and every
   10 minutes (`GreetingTimer`). It waits until a game is loaded. After a reconnect the status message
   (`GameplayHandler::BuildFreshStatus`) leads with it and the separate greeting is skipped, so the two never arrive
-  back to back. The location line joins it with todo 28.
+  back to back. The current place (todo 28) is part of the greeting.
 - `ResetAutomation` (preload, new game, exit to menu, disconnect) resets the poker.
 
 ## Unverified assumptions

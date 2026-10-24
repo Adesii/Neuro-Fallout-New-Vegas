@@ -1,6 +1,6 @@
 # 36 - Cross-module duplication and hygiene (mechanical)
 
-Status: open
+Status: to verify
 Area: whole `src/`
 Source: `docs/code-review.md` C1, C4, C9-C16, D
 
@@ -53,6 +53,46 @@ Low risk, one commit per bullet. Do after the bug and feature todos (24-35); not
   `menu` parameter, `:394` allocates in `ReadListing()` every waiting frame, `:211` `Notify` wrapper used once.
 - `Walker::UpdateMovement` releases and re-holds the same keys every frame (`WalkerHandler.cpp:426-448`); only change
   keys on transitions, if the hook is verified to tolerate it.
+
+## Result (2026-10-24)
+Done (commits "refactor: one frame clock...", "chore: trim plugin.cpp...", "chore(menus): name raw numbers..."):
+- FrameTime: `TimeUtils::FrameSeconds()` (`kMaxFrameSeconds`) replaces the five copies; `DelayedGuard` now clamps too.
+- `IsTopMenu`: Dialog/Traits/CharGen/Special call `UIUtils::IsTopMenu` (Special's version no longer answers true for a null
+  menu pointer, which no caller relied on).
+- Valid-ids builders: `Actions::FormatValidIds` (host-tested). The empty-list wording of the three messages is now uniform.
+- Revalidation lambda: `Actions::Revalidator` replaced 21 copies (13 in Gameplay/Combat and 8 in Menu actions).
+- Game-ready probe: `GameplayHandler::IsReady()` in Combat and Stance.
+- Single-id parsing: `ActionData::ParsePositiveId`/`GetPositiveInteger` (select_quest, the object actions, attack,
+  open_vats); `ActionData` extracted `FindElement` and `ReadInteger` tells wrong type from out of range.
+- Definition storage: the five parameterless actions that held a member now use a file-scope const; the ones that depend on
+  constructor arguments keep a member (rule in the skill).
+- Geometry: `Math::GetDistance2D` is one header template used by Walker for all three inline 2D lengths (CombatHandler no
+  longer has an inline 3D length); `Math::PI` is `constexpr`, still a double.
+- Constants: `Menus/Pacing.hpp` (step, selection, register-retry, close timeout, one `Clock`).
+- `PersistentActionSet::Sync`/`Empty` replace the built flag and the register/unregister tail in six handlers.
+- Hygiene: `plugin.cpp` switch trimmed; the DirectInput hook names its thunk address (cites 1.4.0.525), lost the unread
+  `FramerateTracker` and an unused local (the duplicate `<deque>` include was in `InputCore.hpp` and the hook, now only
+  there); `MenuSingletons.hpp` holds the Dialog/Traits singleton addresses with provenance; `UIUtils::GetControl` uses a
+  `std::string` copy (no more `strcpy_s` into 256 bytes); the five context messages that were plain text are Markdown;
+  `JsonSchema` drops non-finite bounds and prints `null` for a non-finite number (tests first); the small items
+  (`MenuItems` paging moved to `ItemQuery` with tests, `ItemListing` slot rule, overwritten `clickAt`, `std::optional`
+  execution state, named inventory categories and the container filter, SPECIAL limits in `SpecialLimits.hpp`, popup table
+  stored lowercase, once-per-frame `CurrentTab`, once-computed `canSelect`/`canFinish`).
+
+Not done, and why:
+- `char componentPath[]` in `TextEditHandler`/`CharacterEditorHandler`: the todo's premise is wrong. `Tile::GetComponent`
+  writes NULs into the path while walking it (JG `GameTiles.cpp`), so a writable copy is required; both sites now say so.
+- `ItemQuery.cpp:150` `page < 0`: no longer exists there; the check in `MenuItems.cpp` went away with the move (a negative
+  page wraps and is still refused).
+- `VatsHandler`: `Notify` is used four times (not once) and `ReadListing()` allocates nothing while the list is empty,
+  so neither changed.
+- `Walker::UpdateMovement` keeping keys held across frames: only "if the hook is verified to tolerate it"; it is not.
+- `ShouldIgnoreKey`'s unused parameter (the call passes a key index, the function ignores every key by design).
+
+Manual in-game checks (regressions, nothing should look different): `query_quests` / `query_nearby` / `query_enemies`
+with a stale id (the correction text lists valid ids); every menu handler still opens, selects and finishes (SPECIAL,
+traits, tag skills, a dialogue line, a popup, container loot, Pip-Boy inventory, close_container); mouse and keyboard still
+work with the DirectInput hook (no stuck keys).
 
 ## Done when
 `just debug` and `bash tools/test.sh` still pass, no behaviour changed, and the duplicated names above exist once.

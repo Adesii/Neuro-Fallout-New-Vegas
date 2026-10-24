@@ -357,6 +357,20 @@ reduce attributes while traversing pages 1..7
 Do not infer menu-open state from the singleton pointer. The singleton remains allocated after exit and previously
 caused permanent Walker lockout.
 
+## Shared Action Helpers
+
+- `Actions::Revalidator([captures](std::string &error) { return StillValid(error); })` builds the revalidation callback
+  (`check(error)` returns true while valid); do not hand-write the optional-string lambda.
+- `ActionData::ParsePositiveId(data, "id", id, error)` parses the single-id payload of the query-driven actions;
+  `GetPositiveInteger` is the member for one field of a larger payload, `ReadInteger` says why an integer failed.
+- `Actions::FormatValidIds(noun, ids, refreshAction)` builds the stale-id correction message.
+- A concrete action keeps its `Definition` as a file-scope `const` in its `.cpp`; it is a member only when it depends on
+  constructor arguments (`TargetObjectAction`, `CloseMenuAction`, the select-by-index menu actions).
+- `PersistentActionSet::Sync(wanted)` is the per-frame register/unregister tail; the set is built lazily when `Empty()`.
+- Shared menu pacing constants (`kStepDelay`, `kSelectionDelay`, `kRegisterRetryDelay`, `kCloseTimeout`) live in
+  `src/Menus/Pacing.hpp`; the frame clock is `TimeUtils::FrameSeconds()`; a native exit click is
+  `Menus::AdvanceNativeClose` (`src/Menus/NativeExit.*`).
+
 ## Adding a New Action
 
 Use one `.hpp/.cpp` module per concrete action under a clear category:
