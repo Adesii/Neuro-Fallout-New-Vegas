@@ -59,6 +59,29 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/utils/PulseQueue.cpp"
 )
 
+# Forgetting to list something must not go unnoticed. A test file that is not compiled is an error (it would silently
+# never run); an engine-free source (the directories below hold only logic that builds on the host) that is not
+# compiled here is a warning, which tools/test.sh prints.
+get_target_property(listed_sources neuro_fnv_tests SOURCES)
+file(GLOB found_test_files "${CMAKE_CURRENT_SOURCE_DIR}/*Tests.cpp")
+foreach(test_file IN LISTS found_test_files)
+    list(FIND listed_sources "${test_file}" listed_index)
+    get_filename_component(test_name "${test_file}" NAME)
+    list(FIND listed_sources "${test_name}" listed_by_name)
+    if(listed_index EQUAL -1 AND listed_by_name EQUAL -1)
+        message(FATAL_ERROR "tests/${test_name} is not listed in tests/CMakeLists.txt, so it would never run.")
+    endif()
+endforeach()
+file(GLOB engine_free_sources
+    "${REPO}/src/Combat/*.cpp" "${REPO}/src/Context/*.cpp" "${REPO}/src/Movement/*.cpp")
+foreach(source_file IN LISTS engine_free_sources)
+    list(FIND listed_sources "${source_file}" listed_index)
+    if(listed_index EQUAL -1)
+        get_filename_component(source_name "${source_file}" NAME)
+        message(WARNING "${source_name} is in an engine-free directory but not in the host tests (tests/CMakeLists.txt).")
+    endif()
+endforeach()
+
 # The stubs directory must come first: it shadows src/NeuroSDK.hpp and the game's Utils/DebugLog.hpp.
 target_include_directories(neuro_fnv_tests BEFORE PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"

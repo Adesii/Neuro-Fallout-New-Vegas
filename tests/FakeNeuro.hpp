@@ -15,6 +15,8 @@ struct Neuro {
   bool failUnregister = false;
   bool failForce = false;
   bool failResult = false;
+  // False behaves like the real transport without a connection: every send returns false and nothing is recorded.
+  bool connected = true;
 
   void Reset() { *this = Neuro{}; }
   size_t Count(const std::string &entry) const;

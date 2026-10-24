@@ -1,6 +1,7 @@
 #include "FakeNeuro.hpp"
 #include "Actions/ActionRegistry.hpp"
 #include "Actions/TransportRules.hpp"
+#include "Context/ContextGate.hpp"
 #include "NeuroSDK.hpp"
 #include <algorithm>
 
@@ -51,12 +52,16 @@ void ResetWorld() {
 } // namespace Fake
 
 bool NeuroSDK::SendContext(const char *message, bool silent) {
+  // The real transport refuses a null, empty or blank message (and "[]") and sends nothing while disconnected.
+  if (!Fake::State().connected || !message ||
+      Context::ContextGate().Check(message, silent) == Context::ContextGate::Verdict::Empty)
+    return false;
   Fake::Log(std::string("context:") + (silent ? "silent:" : "") + message);
   return true;
 }
 
 bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitions) {
-  if (Fake::State().failRegister || !Actions::Transport::CanRegister(definitions))
+  if (!Fake::State().connected || Fake::State().failRegister || !Actions::Transport::CanRegister(definitions))
     return false;
   std::vector<std::string> names;
   for (const auto &definition : definitions)
@@ -68,7 +73,7 @@ bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitio
 bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
   if (Actions::Transport::IsNoopUnregister(names))
     return true;
-  if (Fake::State().failUnregister)
+  if (!Fake::State().connected || Fake::State().failUnregister)
     return false;
   Fake::Log("unregister:" + Join(names));
   return true;
@@ -76,14 +81,14 @@ bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
 
 bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &query, const std::string &,
                             ActionPriority, bool) {
-  if (Fake::State().failForce || !Actions::Transport::CanForce(names, query))
+  if (!Fake::State().connected || Fake::State().failForce || !Actions::Transport::CanForce(names, query))
     return false;
   Fake::Log("force:" + Join(names));
   return true;
 }
 
 bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::string &message) {
-  if (Fake::State().failResult || !Actions::Transport::CanSendResult(id))
+  if (!Fake::State().connected || Fake::State().failResult || !Actions::Transport::CanSendResult(id))
     return false;
   Fake::Log("result:" + id + ":" + (success ? "true" : "false") + ":" + message);
   return true;

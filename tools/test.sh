@@ -16,5 +16,9 @@ quiet() {
 }
 
 quiet cmake -S "$ROOT_DIR/tests" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug
+# A source in an engine-free directory that the host tests do not compile is only a warning, but never a silent one.
+if grep -A2 "CMake Warning" "$log" >&2; then
+  echo "WARNING: add the source above to tests/CMakeLists.txt, or move it out of an engine-free directory." >&2
+fi
 quiet cmake --build "$build_dir"
 "$build_dir/neuro_fnv_tests" "$@"

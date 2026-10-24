@@ -348,5 +348,25 @@ TEST("transport: the fake enforces the real preconditions") {
   CHECK(!NeuroSDK::ForceActions({"one"}, "", "", NeuroSDK::ActionPriority::Low));
   CHECK(!NeuroSDK::ForceActions({""}, "query", "", NeuroSDK::ActionPriority::Low));
   CHECK(NeuroSDK::UnregisterActions({}));
+  CHECK(!NeuroSDK::SendContext("", false));
+  CHECK(!NeuroSDK::SendContext("   \n", true));
+  CHECK(!NeuroSDK::SendContext("[]", true));
+  CHECK(!NeuroSDK::SendContext(nullptr, true));
   CHECK(State().log.empty()); // nothing reached the wire
+}
+
+TEST("transport: the fake sends nothing while disconnected, like the real one") {
+  Fake::ResetWorld();
+  State().connected = false;
+  Actions::Definition definition;
+  definition.name = "ok";
+  CHECK(!NeuroSDK::SendContext("hello", false));
+  CHECK(!NeuroSDK::RegisterActions({definition}));
+  CHECK(!NeuroSDK::UnregisterActions({"ok"}));
+  CHECK(!NeuroSDK::ForceActions({"ok"}, "query", "", NeuroSDK::ActionPriority::Low));
+  CHECK(!NeuroSDK::SendActionResult("id", true, ""));
+  CHECK(NeuroSDK::UnregisterActions({})); // nothing to send is not a failure
+  CHECK(State().log.empty());
+  State().connected = true;
+  CHECK(NeuroSDK::SendContext("hello", false));
 }
