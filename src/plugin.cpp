@@ -4,6 +4,7 @@
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
 #include "hooks/Hooks_DirectInput8Create.h"
+#include "hooks/Hooks_FocusLoss.h"
 #include "nvse/GameObjects.h"
 #include <neurosdk.h>
 #include <nvse/PluginAPI.h>
@@ -60,6 +61,9 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     break;
   case NVSEMessagingInterface::kMessage_DeferredInit:
     CombatHandler::InstallHitEvent();
+#if RUNTIME
+    Hook_FocusLoss_Init();
+#endif
     break;
   case NVSEMessagingInterface::kMessage_MainGameLoop:
     if (g_neuroSDK)

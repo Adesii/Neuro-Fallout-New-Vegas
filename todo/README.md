@@ -36,7 +36,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 20 | [Companion wheel](20-companion-wheel.md) | Menus |
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
-| 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
 | 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) (done except in-game measurements) | Aim / Combat |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) (3, 4, 6 done; 1, 2, 5 left on purpose) | Cleanup |
 | 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) | Context / Menus |
@@ -49,6 +48,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | - | ---- | ---- |
 | 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
 | 07 | [query_nearby top 20 with priority](to_verify/07-query-nearby-priority.md) (tier values are a proposal) | Gameplay actions |
+| 23 | [Keep the game running and unpaused when the window is unfocused](to_verify/23-background-focus.md) (patches the window procedure's pause on focus loss; needs `bAlwaysActive=1`) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](to_verify/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](to_verify/26-walker-interaction-and-feedback.md) | Walker / Context |
