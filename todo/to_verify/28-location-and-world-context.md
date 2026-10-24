@@ -1,6 +1,6 @@
 # 28 - Location notices and throttled "you see" push
 
-Status: in progress (location line done and committed; the throttled "you see" push is still open)
+Status: to verify
 Area: Context (new module, fed by engine reads)
 Source: `docs/code-review.md` A7.1, A7.5
 
@@ -47,6 +47,20 @@ Source: `docs/code-review.md` A7.1, A7.5
   (cities, villages, major landmarks, camps?). Decide after the research step shows what data exists.
 
 Distances in any text here follow `39-distances-in-metres.md`.
+
+## Result (2026-10-24)
+Built (design note: `docs/design/location-and-see-push.md`):
+- Location: `src/Context/Location.*` (describer + tracker, `tests/LocationTests.cpp`), read by `GameplayHandler::ObservePlace`.
+  Cell name, else "near <nearest visible map marker within ~300 m>", else "in the wasteland". Non-silent "You are now ..." line
+  once a place stayed changed for 1.5 s; the greeting and the reconnect status carry the current place.
+- "You see": `src/Context/SeePush.*` (`tests/SeePushTests.cpp`) fed by `GameplayHandler::ObserveSurroundings`: quest targets,
+  containers and living actors within ~21 m, at most one summary per 20 s, 5 entries, each form id once per space, no ids,
+  non-silent only for quest targets. It reuses the scorer from todo 07/35 (`Objects::Tier`).
+- Map markers: base form 0x10 + `ExtraMapMarker` (JG `MapMarkerData.hpp`, JIP-LN-NVSE) with the Visible flag, from the grid
+  cells and the worldspace's persistent cell. All marker types count; the maximum distance is 300 m (21000 units).
+
+Unverified (in game): where the markers live, that Visible means discovered, how wilderness cell names look, every threshold.
+Manual checks: the checklist in the design note.
 
 ## Done when
 Walking through a door and loading a save both produce one correct location line; the push stays quiet in idle

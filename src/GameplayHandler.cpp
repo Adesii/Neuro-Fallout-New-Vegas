@@ -1,4 +1,5 @@
 #include "GameplayHandler.hpp"
+#include "Actions/ActionWindow.hpp"
 #include "Actions/Gameplay/DoCurrentQuestAction.hpp"
 #include "Actions/Gameplay/ExploreAction.hpp"
 #include "Actions/Gameplay/QueryNearbyAction.hpp"
@@ -13,6 +14,7 @@
 #include "Context/Greeting.hpp"
 #include "Context/Location.hpp"
 #include "Context/ObjectPriority.hpp"
+#include "Context/SeePush.hpp"
 #include "GameData.h"
 #include "GameExtraData.h"
 #include "GameObjects.h"
@@ -49,6 +51,9 @@ constexpr size_t kRecentExplorationLimit = 8;
 constexpr float kQuestResolveTimeout = 10.0f;
 constexpr auto kQuestObservationInterval = std::chrono::milliseconds(500);
 constexpr auto kPlaceObservationInterval = std::chrono::milliseconds(500);
+constexpr auto kSeeObservationInterval = std::chrono::seconds(2);
+// "Entering range" for the unprompted "you see" summary: about 21 meters, closer than query_nearby reaches.
+constexpr float kSeeRadius = 1500.0f;
 
 // TESQuest::flags bits and the BGSQuestObjective::status display mask.
 constexpr uint8_t kQuestFlagCompleted = 0x02;
@@ -103,6 +108,10 @@ std::chrono::steady_clock::time_point g_nextQuestObservation{};
 std::unordered_map<uint64_t, ObjectiveObservation> g_objectiveObservations;
 std::unordered_map<uint32_t, uint8_t> g_questFlags;
 Location::PlaceTracker g_place;
+Context::SeePush g_see;
+uint32_t g_seeSpace = 0;
+std::chrono::steady_clock::time_point g_nextSeeObservation{};
+std::chrono::steady_clock::time_point g_lastSeeObservation{};
 std::chrono::steady_clock::time_point g_nextPlaceObservation{};
 std::chrono::steady_clock::time_point g_lastPlaceObservation{};
 
@@ -341,14 +350,15 @@ std::vector<ObjectEntry> ScanObjects(float radius, const std::unordered_set<uint
   WorldUtils::ForEachLoadedReference([&](TESObjectREFR *ref, TESObjectCELL *cell) {
     if (ref == player)
       return;
-    const char *name = ref->GetFullName();
-    if (!name || !name[0])
-      return;
+    // Cheap checks first: this walks every loaded reference and naming one is a call into the engine.
     const Objects::Classification classification = WorldUtils::ClassifyObject(ref);
     if (classification.category == Objects::Category::None || !classification.interactable)
       return;
     const float distance = Distance3D(player->GetPos(), ref->GetPos());
     if (!std::isfinite(distance) || distance > radius)
+      return;
+    const char *name = ref->GetFullName();
+    if (!name || !name[0])
       return;
     objects.push_back({{ref->GetFormID(), cell->GetFormID(), name},
                        0,
@@ -620,6 +630,42 @@ void ObservePlace() {
   }
 }
 
+// The unprompted "you see" summary (todo 28). Quiet while a menu is up (the caller), during a fight, while a force is
+// outstanding or the Pip-Boy is being driven; the memory of what was seen follows the space (interior cell or
+// worldspace), so a door or a load starts it over.
+void ObserveSurroundings() {
+  const auto now = std::chrono::steady_clock::now();
+  if (now < g_nextSeeObservation)
+    return;
+  g_nextSeeObservation = now + kSeeObservationInterval;
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *cell = player ? player->GetParentCell() : nullptr;
+  if (!cell || player->GetDead() || CombatHandler::IsInCombat() || CombatHandler::IsEngaged() ||
+      Actions::ActionWindow::ForceOutstanding() || Menus::PipBoyHandler::IsExecuting())
+    return;
+  const float elapsed = g_lastSeeObservation.time_since_epoch().count() == 0
+                            ? 0.0f
+                            : std::min(std::chrono::duration<float>(now - g_lastSeeObservation).count(), 5.0f);
+  g_lastSeeObservation = now;
+
+  auto *worldSpace = cell->GetWorldSpace();
+  const uint32_t space = cell->IsInterior() || !worldSpace ? cell->GetFormID() : worldSpace->GetFormID();
+  if (space != g_seeSpace) {
+    g_seeSpace = space;
+    g_see.Reset();
+  }
+
+  std::vector<Context::SeenObject> inRange;
+  for (const auto &entry : ScanObjects(kSeeRadius, CollectQuestTargetIds())) {
+    if (Context::IsNotable(entry.category, entry.questTarget))
+      inRange.push_back({entry.referenceFormId, entry.category, entry.name, entry.distance, entry.questTarget});
+  }
+  if (auto message = g_see.Update(inRange, elapsed)) {
+    _DMESSAGE("You-see push (%s)", message->silent ? "silent" : "quest target");
+    NeuroSDK::SendContext(message->text.c_str(), message->silent);
+  }
+}
+
 void ContinueCurrentQuest() {
   if (!g_currentQuestRoute)
     return;
@@ -687,6 +733,7 @@ void Process(bool gameplayBlocked) {
   if (gameplayBlocked)
     return;
   ObservePlace();
+  ObserveSurroundings();
   // Quest state is compared against the previous snapshot, so a sparse sample loses no transitions.
   const auto now = std::chrono::steady_clock::now();
   if (now >= g_nextQuestObservation) {
@@ -740,6 +787,10 @@ void Reset() {
   g_place.Reset();
   g_nextPlaceObservation = {};
   g_lastPlaceObservation = {};
+  g_see.ResetAll();
+  g_seeSpace = 0;
+  g_nextSeeObservation = {};
+  g_lastSeeObservation = {};
 }
 
 std::string BuildGreeting() {
