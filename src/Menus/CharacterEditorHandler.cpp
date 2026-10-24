@@ -21,6 +21,7 @@ bool Process() {
     return false;
   }
 
+  // A writable copy: Tile::GetComponent splits the path in place, so a string literal would be modified.
   char componentPath[] = "NOGLOW_BRANCH/RSM_Background/RSM_next_button";
   auto *nextButton = menu->tile->GetComponentTile(componentPath);
   if (UIUtils::IsControlAvailable(nextButton) && g_advanceDelay.Ready(menu, nextButton->name.c_str(), kAdvanceDelay) &&

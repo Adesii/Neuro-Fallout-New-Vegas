@@ -1,6 +1,7 @@
 #include "UIUtils.hpp"
 #include "GameTiles.h"
 #include "GameUI.h"
+#include <string>
 
 namespace UIUtils {
 
@@ -42,9 +43,10 @@ bool ClickTile(Menu *menu, Tile *tile) {
 Tile *GetControl(Menu *menu, const char *name) {
   if (!menu || !menu->tile)
     return nullptr;
-  char path[256] = {};
-  strcpy_s(path, name);
-  return menu->tile->GetComponentTile(path);
+  // Tile::GetComponent writes NULs into the path while it walks it (JG GameTiles.cpp), so it needs a writable copy of
+  // any length: a fixed buffer overflowed (and hit the CRT's invalid-parameter handler) on a long name.
+  std::string path(name);
+  return menu->tile->GetComponentTile(path.data());
 }
 
 bool ClickControl(Menu *menu, const char *name) { return UIUtils::ClickTile(menu, GetControl(menu, name)); }

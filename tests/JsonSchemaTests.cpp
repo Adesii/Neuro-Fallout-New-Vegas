@@ -1,5 +1,6 @@
 #include "Actions/Json/JsonSchema.hpp"
 #include "TestFramework.hpp"
+#include <limits>
 
 using Actions::Json::JsonSchema;
 using Actions::Json::JsonSchemaType;
@@ -79,4 +80,25 @@ TEST("schema: string constraints and const") {
   schema.MinLength(1).MaxLength(8).Format("date").Const(std::string("fixed"));
   CHECK_EQ(schema.Serialize(),
            std::string(R"({"type":"string","const":"fixed","minLength":1,"maxLength":8,"format":"date"})"));
+}
+
+TEST("schema: a non-finite bound is dropped instead of printing nan or inf") {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double inf = std::numeric_limits<double>::infinity();
+  auto number = JsonSchema::Integer();
+  number.Minimum(nan).Maximum(inf).ExclusiveMinimum(-inf).ExclusiveMaximum(nan);
+  const std::string text = number.Serialize();
+  CHECK(text.find("nan") == std::string::npos && text.find("inf") == std::string::npos);
+  CHECK_EQ(text, std::string(R"({"type":"integer"})"));
+
+  auto fine = JsonSchema::Integer();
+  fine.Minimum(1).Maximum(2.5);
+  CHECK_EQ(fine.Serialize(), std::string(R"({"type":"integer","minimum":1,"maximum":2.5})"));
+}
+
+TEST("schema: a non-finite const or enum number never produces invalid JSON") {
+  auto schema = JsonSchema::Number();
+  schema.Const(std::numeric_limits<double>::quiet_NaN());
+  const std::string text = schema.Serialize();
+  CHECK(text.find("nan") == std::string::npos && text.find("inf") == std::string::npos);
 }

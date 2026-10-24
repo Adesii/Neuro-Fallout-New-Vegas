@@ -43,6 +43,7 @@ bool Process() {
     return false;
   }
 
+  // A writable copy: Tile::GetComponent splits the path in place, so a string literal would be modified.
   char componentPath[] = "TEM_MainRect/textedit_prompt/string";
   auto *promptValue = menu->tile->GetComponentValue(componentPath);
   const std::string prompt = promptValue && promptValue->str ? promptValue->str : "Text input requested.";

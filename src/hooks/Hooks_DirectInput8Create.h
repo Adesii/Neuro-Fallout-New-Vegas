@@ -76,24 +76,3 @@ private:
   BufferedQueue *BufferedFor(UINT32 deviceType);
   void QueueBuffered(UINT32 deviceType, UINT32 key, bool press, bool release);
 };
-
-class FramerateTracker {
-public:
-  FramerateTracker();
-
-  void Update(void);
-
-private:
-  enum { kFrameTimeHistoryLength = 32 };
-
-  UINT32 m_lastTime;
-  float m_lastFrameLength; // frametime in seconds
-
-  float m_frameTimeHistory[kFrameTimeHistoryLength]; // last kFrameTimeHistoryLength frametimes
-  UINT32 m_frameTimeHistoryIdx;                      // slot that will be filled on the next update call
-  bool m_frameTimeHistoryPrimed;                     // true after history buffer is full
-
-  float m_averageFrameTime; // average of m_frameTimeHistory
-};
-
-extern FramerateTracker g_framerateTracker;

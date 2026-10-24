@@ -1,7 +1,6 @@
 #include "Hooks_DirectInput8Create.h"
 #include "SafeWrite/SafeWrite.hpp"
 #include <algorithm>
-#include <deque>
 
 static const GUID GUID_SysMouse = {0x6F1D2B60, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
 static const GUID GUID_SysKeyboard = {0x6F1D2B61, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
@@ -9,7 +8,6 @@ static const GUID GUID_SysKeyboard = {0x6F1D2B61, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0
 typedef HRESULT(_stdcall *CreateDInputProc)(HINSTANCE, DWORD, REFIID, LPVOID, LPUNKNOWN);
 
 DIHookControl g_diHookData;
-FramerateTracker g_framerateTracker;
 static CreateDInputProc DICreate_RealFunc;
 
 // Keys that must never be filtered or injected. Currently none: every key may be held, tapped or disabled.
@@ -88,8 +86,6 @@ public:
       // mouse
 
       ASSERT(outDataLen == sizeof(DIMOUSESTATE2));
-
-      g_framerateTracker.Update();
 
       DIMOUSESTATE2 *mouseState = (DIMOUSESTATE2 *)outData;
 
@@ -237,11 +233,13 @@ static HRESULT _stdcall Hook_DirectInput8Create_Execute(HINSTANCE instance, DWOR
   return DI_OK;
 }
 
-void Hook_DirectInput8Create_Init() {
-  UINT32 thunkAddress = 0x00FDF02C;
+// The import-table slot of DirectInput8Create in FalloutNV.exe 1.4.0.525. A fixed address is safe because
+// NVSEPlugin_Query refuses to load the plugin on any other runtime version.
+static constexpr UINT32 kDirectInput8CreateThunk = 0x00FDF02C;
 
-  DICreate_RealFunc = (CreateDInputProc) * (DWORD *)thunkAddress;
-  HookUtils::SafeWrite32(thunkAddress, (DWORD)Hook_DirectInput8Create_Execute);
+void Hook_DirectInput8Create_Init() {
+  DICreate_RealFunc = (CreateDInputProc) * (DWORD *)kDirectInput8CreateThunk;
+  HookUtils::SafeWrite32(kDirectInput8CreateThunk, (DWORD)Hook_DirectInput8Create_Execute);
 }
 
 DIHookControl::DIHookControl() = default;
@@ -257,7 +255,6 @@ bool DIHookControl::IsKeyPressed(UINT32 keycode, UINT32 flags) {
   InputCore::KeyState *info = &m_keys[keycode];
 
   bool result = false;
-  bool isMouseButton = keycode >= kMacro_MouseButtonOffset;
 
   // data sources
   if (flags & kFlag_GameState)
@@ -440,42 +437,4 @@ HRESULT DIHookControl::ProcessBufferedData(UINT32 deviceType, IDirectInputDevice
   *outDataLen = numRealEvents + numVirtualEvents;
 
   return hr;
-}
-
-// this code doesn't belong here
-FramerateTracker::FramerateTracker()
-    : m_lastTime(0), m_lastFrameLength(0), m_frameTimeHistoryIdx(0), m_frameTimeHistoryPrimed(false),
-      m_averageFrameTime(0) {
-  for (UINT32 i = 0; i < kFrameTimeHistoryLength; i++)
-    m_frameTimeHistory[i] = 0;
-}
-
-void FramerateTracker::Update(void) {
-  DWORD time = GetTickCount();
-
-  // calculate current frame time
-  m_lastFrameLength = (float)(time - m_lastTime) / 1000.0f;
-  m_lastTime = time;
-
-  // store in ring buffer
-  m_frameTimeHistory[m_frameTimeHistoryIdx % kFrameTimeHistoryLength] = m_lastFrameLength;
-  m_frameTimeHistoryIdx++;
-
-  // filled ring buffer? flag it
-  if (m_frameTimeHistoryIdx >= kFrameTimeHistoryLength)
-    m_frameTimeHistoryPrimed = true;
-
-  // history full?
-  if (m_frameTimeHistoryPrimed) {
-    // calculate and store the average
-    float total = 0;
-
-    for (UINT32 i = 0; i < kFrameTimeHistoryLength; i++)
-      total += m_frameTimeHistory[i];
-
-    m_averageFrameTime = total / static_cast<int>(kFrameTimeHistoryLength);
-  } else {
-    // report 0 frametime until primed
-    m_averageFrameTime = 0;
-  }
 }

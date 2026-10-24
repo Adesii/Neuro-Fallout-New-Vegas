@@ -1,5 +1,6 @@
 #include "JsonSchema.hpp"
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -71,6 +72,10 @@ void AppendString(std::string &output, const std::string &value) {
 }
 
 void AppendNumber(std::string &output, double value) {
+  if (!std::isfinite(value)) {
+    output += "null"; // nan and inf are not JSON
+    return;
+  }
   std::ostringstream stream;
   stream.imbue(std::locale::classic());
   stream << std::setprecision(15) << value;
@@ -176,22 +181,30 @@ JsonSchema &JsonSchema::Const(Value value) {
 }
 
 JsonSchema &JsonSchema::Minimum(double value) {
-  m_minimum = value;
+  // A bound that is not a finite number cannot be written as JSON, so it is not set.
+  if (std::isfinite(value))
+    m_minimum = value;
   return *this;
 }
 
 JsonSchema &JsonSchema::Maximum(double value) {
-  m_maximum = value;
+  // A bound that is not a finite number cannot be written as JSON, so it is not set.
+  if (std::isfinite(value))
+    m_maximum = value;
   return *this;
 }
 
 JsonSchema &JsonSchema::ExclusiveMinimum(double value) {
-  m_exclusiveMinimum = value;
+  // A bound that is not a finite number cannot be written as JSON, so it is not set.
+  if (std::isfinite(value))
+    m_exclusiveMinimum = value;
   return *this;
 }
 
 JsonSchema &JsonSchema::ExclusiveMaximum(double value) {
-  m_exclusiveMaximum = value;
+  // A bound that is not a finite number cannot be written as JSON, so it is not set.
+  if (std::isfinite(value))
+    m_exclusiveMaximum = value;
   return *this;
 }
 

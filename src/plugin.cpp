@@ -33,46 +33,23 @@ NVSETogglePlayerControlsInterface *g_togglePlayerControlsInterface{};
 bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 #endif
 
+// Only the messages that do something are handled; the rest of NVSEMessagingInterface's list is deliberately ignored.
 void MessageHandler(NVSEMessagingInterface::Message *msg) {
   switch (msg->type) {
-  case NVSEMessagingInterface::kMessage_PostLoad:
-    break;
-  case NVSEMessagingInterface::kMessage_ExitGame:
-    break;
   case NVSEMessagingInterface::kMessage_ExitToMainMenu:
     GameplayHandler::SetReady(false);
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
     break;
-  case NVSEMessagingInterface::kMessage_LoadGame:
-    break;
-  case NVSEMessagingInterface::kMessage_SaveGame:
-    break;
-#if EDITOR
-  case NVSEMessagingInterface::kMessage_ScriptEditorPrecompile:
-    break;
-#endif
   case NVSEMessagingInterface::kMessage_PreLoadGame:
     GameplayHandler::SetReady(false);
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
     break;
-  case NVSEMessagingInterface::kMessage_ExitGame_Console:
-    break;
   case NVSEMessagingInterface::kMessage_PostLoadGame:
     GameplayHandler::SetReady(msg->data != nullptr);
     if (g_neuroSDK && msg->data != nullptr)
       g_neuroSDK->RequestGreeting();
-    break;
-  case NVSEMessagingInterface::kMessage_PostPostLoad:
-    break;
-  case NVSEMessagingInterface::kMessage_RuntimeScriptError:
-    break;
-  case NVSEMessagingInterface::kMessage_DeleteGame:
-    break;
-  case NVSEMessagingInterface::kMessage_RenameGame:
-    break;
-  case NVSEMessagingInterface::kMessage_RenameNewGame:
     break;
   case NVSEMessagingInterface::kMessage_NewGame:
     if (g_neuroSDK)
@@ -81,28 +58,12 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     if (g_neuroSDK)
       g_neuroSDK->RequestGreeting();
     break;
-  case NVSEMessagingInterface::kMessage_DeleteGameName:
-    break;
-  case NVSEMessagingInterface::kMessage_RenameGameName:
-    break;
-  case NVSEMessagingInterface::kMessage_RenameNewGameName:
-    break;
   case NVSEMessagingInterface::kMessage_DeferredInit:
     CombatHandler::InstallHitEvent();
     break;
-  case NVSEMessagingInterface::kMessage_ClearScriptDataCache:
-    break;
   case NVSEMessagingInterface::kMessage_MainGameLoop:
-    // _MESSAGE("Main Game Loop message received. Calling NeuroSDK MainLoop.");
-    if (g_neuroSDK) {
+    if (g_neuroSDK)
       g_neuroSDK->MainLoop();
-    }
-    break;
-  case NVSEMessagingInterface::kMessage_ScriptCompile:
-    break;
-  case NVSEMessagingInterface::kMessage_EventListDestroyed:
-    break;
-  case NVSEMessagingInterface::kMessage_PostQueryPlugins:
     break;
   default:
     break;
