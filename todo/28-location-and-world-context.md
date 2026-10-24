@@ -1,6 +1,6 @@
 # 28 - Location notices and throttled "you see" push
 
-Status: open
+Status: in progress (location line done and committed; the throttled "you see" push is still open)
 Area: Context (new module, fed by engine reads)
 Source: `docs/code-review.md` A7.1, A7.5
 

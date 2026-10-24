@@ -11,7 +11,9 @@
 #include "CombatHandler.hpp"
 #include "Context/Distance.hpp"
 #include "Context/Greeting.hpp"
+#include "Context/Location.hpp"
 #include "GameData.h"
+#include "GameExtraData.h"
 #include "GameObjects.h"
 #include "Menus/PipBoyHandler.hpp"
 #include "NeuroSDK.hpp"
@@ -28,6 +30,7 @@
 #include <optional>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -44,6 +47,7 @@ constexpr size_t kNearbyLimit = 30;
 constexpr size_t kRecentExplorationLimit = 8;
 constexpr float kQuestResolveTimeout = 10.0f;
 constexpr auto kQuestObservationInterval = std::chrono::milliseconds(500);
+constexpr auto kPlaceObservationInterval = std::chrono::milliseconds(500);
 
 // TESQuest::flags bits and the BGSQuestObjective::status display mask.
 constexpr uint8_t kQuestFlagCompleted = 0x02;
@@ -96,6 +100,9 @@ bool g_observationInitialized = false;
 std::chrono::steady_clock::time_point g_nextQuestObservation{};
 std::unordered_map<uint64_t, ObjectiveObservation> g_objectiveObservations;
 std::unordered_map<uint32_t, uint8_t> g_questFlags;
+Location::PlaceTracker g_place;
+std::chrono::steady_clock::time_point g_nextPlaceObservation{};
+std::chrono::steady_clock::time_point g_lastPlaceObservation{};
 
 void BuildActions() {
   if (g_actionsBuilt)
@@ -167,6 +174,50 @@ std::string PlaceName(TESObjectREFR *ref) {
   auto *cell = ref ? ref->GetParentCell() : nullptr;
   const char *name = cell ? cell->fullName.GetFullName() : nullptr;
   return name ? name : "";
+}
+
+// Map markers the player can see on the world map (the Visible flag: MarkerData flags bit 0, JG MapMarkerData.hpp and
+// JIP-LN-NVSE ExtraMapMarker). A marker is a reference to the base form 0x10 (JIP-LN-NVSE ln_fn_map_marker.h) carrying
+// ExtraMapMarker; they may live in the grid cells or in the worldspace's persistent cell, so both are read.
+// Which of the two actually holds them in FNV is unverified.
+void CollectMarkers(PlayerCharacter *player, TESObjectCELL *cell, std::vector<Location::Marker> &markers) {
+  std::unordered_set<uint32_t> seen;
+  auto consider = [&](TESObjectREFR *ref) {
+    if (!ref || !ref->baseForm || ref->baseForm->GetFormID() != 0x10 || ref->GetDeleted() ||
+        !seen.insert(ref->GetFormID()).second)
+      return;
+    auto *extra = ref->extraDataList.GetExtraData<ExtraMapMarker>();
+    auto *data = extra ? extra->pData : nullptr;
+    if (!data || !data->IsVisible())
+      return;
+    const char *name = data->kLocationName.GetFullName();
+    if (!name || !name[0])
+      return;
+    markers.push_back({name, Distance3D(player->GetPos(), ref->GetPos())});
+  };
+  WorldUtils::ForEachLoadedReference([&](TESObjectREFR *ref, TESObjectCELL *) { consider(ref); });
+  auto *worldSpace = cell ? cell->GetWorldSpace() : nullptr;
+  auto *persistent = worldSpace ? worldSpace->pPersistentCell : nullptr;
+  for (auto *node = persistent ? persistent->objectList.GetHead() : nullptr; node; node = node->GetNext())
+    consider(node->GetItem());
+}
+
+// Where the player is, as the engine-free place describer wants it. The marker walk only happens outdoors in a cell
+// with no name of its own.
+std::optional<Location::PlaceInput> ReadPlace() {
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *cell = player ? player->GetParentCell() : nullptr;
+  if (!cell)
+    return std::nullopt;
+  Location::PlaceInput input;
+  input.interior = cell->IsInterior();
+  auto *worldSpace = cell->GetWorldSpace();
+  input.spaceId = input.interior || !worldSpace ? cell->GetFormID() : worldSpace->GetFormID();
+  const char *name = cell->fullName.GetFullName();
+  input.cellName = name ? name : "";
+  if (input.cellName.empty() && !input.interior)
+    CollectMarkers(player, cell, input.markers);
+  return input;
 }
 
 BGSQuestObjective *FindObjective(uint32_t questFormId, uint32_t objectiveId) {
@@ -522,6 +573,26 @@ void ProcessWalkerEvents() {
   }
 }
 
+// A "You are now ..." line when the place changed and stayed changed (see Location::PlaceTracker). Only runs while
+// gameplay is unblocked, so a load screen or a door transition is over before the line is considered.
+void ObservePlace() {
+  const auto now = std::chrono::steady_clock::now();
+  if (now < g_nextPlaceObservation)
+    return;
+  g_nextPlaceObservation = now + kPlaceObservationInterval;
+  const float elapsed = g_lastPlaceObservation.time_since_epoch().count() == 0
+                            ? 0.0f
+                            : std::min(std::chrono::duration<float>(now - g_lastPlaceObservation).count(), 2.0f);
+  g_lastPlaceObservation = now;
+  const auto place = ReadPlace();
+  if (!place)
+    return;
+  if (auto line = g_place.Update(*place, elapsed)) {
+    _MESSAGE("Location: %s", line->c_str());
+    NeuroSDK::SendContext(line->c_str(), false);
+  }
+}
+
 void ContinueCurrentQuest() {
   if (!g_currentQuestRoute)
     return;
@@ -588,6 +659,7 @@ void Process(bool gameplayBlocked) {
   ProcessWalkerEvents();
   if (gameplayBlocked)
     return;
+  ObservePlace();
   // Quest state is compared against the previous snapshot, so a sparse sample loses no transitions.
   const auto now = std::chrono::steady_clock::now();
   if (now >= g_nextQuestObservation) {
@@ -638,12 +710,18 @@ void Reset() {
   g_questFlags.clear();
   g_observationInitialized = false;
   g_nextQuestObservation = {};
+  g_place.Reset();
+  g_nextPlaceObservation = {};
+  g_lastPlaceObservation = {};
 }
 
 std::string BuildGreeting() {
   if (!IsReady())
     return {};
-  return Context::BuildGreeting({});
+  std::string location;
+  if (const auto place = ReadPlace())
+    location = "You are currently " + Location::DescribePlace(*place) + ".";
+  return Context::BuildGreeting(location);
 }
 
 std::string BuildFreshStatus() {

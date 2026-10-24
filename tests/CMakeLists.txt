@@ -28,6 +28,7 @@ add_executable(neuro_fnv_tests
     DistanceTests.cpp
     IdlePokerTests.cpp
     DamageTests.cpp
+    LocationTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -39,6 +40,7 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Context/ContextGate.cpp"
     "${REPO}/src/Context/IdlePoker.cpp"
     "${REPO}/src/Context/Greeting.cpp"
+    "${REPO}/src/Context/Location.cpp"
     "${REPO}/src/Inventory/ItemQuery.cpp"
     "${REPO}/src/Movement/StanceLogic.cpp"
     "${REPO}/src/Movement/AimLogic.cpp"
