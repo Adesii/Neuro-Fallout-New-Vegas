@@ -1,6 +1,6 @@
 # 34 - Combat engagement timing and small fixes
 
-Status: open
+Status: to verify
 Area: `src/Combat/CombatLogic.*`, `src/CombatHandler.cpp`
 Source: `docs/code-review.md` B10, D (magic numbers)
 
@@ -32,6 +32,23 @@ Source: `docs/code-review.md` B10, D (magic numbers)
 ## Existing precedent
 - `.claude/rules/combat.md`: decision logic lives in `CombatLogic`; game reads stay in `CombatHandler`.
 - `docs/combat.md` Unverified items 6 and 8.
+
+## Result (2026-10-24)
+Built (`src/Combat/CombatLogic.*`, `src/CombatHandler.cpp`, tests in `tests/CombatTests.cpp`):
+1. First shot: `m_pulseTimer` starts "ready" and is reset to ready whenever the weapon cannot fire (not only in `Begin`:
+   the not-aimed and paused paths zeroed it every frame), so the trigger goes down on the first frame it can. Tests cover a
+   fresh engagement, "aimed after 30 frames of lining up" for ranged/thrown/melee, resuming after a menu, and that a pulsed
+   weapon still waits its off time between shots.
+2. Stall timer: a melee approach that closes in (20 units/s over 1 s windows) no longer accumulates stall time; a blocked
+   one still stalls at 20 s. Tests: 100 s of closing in, and a stuck approach.
+3. Inputs are released only on the engaged -> not engaged transition (`g_wasEngaged`).
+4. Unknown reserve: an empty magazine for 6 s ends as `OutOfAmmo`; refilled magazines and a known reserve never do.
+5. `Combat::WeaponType::*` constants (static_asserted against `TESObjectWEAP::EWeaponType`) and `kBand*` constants for the
+   health severity words (a static_assert ties the table size to `kBandCritical`).
+6. `IsInCombatNow` removed; the game-ready probe is `GameplayHandler::IsReady()` (added with todo 24).
+
+Unverified (all in game): the first-shot behaviour, the approach progress numbers, the 6 s unknown-reserve rule. Manual
+checks: items 9-11 of the checklist in `docs/combat.md`.
 
 ## Done when
 First shot fires immediately on a ready weapon, a long melee approach no longer reports `Stalled`, and the new cases are

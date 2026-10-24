@@ -24,6 +24,13 @@ constexpr float kFreeAimAutomaticSeconds = 1.5f;
 constexpr float kRadiationStageSize = 200.0f;
 constexpr int kMaxRadiationStage = 5;
 constexpr float kHealthThresholds[] = {0.75f, 0.50f, 0.25f, 0.10f};
+static_assert(sizeof(kHealthThresholds) / sizeof(kHealthThresholds[0]) == kBandCritical,
+              "the band names must cover every threshold");
+// A melee approach counts as progress while the distance shrinks by this much per window.
+constexpr float kApproachWindow = 1.0f;
+constexpr float kApproachMinGain = 20.0f;
+// With the reserve unknown (the HUD text is missing), an empty magazine that stays empty this long means no ammunition.
+constexpr float kEmptyClipUnknownReserveLimit = 6.0f;
 
 float PulseOff(WeaponKind kind) {
   switch (kind) {
@@ -73,16 +80,16 @@ const char *DispositionName(Disposition disposition) {
 
 WeaponKind ClassifyWeapon(int weaponType) {
   switch (weaponType) {
-  case 0:
+  case WeaponType::HandToHandMelee:
     return WeaponKind::Unarmed;
-  case 1:
-  case 2:
+  case WeaponType::OneHandMelee:
+  case WeaponType::TwoHandMelee:
     return WeaponKind::Melee;
-  case 10:
-  case 13:
+  case WeaponType::OneHandGrenade:
+  case WeaponType::OneHandThrown:
     return WeaponKind::Thrown;
-  case 11:
-  case 12:
+  case WeaponType::OneHandMine:
+  case WeaponType::OneHandLunchboxMine:
     return WeaponKind::Placed;
   default:
     return WeaponKind::Ranged;
@@ -172,7 +179,7 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
   // A menu or VATS owns the player. The engagement survives it, but nothing is pressed and no timer runs.
   if (input.paused) {
     m_triggerDown = false;
-    m_pulseTimer = 0.0f;
+    m_pulseTimer = kPulseReady;
     m_blocker = "a menu is open";
     return output;
   }
@@ -193,6 +200,14 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
 
   if (input.usesAmmo && input.clip == 0 && input.reserve == 0)
     return finish(StopReason::OutOfAmmo);
+  // The reserve is read from the HUD and can be missing; a magazine that never refills is then the only sign.
+  if (input.usesAmmo && input.clip == 0 && input.reserve < 0) {
+    m_emptyClipTime += input.dt;
+    if (m_emptyClipTime >= kEmptyClipUnknownReserveLimit)
+      return finish(StopReason::OutOfAmmo);
+  } else {
+    m_emptyClipTime = 0.0f;
+  }
 
   bool canFire = true;
   m_blocker = "";
@@ -222,10 +237,27 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
     m_losLostTime = 0.0f;
   }
 
+  bool approaching = false;
   if (NeedsReach(input.weapon) && input.distance > input.meleeRange) {
     canFire = false;
     m_blocker = "the target is out of melee reach";
     output.approach = !input.externalMovement;
+    approaching = output.approach;
+  }
+  // The walk to a melee target is not a stall while it is getting closer.
+  if (approaching) {
+    if (m_approachDistance < 0.0f)
+      m_approachDistance = input.distance;
+    m_approachTime += input.dt;
+    if (m_approachTime >= kApproachWindow) {
+      m_approachProgressing = m_approachDistance - input.distance >= kApproachMinGain;
+      m_approachDistance = input.distance;
+      m_approachTime = 0.0f;
+    }
+  } else {
+    m_approachDistance = -1.0f;
+    m_approachTime = 0.0f;
+    m_approachProgressing = true;
   }
   if (!input.aimed && canFire) {
     canFire = false;
@@ -244,7 +276,7 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
     }
   }
 
-  if (canFire) {
+  if (canFire || (approaching && m_approachProgressing)) {
     m_stallTime = 0.0f;
   } else if (!input.externalMovement) {
     m_stallTime += input.dt;
@@ -254,7 +286,7 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
 
   if (!canFire) {
     m_triggerDown = false;
-    m_pulseTimer = 0.0f;
+    m_pulseTimer = kPulseReady;
     return output;
   }
 
@@ -328,7 +360,10 @@ std::vector<std::string> CombatReporter::Update(const PlayerSnapshot &snapshot, 
 
   const int band = HealthBand(snapshot.health, snapshot.maxHealth);
   if (band > m_healthBand) {
-    const char *severity = band >= 4 ? "critically low" : band >= 3 ? "very low" : band >= 2 ? "low" : "dropping";
+    const char *severity = band >= kBandCritical  ? "critically low"
+                           : band >= kBandVeryLow ? "very low"
+                           : band >= kBandLow     ? "low"
+                                                  : "dropping";
     notes.push_back(std::string("Your health is ") + severity + ": " +
                     FormatFraction(snapshot.health, snapshot.maxHealth) + ".");
   }

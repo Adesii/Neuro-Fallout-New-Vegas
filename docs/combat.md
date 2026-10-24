@@ -77,8 +77,15 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
 6. Semi-automatic fire uses 0.1 s trigger pulses; real fire-rate limits may make some weapons feel slow.
 7. "Explicitly friendly" is implemented as faction relation Ally **or** Friend, **or** a teammate. If a town faction is
    Friend to the player, its members are excluded from enemies/attack/VATS and Neuro cannot choose to attack them.
-8. The stall timer (20 s) also counts while combat's own melee approach is walking, so a blocked approach ends the
-   fight instead of restarting forever; an approach longer than 20 s would end it early.
+8. The stall timer (20 s) no longer runs while combat's own melee approach is closing in (the distance must shrink by
+   20 units per second, measured in 1 s windows); a blocked approach that gets no closer still ends the fight as
+   `Stalled` after 20 s. The 20 units/s and 1 s are guesses; Walker's own progress/stuck failures (todo 25) report a walk
+   that cannot get there.
+9. With the reserve unknown (HUD ammo text missing: `reserve == -1`), a magazine that stays at 0 for 6 s counts as out of
+   ammo. A real reload takes about 2-3 s, so 6 s should not misfire; verify with a slow reload weapon.
+10. The first shot goes out on the first frame the weapon is ready (the pulse timer starts "ready" and is reset to ready
+    whenever the weapon cannot fire). Whether a game-side fire-rate limit or draw animation makes that first press
+    ineffective is unknown.
 
 ## Manual in-game checklist
 
@@ -102,7 +109,11 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
    `vats_queue_shot` selects target and part visibly, `vats_execute` plays the sequence, a finished message follows,
    Walker and combat resume. `vats_cancel` leaves. If target or body-part cycling fails, note which inputs worked and
    send them back so the bindings in `VatsHandler.cpp` can be corrected.
-10. Failure symptoms to report: stuck mouse button, permanent Walker lockout after VATS (check the 90 s watchdog log
+10. First-shot latency: `attack` with a pistol drawn and the target in view: the shot fires as soon as the aim lines up, not
+    after an extra beat; same for a thrown grenade and a melee swing once in reach.
+11. Long melee approach: `attack` an enemy 100+ m away with a melee weapon: she runs up without the engagement ending
+    as "could not make progress" after 20 s; block the way (stand behind a closed gate): it ends as stalled after ~20 s.
+12. Failure symptoms to report: stuck mouse button, permanent Walker lockout after VATS (check the 90 s watchdog log
     line), `Combat engagement ended` log lines with unexpected reasons, VATS refusing to open.
 
 ## Damage and death: unverified and checklist (todo 29)

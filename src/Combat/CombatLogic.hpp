@@ -33,6 +33,25 @@ struct DispositionInput {
 Disposition Classify(const DispositionInput &input);
 const char *DispositionName(Disposition disposition);
 
+// TESObjectWEAP::eWeaponType values (JG GameForms.h `TESObjectWEAP::EWeaponType`; CombatHandler.cpp static_asserts that
+// they match the header the plugin compiles against).
+namespace WeaponType {
+inline constexpr int HandToHandMelee = 0;
+inline constexpr int OneHandMelee = 1;
+inline constexpr int TwoHandMelee = 2;
+inline constexpr int OneHandPistol = 3;
+inline constexpr int OneHandPistolEnergy = 4;
+inline constexpr int TwoHandRifle = 5;
+inline constexpr int TwoHandAutomatic = 6;
+inline constexpr int TwoHandRifleEnergy = 7;
+inline constexpr int TwoHandHandle = 8;
+inline constexpr int TwoHandLauncher = 9;
+inline constexpr int OneHandGrenade = 10;
+inline constexpr int OneHandMine = 11;
+inline constexpr int OneHandLunchboxMine = 12;
+inline constexpr int OneHandThrown = 13;
+} // namespace WeaponType
+
 // TESObjectWEAP::eWeaponType grouped by how the attack is performed.
 enum class WeaponKind { Unarmed, Melee, Ranged, Thrown, Placed };
 WeaponKind ClassifyWeapon(int weaponType);
@@ -88,6 +107,9 @@ struct EngagementOutput {
 // Decides, frame by frame, what the player should be doing to keep attacking one target. Pure state machine.
 class Engagement {
 public:
+  // Longer than any pulse "off" time, so `m_pulseTimer >= off` holds.
+  static constexpr float kPulseReady = 10.0f;
+
   // Free-aim targets (non-actors) finish after a bounded burst because they have no health to observe.
   void Begin(bool targetIsActor);
   EngagementOutput Update(const EngagementInput &input);
@@ -100,9 +122,15 @@ private:
   bool m_active = false;
   bool m_targetIsActor = true;
   bool m_triggerDown = false;
-  float m_pulseTimer = 0.0f;
+  // Time since the trigger last went up. Starts "ready" so the first shot is not delayed by the off time, and is reset
+  // to ready whenever the weapon cannot fire (the next frame it can, the trigger goes down at once).
+  float m_pulseTimer = kPulseReady;
   float m_losLostTime = 0.0f;
   float m_stallTime = 0.0f;
+  float m_approachTime = 0.0f;
+  float m_approachDistance = -1.0f;
+  bool m_approachProgressing = true;
+  float m_emptyClipTime = 0.0f;
   float m_disabledTime = 0.0f;
   float m_drawCooldown = 0.0f;
   float m_reloadCooldown = 0.0f;
@@ -144,6 +172,11 @@ private:
   bool m_outOfAmmoReported = false;
 };
 
+// Health bands: the number of thresholds in the table (75/50/25/10 %) the health fraction is below, 0 to kBandCritical.
+inline constexpr int kBandDropping = 1;
+inline constexpr int kBandLow = 2;
+inline constexpr int kBandVeryLow = 3;
+inline constexpr int kBandCritical = 4;
 int HealthBand(float health, float maxHealth);
 int RadiationStage(float radiation);
 

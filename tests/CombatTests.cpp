@@ -471,3 +471,143 @@ TEST("combat: health bands and fractions format as expected") {
   CHECK(FormatFraction(48, 120) == "48/120 (40%)");
   CHECK(RadiationStage(0) == 0 && RadiationStage(199) == 0 && RadiationStage(200) == 1 && RadiationStage(5000) == 5);
 }
+
+TEST("combat engagement: the first shot of a semi-automatic weapon is not delayed by the pulse off time") {
+  Engagement engagement;
+  engagement.Begin(true);
+  CHECK(engagement.Update(ReadyRanged()).fire);
+}
+
+TEST("combat engagement: the trigger goes down on the very frame the weapon first becomes ready") {
+  for (auto kind : {WeaponKind::Ranged, WeaponKind::Thrown, WeaponKind::Melee}) {
+    Engagement engagement;
+    engagement.Begin(true);
+    auto input = ReadyRanged();
+    input.weapon = kind;
+    input.meleeRange = 100.0f;
+    input.distance = 50.0f;
+    input.aimed = false;
+    for (int frame = 0; frame < 30; ++frame)
+      CHECK(!engagement.Update(input).fire); // lining up the shot
+    input.aimed = true;
+    CHECK(engagement.Update(input).fire);
+  }
+}
+
+TEST("combat engagement: after a menu closes the first shot is immediate again") {
+  Engagement engagement;
+  engagement.Begin(true);
+  auto input = ReadyRanged();
+  CHECK(engagement.Update(input).fire);
+  input.paused = true;
+  CHECK(!engagement.Update(input).fire);
+  input.paused = false;
+  CHECK(engagement.Update(input).fire);
+}
+
+TEST("combat engagement: a pulsed weapon still waits the off time between shots") {
+  Engagement engagement;
+  engagement.Begin(true);
+  const auto input = ReadyRanged();
+  CHECK(engagement.Update(input).fire);
+  int frames = 0;
+  while (engagement.Update(input).fire && frames < 100)
+    ++frames; // the trigger comes up
+  int waiting = 0;
+  while (!engagement.Update(input).fire && waiting < 100)
+    ++waiting;
+  CHECK(waiting >= 2); // 0.16 s off time at 0.05 s per frame
+}
+
+namespace {
+EngagementInput MeleeInput(float distance) {
+  EngagementInput input;
+  input.dt = 0.1f;
+  input.weapon = WeaponKind::Melee;
+  input.weaponDrawn = true;
+  input.lineOfSight = true;
+  input.aimed = true;
+  input.meleeRange = 100.0f;
+  input.distance = distance;
+  return input;
+}
+} // namespace
+
+TEST("combat engagement: a long melee approach that keeps closing in never counts as a stall") {
+  Engagement engagement;
+  engagement.Begin(true);
+  auto input = MeleeInput(30000.0f);
+  for (int frame = 0; frame < 2000 && input.distance > 100.0f; ++frame) { // 300 units per second for 100 s
+    input.distance -= 30.0f;
+    const auto output = engagement.Update(input);
+    CHECK(!output.stop);
+    if (output.stop)
+      break;
+  }
+  CHECK(engagement.IsActive());
+}
+
+TEST("combat engagement: an approach that does not get any closer still stalls after the limit") {
+  Engagement engagement;
+  engagement.Begin(true);
+  const auto input = MeleeInput(3000.0f);
+  EngagementOutput last;
+  float elapsed = 0.0f;
+  while (engagement.IsActive() && elapsed < 40.0f) {
+    last = engagement.Update(input);
+    elapsed += input.dt;
+  }
+  CHECK(last.stop == std::optional<StopReason>(StopReason::Stalled));
+  CHECK(elapsed > 19.0f && elapsed < 25.0f);
+}
+
+TEST("combat engagement: an empty magazine with an unknown reserve ends as out of ammo, not as a stall") {
+  Engagement engagement;
+  engagement.Begin(true);
+  auto input = ReadyRanged();
+  input.clip = 0;
+  input.reserve = -1;
+  EngagementOutput last;
+  float elapsed = 0.0f;
+  while (engagement.IsActive() && elapsed < 15.0f) {
+    last = engagement.Update(input);
+    elapsed += input.dt;
+  }
+  CHECK(last.stop == std::optional<StopReason>(StopReason::OutOfAmmo));
+  CHECK(elapsed < 8.0f);
+}
+
+TEST("combat engagement: a reload that fills the magazine, or a known reserve, never ends it as out of ammo") {
+  Engagement refilled;
+  refilled.Begin(true);
+  auto input = ReadyRanged();
+  input.reserve = -1;
+  for (int round = 0; round < 10; ++round) {
+    input.clip = 0;
+    for (int frame = 0; frame < 80; ++frame) // 4 s reloading
+      CHECK(!refilled.Update(input).stop);
+    input.clip = 10;
+    refilled.Update(input);
+  }
+
+  Engagement reserve;
+  reserve.Begin(true);
+  input = ReadyRanged();
+  input.clip = 0;
+  input.reserve = 30;
+  for (int frame = 0; frame < 100; ++frame)
+    CHECK(!reserve.Update(input).stop);
+}
+
+TEST("combat: weapon type constants and health band names line up with their tables") {
+  CHECK(ClassifyWeapon(WeaponType::HandToHandMelee) == WeaponKind::Unarmed);
+  CHECK(ClassifyWeapon(WeaponType::OneHandMelee) == WeaponKind::Melee);
+  CHECK(ClassifyWeapon(WeaponType::TwoHandLauncher) == WeaponKind::Ranged);
+  CHECK(ClassifyWeapon(WeaponType::OneHandGrenade) == WeaponKind::Thrown);
+  CHECK(ClassifyWeapon(WeaponType::OneHandLunchboxMine) == WeaponKind::Placed);
+  CHECK(HealthBand(5.0f, 100.0f) == kBandCritical);
+  CHECK(HealthBand(20.0f, 100.0f) == kBandVeryLow);
+  CHECK(HealthBand(40.0f, 100.0f) == kBandLow);
+  CHECK(HealthBand(70.0f, 100.0f) == kBandDropping);
+  CHECK(HealthBand(100.0f, 100.0f) == 0);
+}

@@ -39,6 +39,23 @@ using Combat::Disposition;
 using WorldUtils::Distance3D;
 using WorldUtils::LookupReference;
 
+// Combat::WeaponType mirrors TESObjectWEAP::EWeaponType so the engine-free logic needs no game header.
+static_assert(Combat::WeaponType::HandToHandMelee == TESObjectWEAP::kWeapType_HandToHandMelee &&
+                  Combat::WeaponType::OneHandMelee == TESObjectWEAP::kWeapType_OneHandMelee &&
+                  Combat::WeaponType::TwoHandMelee == TESObjectWEAP::kWeapType_TwoHandMelee &&
+                  Combat::WeaponType::OneHandPistol == TESObjectWEAP::kWeapType_OneHandPistol &&
+                  Combat::WeaponType::OneHandPistolEnergy == TESObjectWEAP::kWeapType_OneHandPistolEnergy &&
+                  Combat::WeaponType::TwoHandRifle == TESObjectWEAP::kWeapType_TwoHandRifle &&
+                  Combat::WeaponType::TwoHandAutomatic == TESObjectWEAP::kWeapType_TwoHandAutomatic &&
+                  Combat::WeaponType::TwoHandRifleEnergy == TESObjectWEAP::kWeapType_TwoHandRifleEnergy &&
+                  Combat::WeaponType::TwoHandHandle == TESObjectWEAP::kWeapType_TwoHandHandle &&
+                  Combat::WeaponType::TwoHandLauncher == TESObjectWEAP::kWeapType_TwoHandLauncher &&
+                  Combat::WeaponType::OneHandGrenade == TESObjectWEAP::kWeapType_OneHandGrenade &&
+                  Combat::WeaponType::OneHandMine == TESObjectWEAP::kWeapType_OneHandMine &&
+                  Combat::WeaponType::OneHandLunchboxMine == TESObjectWEAP::kWeapType_OneHandLunchboxMine &&
+                  Combat::WeaponType::OneHandThrown == TESObjectWEAP::kWeapType_OneHandThrown,
+              "Combat::WeaponType drifted from TESObjectWEAP::EWeaponType");
+
 constexpr float kEnemyScanRadius = 4000.0f;
 constexpr size_t kEnemyLimit = 20;
 constexpr size_t kCombatStartListLimit = 5;
@@ -89,6 +106,7 @@ bool g_gameplayBlocked = true;
 std::vector<EnemyEntry> g_enemies;
 
 Combat::Engagement g_engagement;
+bool g_wasEngaged = false;
 TargetSelection g_target;
 uint32_t g_startSpace = 0;
 float g_lineOfSightTimer = 0.0f;
@@ -353,8 +371,6 @@ std::string ValidEnemyIds() {
   return stream.str();
 }
 
-bool IsInCombatNow(PlayerCharacter *player) { return player->pcInCombat; }
-
 // --- Engagement -----------------------------------------------------------------------------------------------
 
 void FinishEngagement(Combat::StopReason reason) {
@@ -414,10 +430,16 @@ bool AimIsOnTarget(PlayerCharacter *player, TESObjectREFR *target, const AimUtil
 void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBlocked) {
   g_pulses.Advance(deltaTime);
   if (!g_engagement.IsActive()) {
-    ReleaseInputs();
-    Walker::SetLookSuppressed(false);
+    // Only the frame an engagement ends: releasing every frame wrote "no control" into the input hook constantly.
+    // FinishEngagement and Reset release as well; this catches any other way the state machine went inactive.
+    if (g_wasEngaged) {
+      g_wasEngaged = false;
+      ReleaseInputs();
+      Walker::SetLookSuppressed(false);
+    }
     return;
   }
+  g_wasEngaged = true;
   if (player->GetDead()) {
     FinishEngagement(Combat::StopReason::PlayerDied);
     return;
@@ -691,7 +713,7 @@ void ReportDeath(PlayerCharacter *player) {
 }
 
 void ProcessCombatContext(PlayerCharacter *player, float deltaTime) {
-  const bool combat = IsInCombatNow(player);
+  const bool combat = player->pcInCombat;
   if (!g_inCombat) {
     g_combatTimer = combat ? g_combatTimer + deltaTime : 0.0f;
     if (g_combatTimer >= kCombatEnterDelay) {
@@ -756,8 +778,7 @@ float FrameTime() {
 void Process(bool gameplayBlocked) {
   g_gameplayBlocked = gameplayBlocked;
   auto *player = PlayerCharacter::GetSingleton();
-  std::string ignored;
-  if (!player || !GameplayHandler::ValidateQuestAction(ignored)) {
+  if (!player || !GameplayHandler::IsReady()) {
     if (g_engagement.IsActive() || g_attackMacro != InputUtils::kNoControl)
       Reset();
     g_worldActions.Unregister();
@@ -785,6 +806,7 @@ void Process(bool gameplayBlocked) {
 void Reset() {
   ReleaseInputs();
   g_engagement.End();
+  g_wasEngaged = false;
   Walker::SetLookSuppressed(false);
   g_worldActions.Unregister();
   g_stopActions.Unregister();
@@ -982,8 +1004,7 @@ void StartAttack(const TargetSelection &selection) {
 }
 
 bool ValidateStopAttack(std::string &error) {
-  std::string ignored;
-  if (!PlayerCharacter::GetSingleton() || !GameplayHandler::ValidateQuestAction(ignored)) {
+  if (!PlayerCharacter::GetSingleton() || !GameplayHandler::IsReady()) {
     error = "Combat actions are unavailable until a game is loaded.";
     return false;
   }

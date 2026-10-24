@@ -40,7 +40,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
 | 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) (done except in-game measurements) | Aim / Combat |
 | 28 | [Location notices and throttled "you see" push](28-location-and-world-context.md) | Context |
-| 34 | [Combat engagement timing and small fixes](34-combat-engagement-fixes.md) | Combat (bugs) |
 | 35 | [Quest routing and object classification fixes](35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
 | 36 | [Cross-module duplication and hygiene](36-shared-utilities-cleanup.md) | Cleanup |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) | Cleanup |
@@ -59,6 +58,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 31 | [Menu window lifecycle and timeout fixes (popup starvation)](to_verify/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
 | 33 | [Action registry, scripts and tooling correctness](to_verify/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
+| 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
 | 39 | [Report all distances to Neuro in metres](to_verify/39-distances-in-metres.md) (factor sourced, not yet measured in game) | Context formatting |
 
 ## Archive
