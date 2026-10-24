@@ -1,6 +1,6 @@
 # 25 - Walker: stuck detection, recovery and timeouts
 
-Status: open
+Status: to verify
 Area: Walker (`src/WalkerHandler.cpp`)
 Source: `docs/code-review.md` A3, A5, D (repath, recovery), E1
 
@@ -52,3 +52,42 @@ Source: `docs/code-review.md` A3, A5, D (repath, recovery), E1
 Walker survives rubble/doors in Goodsprings and a cave interior without human help, reports a specific reason when it
 cannot, host tests cover the logic, and the in-game checklist includes: closed door, jump-needed ledge, locked door,
 walk after load (no false stuck).
+
+## Result (2026-10-24)
+Built and committed with todo 26 (same files). Host tests pass (`tests/WalkerLogicTests.cpp`); the DLL builds. Nothing
+was run in game. Design note: `docs/design/walker-recovery-and-feedback.md` (evidence, assumptions).
+
+Built:
+- `src/Movement/WalkerLogic.*` (engine-free): `StuckDetector` (50 units in 1.5 s over real time, grace after a cell
+  change, teleport-sized jumps restart the window), `OscillationDetector`, `ProgressTracker` (25 units of improvement
+  per 45 s), `RecoveryPlanner`, `PauseNotice`.
+- Recovery ladder: closed unlocked door in front (once) -> Jump -> Sidestep -> Repath -> Sidestep (other side) ->
+  BackOff, then repeats. Budget 4, 10 for quest routes; 200 units of real travel hands the budget back. Each step has
+  its own duration, and the stuck history restarts after every step.
+- Door step: only ordinary doors (no `ExtraTeleport`), within 200 units and ~57 degrees, closed (`GetOpenState`) and not
+  locked (`ExtraLock` flag). A locked door dead ahead within 130 units fails at once with "the door X is locked";
+  further off it is named only if the budget runs out.
+- Jump uses `InputUtils::ResolveControl(Jump)` on its own pulse owner and is skipped when unbound. It is recovery-only,
+  as decided. While combat owns the view, no step writes yaw (sidestep and back-off steer the movement keys).
+- Repath: 0.1 s floor, and path nodes already within 60 units of the player are skipped.
+- Progress-stall timeout fails with "never got meaningfully closer". A command on hold for 30 s sends one silent
+  "your walk is on hold: <menu / Pip-Boy / controls disabled>" note (wall-clock timer, because game time stops in menus).
+
+Differences from the plan: the "look wiggle" is a sidestep of the movement keys instead (no yaw writes, so it also
+works under combat's aim ownership). Grace applies after a cell change; a fresh command gets none.
+
+Unverified (needs the game): the lock bit and open-state values (see the design note), the recovery timings, whether a
+0.12 s jump pulse jumps, and the 50-unit/1.5 s stuck threshold while sneaking.
+
+### Manual in-game checklist
+1. Goodsprings: `move_to_object` to something behind rubble or a low obstacle. Log shows `Walker recovery attempt` lines
+   with steps; she gets past or fails with "got stuck", never loops silently.
+2. A closed, unlocked, non-load door in the way (a shack door): walking toward something behind it opens the door
+   (`Walker opened the door ...` in the log) and continues.
+3. A locked door in the way: the walk fails with "the door "X" is locked and in your way".
+4. A ledge that needs a hop: she jumps in recovery (check the Jump binding; unbind it and confirm the step is skipped).
+5. Walk right after loading a save, and through a load door: no false stuck/recovery in the first seconds.
+6. Open a menu for over 30 s during a walk: one silent "on hold" note; closing the menu resumes the walk.
+7. Stand on something unreachable (target visible across a gap) and wait: the walk ends with the "never got closer"
+   message after about 45 s.
+8. Combat melee approach through an obstacle still ends (combat's 20 s stall) and nothing writes the view meanwhile.

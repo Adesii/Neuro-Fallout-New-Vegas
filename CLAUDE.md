@@ -16,6 +16,7 @@
 
 - `src/plugin.cpp` owns `NVSEPlugin_Query`/`NVSEPlugin_Load`, interface acquisition, command registration, and the DirectInput hook. xNVSE's `kMessage_MainGameLoop` drives `NeuroSDK::MainLoop()`.
 - `src/NeuroSDK.cpp` owns all libneurosdk polling/sending/message destruction. Each frame it copies incoming actions, runs `MenuHandler::Process()`, dispatches owned requests through `ActionRegistry`, then stops or processes Walker. `MenuHandler` handles UI/subtitle context and action execution lockout; `WalkerHandler` owns navigation, movement, and activation; `src/hooks/` supplies controlled DirectInput state.
+- Walker policy (stuck window, recovery ladder, progress stall, reminder, pause notice, failure text) is engine-free in `src/Movement/WalkerLogic.*`; aim maths and the single height table in `src/Movement/AimLogic.*`. `WalkerHandler.cpp` only feeds them engine reads. The shared line-of-sight ray is `WorldUtils::HasLineOfSight`. Distances sent to Neuro go through `Units::FormatDistance` only.
 - `src/CachedScripts.hpp` compiles and caches script-only xNVSE calls at runtime. Define wrappers with `CREATE_PLUGINSCRIPT`; plugin commands use `DEFINE_NEURO_COMMAND_PLUGIN`/`REG_CMD` and receive an `N` prefix (`SendContext` becomes `NSendContext`).
 
 ## Neuro actions and menu automation

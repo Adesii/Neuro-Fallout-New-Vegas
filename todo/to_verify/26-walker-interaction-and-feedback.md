@@ -1,6 +1,6 @@
 # 26 - Walker: interaction checks and feedback to Neuro
 
-Status: open
+Status: to verify
 Area: Walker + `GameplayHandler::ProcessWalkerEvents`
 Source: `docs/code-review.md` A2, A4, D (Combat `Started` events)
 
@@ -44,3 +44,38 @@ Source: `docs/code-review.md` A2, A4, D (Combat `Started` events)
 ## Done when
 Interacting through geometry no longer happens in the common cases, reminders arrive during a long walk, failure
 messages name a cause, and the checklist covers: walk behind a railing, a 2-minute walk, a stuck failure.
+
+## Result (2026-10-24)
+Built and committed with todo 25. Host tests pass; the DLL builds; nothing was run in game. Design note:
+`docs/design/walker-recovery-and-feedback.md`.
+
+Built:
+- `RayBlocked`/`HasLineOfSight` moved from `CombatHandler` to `WorldUtils` (`LineOfSightTrim`, default = combat's old
+  35/60). Both use the stance-aware eye (todo 27). Walker passes 15/25 because its rays are only about a metre long; the
+  old trims made a 100-unit ray count as "within reach, clear" and would have checked nothing.
+- `TryComplete`: Interact needs the view on the target and a clear ray; after `kAlignmentGiveUpDelay` (5 s) it activates
+  anyway and logs which of the two was missing. Move counts as reached with a clear ray or a height difference up to
+  60 units; otherwise it fails with `WrongFloor` after 5 s.
+- `Walker::Event` carries `reason` (`FailureReason`), `description` and `detail`; `GameplayHandler::ProcessWalkerEvents`
+  builds the text with `WalkerLogic::DescribeFailure`: stuck, door locked (naming the door), no progress, target gone,
+  not reachable from here, activation rejected, not interactable. The quest door-step wording for Started/Completed is
+  unchanged and now applies only to those two events.
+- Progress reminder: non-silent, every 40 s (20 s while `Owner::Exploration`), "still walking to X. Distance walked,
+  walk time, distance to target"; never for `Owner::Combat`. Engine-free `ProgressReminder`, host-tested.
+- No `Started` event is produced for `Owner::Combat` any more.
+- Distances in these messages go through `Units::FormatDistance`, which still prints game units. **Todo 39 changes that
+  one function** once the factor is sourced; nothing else needs to move.
+
+Not done / for later: the poke system (todo 24) should treat a recent reminder as activity; no fast-travel hint beyond
+Skyrim's 400 m (not asked for).
+
+### Manual in-game checklist
+1. Walk to an object on the far side of a railing or on another floor: it does not report reached/interact until a clear
+   ray exists; after 5 s a plain move fails with the "not reachable from here" message, an interact activates anyway
+   (log: `Walker could not line up ... line of sight blocked`).
+2. A normal interaction (container, door, NPC) still completes within a couple of seconds; the log shows no repeated
+   `line of sight ... changed` flapping at close range.
+3. A walk of over 2 minutes (explore): a reminder arrives about every 20 s (40 s for move/quest) with plausible numbers
+   and is not silent.
+4. Force a stuck failure (todo 25 checklist): the message names the cause.
+5. Melee `attack`: no "Closing in on ..." context messages appear any more.

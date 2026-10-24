@@ -12,7 +12,7 @@ namespace InputCore {
 
 // Everything that can hold a control. A key is held while any owner holds it, so one owner releasing its press can
 // never cancel another owner's press, and holding or releasing twice is harmless (it is one bit per owner).
-enum class Owner : uint8_t { Walker, CombatAttack, CombatPulse, StancePulse, VatsPulse, Count };
+enum class Owner : uint8_t { Walker, CombatAttack, CombatPulse, StancePulse, VatsPulse, WalkerPulse, Count };
 
 static_assert(static_cast<size_t>(Owner::Count) <= 8, "owners are stored in one byte");
 

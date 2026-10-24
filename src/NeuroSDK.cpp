@@ -186,7 +186,7 @@ void NeuroSDK::MainLoop() {
   // Opening is accepted after menu observation. Pause Walker on that same frame,
   // including the short delay before the native opening animation begins.
   if (menuBlocksGameplay || Menus::PipBoyHandler::IsExecuting())
-    Walker::Pause();
+    Walker::Pause(menuBlocksGameplay ? Walker::PauseReason::Menu : Walker::PauseReason::PipBoy);
   else
     Walker::Process();
 }

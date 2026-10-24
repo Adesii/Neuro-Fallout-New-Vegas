@@ -19,7 +19,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) | Combat |
+| 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) (measurement log added, waiting for numbers) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
 | 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
 | 07 | [query_nearby top 20 with priority](07-query-nearby-priority.md) | Gameplay actions |
@@ -39,9 +39,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
 | 23 | [Keep the game running when the window is unfocused](23-background-focus.md) (game no longer pauses; the Pause menu still opens when unfocused) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](24-idle-poke-and-wakeup.md) | Context / scheduling |
-| 25 | [Walker stuck detection, recovery, jump, doors, timeouts](25-walker-stuck-recovery.md) | Walker |
-| 26 | [Walker interaction line-of-sight and progress/failure feedback](26-walker-interaction-and-feedback.md) | Walker / Context |
-| 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) | Aim / Combat |
+| 27 | [Aim unification, stance-aware eye height, safe angle maths](27-aim-unification.md) (done except in-game measurements) | Aim / Combat |
 | 28 | [Location notices and throttled "you see" push](28-location-and-world-context.md) | Context |
 | 29 | [Damage, death and combat-start messages](29-player-status-and-damage-context.md) | Context / Combat |
 | 34 | [Combat engagement timing and small fixes](34-combat-engagement-fixes.md) | Combat (bugs) |
@@ -56,6 +54,8 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | # | Task | Area |
 | - | ---- | ---- |
 | 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
+| 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) | Walker |
+| 26 | [Walker interaction line-of-sight and progress/failure feedback](to_verify/26-walker-interaction-and-feedback.md) | Walker / Context |
 | 30 | [Context reliability: disconnects, dedupe, subtitles](to_verify/30-sdk-context-reliability.md) | SDK / Context |
 | 31 | [Menu window lifecycle and timeout fixes (popup starvation)](to_verify/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |

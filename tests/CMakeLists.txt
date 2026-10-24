@@ -24,6 +24,7 @@ add_executable(neuro_fnv_tests
     ContextGateTests.cpp
     SpeakerMatchTests.cpp
     AimLogicTests.cpp
+    WalkerLogicTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -35,6 +36,8 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Inventory/ItemQuery.cpp"
     "${REPO}/src/Movement/StanceLogic.cpp"
     "${REPO}/src/Movement/AimLogic.cpp"
+    "${REPO}/src/Movement/WalkerLogic.cpp"
+    "${REPO}/src/Context/Distance.cpp"
     "${REPO}/src/Menus/PopupPolicy.cpp"
     "${REPO}/src/Menus/SpeakerMatch.cpp"
     "${REPO}/src/Menus/SubtitleTracker.cpp"

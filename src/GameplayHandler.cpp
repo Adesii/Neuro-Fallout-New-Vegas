@@ -483,18 +483,40 @@ void ProcessWalkerEvents() {
       if (g_recentExploration.size() > kRecentExplorationLimit)
         g_recentExploration.erase(g_recentExploration.begin());
     }
-    std::string message = std::move(event.message);
-    if (event.owner == Walker::Owner::Quest && g_currentQuestRoute &&
-        IsDoorStep(event.targetFormId, *g_currentQuestRoute) && event.type != Walker::EventType::Failed) {
-      const std::string door = DoorLabel(LookupReference(event.targetFormId));
-      if (event.type == Walker::EventType::Started)
-        message = "Heading to " + door + " to enter another area. The objective itself, " +
-                  g_currentQuestRoute->description + ", is beyond it.";
-      else
-        message = "Reached and used " + door + ". That was only the door on the way: the objective " +
-                  g_currentQuestRoute->description + " is NOT done yet, and the route continues on its own.";
+
+    std::string message;
+    bool silent = true;
+    switch (event.type) {
+    case Walker::EventType::Failed:
+      message = WalkerLogic::DescribeFailure(event.reason, event.description, event.detail);
+      silent = false;
+      break;
+    case Walker::EventType::Progress:
+      // A long walk would otherwise be silent after "Started": remind her where it stands.
+      message = WalkerLogic::DescribeProgress(event.owner == Walker::Owner::Quest,
+                                              event.owner == Walker::Owner::Exploration, event.description,
+                                              event.walkedDistance, event.walkSeconds, event.remainingDistance);
+      silent = false;
+      break;
+    case Walker::EventType::Paused:
+      message = WalkerLogic::DescribePause(event.description, event.detail);
+      break;
+    case Walker::EventType::Started:
+    case Walker::EventType::Completed:
+      message = std::move(event.message);
+      if (event.owner == Walker::Owner::Quest && g_currentQuestRoute &&
+          IsDoorStep(event.targetFormId, *g_currentQuestRoute)) {
+        const std::string door = DoorLabel(LookupReference(event.targetFormId));
+        if (event.type == Walker::EventType::Started)
+          message = "Heading to " + door + " to enter another area. The objective itself, " +
+                    g_currentQuestRoute->description + ", is beyond it.";
+        else
+          message = "Reached and used " + door + ". That was only the door on the way: the objective " +
+                    g_currentQuestRoute->description + " is NOT done yet, and the route continues on its own.";
+      }
+      break;
     }
-    NeuroSDK::SendContext(message.c_str(), event.type != Walker::EventType::Failed);
+    NeuroSDK::SendContext(message.c_str(), silent);
   }
 }
 

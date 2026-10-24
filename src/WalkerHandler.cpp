@@ -3,6 +3,8 @@
 #include "GameOSDepend.h"
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
+#include "Movement/AimLogic.hpp"
+#include "Movement/WalkerLogic.hpp"
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
 #include "decoding.h"
@@ -12,10 +14,12 @@
 #include "nvse/GameForms.h"
 #include "nvse/GameUI.h"
 #include "utils/AimUtils.hpp"
+#include "utils/InputUtils.hpp"
 #include "utils/WorldUtils.hpp"
 #include "utils/math.h"
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #include <cmath>
 #include <utility>
 
@@ -26,31 +30,72 @@ using WorldUtils::Distance3D;
 using WorldUtils::LookupReference;
 
 constexpr float kInteractionDistance = 100.0f;
-constexpr float kStuckDistance = 1.0f;
-constexpr float kStuckDelay = 3.0f;
-constexpr float kOscillationWindowDuration = 3.0f;
-constexpr float kOscillationDistanceMargin = 50.0f;
-constexpr float kOscillationDirectionThreshold = 2.0f;
-constexpr int kOscillationReversalLimit = 6;
-constexpr float kRecoveryDuration = 1.0f;
 constexpr float kInteractionDelay = 1.0f;
-// Unaligned this long within reach: interact anyway and let the game accept or reject it.
+// Unaligned (or with the line of sight blocked) this long within reach: interact anyway and let the game accept or
+// reject it. For a plain move, the same wait before failing with "not reachable from here".
 constexpr float kAlignmentGiveUpDelay = 5.0f;
 // The engine path search is expensive, so the next waypoint is reused between these refreshes.
 constexpr float kRepathInterval = 0.25f;
+constexpr float kRepathMinInterval = 0.1f; // floor for the early refresh when the cached waypoint is reached
 constexpr float kWaypointReachedDistance = 60.0f;
 constexpr float kDestinationMoveTolerance = 50.0f;
 constexpr float kCloseLookDistance = 400.0f;
 constexpr float kLookAlignmentTolerance = 0.12f;
-constexpr int kMaxRecoveryAttempts = 3;
 constexpr float kLookTargetResponse = 4.0f;
-// Walker's smoothed turn; combat's snap-to-target turn is AimUtils::kCombatTurnRate.
+// Walker's smoothed turn; combat's snap-to-target turn lives in AimUtils.cpp (kCombatTurnRate).
 constexpr float kWalkTurnRate = 3.0f;
 constexpr float kTurnSpeedResponse = 4.0f;
 constexpr float kTurnAccelerationResponse = 7.0f;
 constexpr float kTurnReversalResponse = 2.5f;
 constexpr float kTurnDeadZone = 0.01f;
 constexpr UINT8 kUnboundKey = 0xFF;
+
+// Stuck detection is ignored this long after the player moves into another cell (a load or a door).
+constexpr float kCellChangeGrace = 5.0f;
+
+// Interaction line of sight: the ray is trimmed less than combat's (35/60) because the player stands within a metre.
+constexpr float kInteractionRayStart = 15.0f;
+constexpr float kInteractionRayEnd = 25.0f;
+constexpr float kLineOfSightInterval = 0.1f;
+// A plain move counts as reached without a clear ray when the target is at about the same height.
+constexpr float kSameLevelHeight = 60.0f;
+
+// Doors considered during recovery: a closed one this close and within roughly 57 degrees of the facing (Skyrim's
+// walker uses 200 units too). A locked one this close and nearly dead ahead fails the walk at once.
+constexpr float kDoorSearchDistance = 200.0f;
+constexpr float kDoorMaxHeightDifference = 150.0f;
+constexpr float kDoorSearchCone = 1.0f;
+constexpr float kDoorBlockingDistance = 130.0f;
+constexpr float kDoorBlockingCone = 0.5f;
+constexpr float kDoorFaceTolerance = 0.15f;
+constexpr float kDoorFaceTimeout = 1.0f;
+constexpr float kDoorOpenWait = 0.8f;
+
+constexpr float kJumpPulseSeconds = 0.12f;
+constexpr float kSecondJumpAt = 0.6f;
+constexpr float kQuarterTurn = 1.5707964f;
+constexpr float kHalfTurn = 3.1415927f;
+
+// GetOpenState(ref) is FalloutNV.exe 1.4.0.525 0x47B250 (__cdecl). Two sources agree on the address and on the result
+// values None 0 / Open 1 / Opening 2 / Closed 3 / Closing 4: itr-nvse features/DoorPinchFix.cpp (MIT, revision in
+// tools/reference-manifest.json) and JohnnyGuitarNVSE BGSOpenCloseForm.
+constexpr uint32_t kOpenStateClosed = 3;
+using GetOpenStateFn = uint32_t(__cdecl *)(TESObjectREFR *);
+const auto kGetOpenState = reinterpret_cast<GetOpenStateFn>(0x47B250);
+
+// Just enough of ExtraLock to read the locked flag: BSExtraData is 0xC bytes and `data` follows it; the data block has
+// the key at 0x04 and `flags` at 0x08 with bit 1 = locked. JIP-LN-NVSE GameExtraData.h and NVSE GameExtraData.h agree
+// on those offsets; only JIP documents the bit. The width of the lock level at 0x00 differs between the two, so it is
+// not read. A door without an ExtraLock is not locked.
+struct LockData {
+  uint8_t head[8];
+  uint8_t flags;
+};
+struct ExtraLockView {
+  BSExtraData base;
+  LockData *data;
+};
+static_assert(sizeof(BSExtraData) == 0xC, "ExtraLock::data follows the 0xC-byte BSExtraData");
 
 struct Command {
   uint32_t targetFormId = 0;
@@ -59,33 +104,46 @@ struct Command {
   std::string description;
 };
 
+// The recovery step being carried out after the player was judged stuck.
+struct Recovery {
+  bool active = false;
+  WalkerLogic::RecoveryStep step = WalkerLogic::RecoveryStep::Sidestep;
+  bool mirrored = false;
+  float elapsed = 0.0f;
+  int jumps = 0;
+  uint32_t doorFormId = 0;
+  bool doorActivated = false;
+  float doorActivatedAt = 0.0f;
+};
+
 struct WalkerState {
   TESObjectREFR *waypointMarker = nullptr;
   TESObjectREFR *trackedTarget = nullptr;
   TESObjectCELL *trackedCell = nullptr;
   NiPoint3 smoothedLookTarget = {0.0f, 0.0f, 0.0f};
   NiPoint3 lastPlayerPosition = {0.0f, 0.0f, 0.0f};
-  float lastTargetDistance = 0.0f;
-  float oscillationWindowTime = 0.0f;
-  float oscillationMinimumDistance = 0.0f;
-  float oscillationMaximumDistance = 0.0f;
-  float stationaryTime = 0.0f;
-  float recoveryTime = 0.0f;
   float interactionTime = 0.0f;
   float unalignedTime = 0.0f;
+  float blockedTime = 0.0f;
   float navigationAge = 0.0f;
+  float lineOfSightTimer = 0.0f;
   float turnVelocity = 0.0f;
-  int recoveryAttempts = 0;
-  int oscillationDirection = 0;
-  int oscillationReversals = 0;
   bool lookTargetInitialized = false;
   bool positionInitialized = false;
-  bool targetDistanceInitialized = false;
-  bool recovering = false;
   bool alignmentGaveUp = false;
   bool navigationValid = false;
+  bool lineOfSight = false;
   PathPoint3 navigationPoint{};
   NiPoint3 navigationDestination = {0.0f, 0.0f, 0.0f};
+  WalkerLogic::StuckDetector stuck;
+  WalkerLogic::OscillationDetector oscillation;
+  WalkerLogic::ProgressTracker progress;
+  WalkerLogic::RecoveryPlanner planner;
+  Recovery recovery;
+  std::string lockedDoor; // a locked closed door seen in front of the player while stuck
+  // Per command, not per route: they carry on across a cell change.
+  WalkerLogic::ProgressReminder reminder;
+  WalkerLogic::PauseNotice pauseNotice;
   bool hasCommand = false;
   Command command;
   UINT8 heldMovementKeys[4] = {kUnboundKey, kUnboundKey, kUnboundKey, kUnboundKey};
@@ -94,19 +152,11 @@ struct WalkerState {
 WalkerState g_state;
 std::vector<Event> g_events;
 bool g_lookSuppressed = false;
+InputUtils::PulseQueue g_jumpPulses{InputCore::Owner::WalkerPulse};
 
 using AimUtils::EffectiveYaw;
 using AimUtils::SetPitch;
 using AimUtils::SetYaw;
-void ResetDistanceOscillation() {
-  g_state.lastTargetDistance = 0.0f;
-  g_state.oscillationWindowTime = 0.0f;
-  g_state.oscillationMinimumDistance = 0.0f;
-  g_state.oscillationMaximumDistance = 0.0f;
-  g_state.oscillationDirection = 0;
-  g_state.oscillationReversals = 0;
-  g_state.targetDistanceInitialized = false;
-}
 
 bool IsInteractable(TESObjectREFR *ref) {
   if (!ref || !ref->baseForm)
@@ -143,9 +193,21 @@ float GetFrameTime() {
   return time ? std::clamp(time->secondsPassed, 0.0f, 0.1f) : 0.0f;
 }
 
+// Game time stands still in menus, so the paused-command notice runs on the wall clock.
+float RealFrameDelta() {
+  using Clock = std::chrono::steady_clock;
+  static Clock::time_point last{};
+  const auto now = Clock::now();
+  const float seconds = last == Clock::time_point{} ? 0.0f : std::chrono::duration<float>(now - last).count();
+  last = now;
+  return seconds > 0.5f ? 0.0f : std::clamp(seconds, 0.0f, 0.25f);
+}
+
 bool IsValidPoint(const PathPoint3 &point) {
   return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
 }
+
+float Distance2D(const NiPoint3 &left, const NiPoint3 &right) { return std::hypot(left.x - right.x, left.y - right.y); }
 
 void ReleaseMovementKeys() {
   auto &input = DIHookControl::GetSingleton();
@@ -156,34 +218,66 @@ void ReleaseMovementKeys() {
   }
 }
 
+int RetryBudget() {
+  return g_state.command.owner == Owner::Quest ? WalkerLogic::RecoveryPlanner::kQuestBudget
+                                               : WalkerLogic::RecoveryPlanner::kDefaultBudget;
+}
+
 void ResetRouteState() {
+  g_jumpPulses.ReleaseAll();
   g_state.trackedTarget = nullptr;
   g_state.trackedCell = nullptr;
-  g_state.stationaryTime = 0.0f;
-  g_state.recoveryTime = 0.0f;
   g_state.interactionTime = 0.0f;
   g_state.unalignedTime = 0.0f;
+  g_state.blockedTime = 0.0f;
+  g_state.lineOfSightTimer = 0.0f;
+  g_state.lineOfSight = false;
   g_state.alignmentGaveUp = false;
   g_state.navigationValid = false;
   g_state.navigationAge = 0.0f;
   g_state.turnVelocity = 0.0f;
-  g_state.recoveryAttempts = 0;
   g_state.lookTargetInitialized = false;
   g_state.positionInitialized = false;
-  ResetDistanceOscillation();
-  g_state.recovering = false;
+  g_state.stuck.Reset();
+  g_state.oscillation.Reset();
+  g_state.progress.Reset();
+  g_state.planner.Reset(RetryBudget());
+  g_state.recovery = {};
+  g_state.lockedDoor.clear();
 }
 
 void ClearCommand(PlayerCharacter *player) {
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
   ResetRouteState();
+  g_state.reminder.Reset();
+  g_state.pauseNotice.Reset();
   g_state.hasCommand = false;
   g_state.command = {};
 }
 
-void FinishCommand(PlayerCharacter *player, EventType type, std::string message) {
-  g_events.push_back({type, g_state.command.owner, g_state.command.targetFormId, std::move(message)});
+Event MakeEvent(EventType type) {
+  Event event;
+  event.type = type;
+  event.owner = g_state.command.owner;
+  event.targetFormId = g_state.command.targetFormId;
+  event.description = g_state.command.description;
+  return event;
+}
+
+void FinishCompleted(PlayerCharacter *player, std::string message) {
+  Event event = MakeEvent(EventType::Completed);
+  event.message = std::move(message);
+  g_events.push_back(std::move(event));
+  ClearCommand(player);
+}
+
+void FinishFailed(PlayerCharacter *player, WalkerLogic::FailureReason reason, std::string detail = {}) {
+  Event event = MakeEvent(EventType::Failed);
+  event.reason = reason;
+  event.detail = std::move(detail);
+  _WARNING("Walker failed %s (reason %d)", g_state.command.description.c_str(), static_cast<int>(reason));
+  g_events.push_back(std::move(event));
   ClearCommand(player);
 }
 
@@ -201,12 +295,22 @@ TESObjectCELL *GetNavigationCell(PlayerCharacter *player) {
   return cell ? cell : player->GetParentCell();
 }
 
+// The first path node past the waypoint-reached radius, so a node the player is already standing on does not become
+// the steering target (and force a repath every frame). The last node when every one is that close.
 bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPoint3 &pathPoint) {
   g_state.waypointMarker->pos = destination;
   Pathing::PathResult path;
   if (!Pathing::BuildPath(player, g_state.waypointMarker, path) || path.nodes.empty())
     return false;
-  pathPoint = path.nodes[std::min<size_t>(1, path.nodes.size() - 1)];
+  size_t chosen = path.nodes.size() - 1;
+  for (size_t index = 1; index < path.nodes.size(); ++index) {
+    const PathPoint3 &node = path.nodes[index];
+    if (std::hypot(node.x - player->pos.x, node.y - player->pos.y) > kWaypointReachedDistance) {
+      chosen = index;
+      break;
+    }
+  }
+  pathPoint = path.nodes[chosen];
   return IsValidPoint(pathPoint);
 }
 
@@ -243,7 +347,7 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
   g_state.navigationAge += deltaTime;
   bool refresh = !g_state.navigationValid || g_state.navigationAge >= kRepathInterval ||
                  Distance3D(destination, g_state.navigationDestination) > kDestinationMoveTolerance;
-  if (!refresh) {
+  if (!refresh && g_state.navigationAge >= kRepathMinInterval) {
     const float dx = playerPosition.x - g_state.navigationPoint.x;
     const float dy = playerPosition.y - g_state.navigationPoint.y;
     refresh = std::sqrt(dx * dx + dy * dy) < kWaypointReachedDistance;
@@ -257,93 +361,56 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
   return g_state.navigationPoint;
 }
 
-bool UpdateDistanceOscillation(float targetDistance, float deltaTime) {
-  if (!std::isfinite(targetDistance)) {
-    ResetDistanceOscillation();
-    return false;
-  }
-  if (!g_state.targetDistanceInitialized) {
-    g_state.lastTargetDistance = targetDistance;
-    g_state.oscillationMinimumDistance = targetDistance;
-    g_state.oscillationMaximumDistance = targetDistance;
-    g_state.targetDistanceInitialized = true;
-    return false;
-  }
+// --- Doors ----------------------------------------------------------------------------------------------------
 
-  g_state.oscillationWindowTime += deltaTime;
-  g_state.oscillationMinimumDistance = std::min(g_state.oscillationMinimumDistance, targetDistance);
-  g_state.oscillationMaximumDistance = std::max(g_state.oscillationMaximumDistance, targetDistance);
-  const float distanceDelta = targetDistance - g_state.lastTargetDistance;
-  const int direction = distanceDelta >= kOscillationDirectionThreshold    ? 1
-                        : distanceDelta <= -kOscillationDirectionThreshold ? -1
-                                                                           : 0;
-  if (direction) {
-    if (g_state.oscillationDirection && direction != g_state.oscillationDirection)
-      ++g_state.oscillationReversals;
-    g_state.oscillationDirection = direction;
-    g_state.lastTargetDistance = targetDistance;
-  }
-
-  const float distanceRange = g_state.oscillationMaximumDistance - g_state.oscillationMinimumDistance;
-  if (g_state.oscillationReversals >= kOscillationReversalLimit && distanceRange <= kOscillationDistanceMargin) {
-    ResetDistanceOscillation();
-    return true;
-  }
-  if (g_state.oscillationWindowTime >= kOscillationWindowDuration || distanceRange > kOscillationDistanceMargin)
-    ResetDistanceOscillation();
-  return false;
+std::string DoorLabel(TESObjectREFR *door) {
+  const char *name = door ? door->GetFullName() : nullptr;
+  return name && name[0] ? std::string("the door \"") + name + "\"" : "a door";
 }
 
-bool StartRecovery(const char *reason) {
-  if (++g_state.recoveryAttempts > kMaxRecoveryAttempts)
-    return false;
-  g_state.recovering = true;
-  g_state.recoveryTime = 0.0f;
-  g_state.stationaryTime = 0.0f;
-  ResetDistanceOscillation();
-  _DMESSAGE("Walker starting recovery attempt %d: %s", g_state.recoveryAttempts, reason);
-  return true;
+bool IsLocked(TESObjectREFR *ref) {
+  auto *extra = static_cast<ExtraLockView *>(
+      static_cast<void *>(ref->extraDataList.GetExtraData(static_cast<uint8_t>(_ExtraDataType::ExtraLock))));
+  return extra && extra->data && (extra->data->flags & 1) != 0;
 }
 
-bool UpdateStuckState(PlayerCharacter *player, float targetDistance, bool shouldMove, float deltaTime) {
-  if (!shouldMove) {
-    g_state.stationaryTime = 0.0f;
-    g_state.recoveryTime = 0.0f;
-    g_state.recovering = false;
-    g_state.positionInitialized = false;
-    ResetDistanceOscillation();
-    return true;
-  }
+struct DoorAhead {
+  TESObjectREFR *ref = nullptr;
+  bool closed = false;
+  bool locked = false;
+  float distance = FLT_MAX;
+  float heading = 0.0f;
+};
 
-  if (!g_state.positionInitialized) {
-    g_state.lastPlayerPosition = player->GetPos();
-    g_state.positionInitialized = true;
-  } else {
-    if (Math::GetDistance2D(&player->GetPos(), &g_state.lastPlayerPosition) <= kStuckDistance)
-      g_state.stationaryTime += deltaTime;
-    else
-      g_state.stationaryTime = 0.0f;
-    g_state.lastPlayerPosition = player->GetPos();
-  }
-
-  const bool distanceOscillating = !g_state.recovering && UpdateDistanceOscillation(targetDistance, deltaTime);
-  if (!g_state.recovering && g_state.stationaryTime >= kStuckDelay) {
-    if (!StartRecovery("no player movement"))
-      return false;
-  } else if (distanceOscillating && !StartRecovery("target distance oscillation")) {
-    return false;
-  }
-
-  if (g_state.recovering) {
-    g_state.recoveryTime += deltaTime;
-    if (g_state.recoveryTime >= kRecoveryDuration) {
-      g_state.recovering = false;
-      g_state.stationaryTime = 0.0f;
-      ResetDistanceOscillation();
-    }
-  }
-  return true;
+// The nearest ordinary door in front of the player. Load doors (they carry an ExtraTeleport) are skipped: activating
+// one would carry the player into another cell in the middle of a recovery.
+DoorAhead FindDoorAhead(PlayerCharacter *player) {
+  DoorAhead best;
+  const NiPoint3 here = player->GetPos();
+  const float yawDegrees = Math::ToDegrees(EffectiveYaw(player));
+  WorldUtils::ForEachLoadedReference([&](TESObjectREFR *ref, TESObjectCELL *) {
+    if (!ref->baseForm || ref->baseForm->eFormType != _FormType::TESObjectDOOR)
+      return;
+    if (ref->extraDataList.GetExtraData(_ExtraDataType::ExtraTeleport))
+      return;
+    const NiPoint3 there = ref->GetPos();
+    const float distance = Distance2D(here, there);
+    if (distance > kDoorSearchDistance || distance >= best.distance ||
+        std::abs(there.z - here.z) > kDoorMaxHeightDifference)
+      return;
+    const float heading = Math::GetHeadingBetweenPoints(here.x, here.y, yawDegrees, there.x, there.y);
+    if (std::abs(heading) > kDoorSearchCone)
+      return;
+    best.ref = ref;
+    best.distance = distance;
+    best.heading = heading;
+    best.closed = kGetOpenState(ref) == kOpenStateClosed;
+    best.locked = IsLocked(ref);
+  });
+  return best;
 }
+
+// --- Look and movement ----------------------------------------------------------------------------------------
 
 NiPoint3 UpdateSmoothedLookTarget(const PathPoint3 &navigationPoint, float deltaTime) {
   const NiPoint3 desired = {navigationPoint.x, navigationPoint.y, navigationPoint.z};
@@ -400,7 +467,10 @@ void HoldMovementKey(UINT8 key, size_t slot) {
   g_state.heldMovementKeys[slot] = key;
 }
 
-void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, bool shouldMove) {
+// `headingOffset` turns the walking direction relative to the navigation point (a quarter turn is a sidestep, a half
+// turn backs off) without touching the view, so it also works while combat owns the aim.
+void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, bool shouldMove,
+                    float headingOffset = 0.0f) {
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
   if (!shouldMove)
@@ -409,8 +479,10 @@ void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, 
   if (!input)
     return;
 
-  const float heading = Math::GetHeadingBetweenPoints(
-      player->pos.x, player->pos.y, Math::ToDegrees(EffectiveYaw(player)), navigationPoint.x, navigationPoint.y);
+  const float heading = AimLogic::WrapAngle(Math::GetHeadingBetweenPoints(player->pos.x, player->pos.y,
+                                                                          Math::ToDegrees(EffectiveYaw(player)),
+                                                                          navigationPoint.x, navigationPoint.y) +
+                                            headingOffset);
   const float diagonalThreshold = Math::ToRadians(22.5f);
   const float reverseThreshold = Math::ToRadians(112.5f);
   const float sideLimit = Math::ToRadians(157.5f);
@@ -424,19 +496,157 @@ void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, 
     HoldMovementKey(input->keyBinds[ControlCode::Left], 3);
 }
 
+// --- Stuck recovery -------------------------------------------------------------------------------------------
+
+// What a frame of recovery asks of the movement code.
+struct MovementPlan {
+  bool move = true;
+  float headingOffset = 0.0f;
+  TESObjectREFR *door = nullptr; // face this door instead of the path
+};
+
+bool IsJumpBound() { return InputUtils::ResolveControl(static_cast<int>(ControlCode::Jump)) != InputUtils::kNoControl; }
+
+void PulseJump() {
+  const uint32_t macro = InputUtils::ResolveControl(static_cast<int>(ControlCode::Jump));
+  if (macro != InputUtils::kNoControl)
+    g_jumpPulses.Pulse(macro, kJumpPulseSeconds);
+}
+
+void EndRecovery() {
+  g_state.recovery = {};
+  g_state.stuck.StartGrace(0.0f); // forget the history so the verdict needs a fresh window
+  g_state.oscillation.Reset();
+  g_state.navigationValid = false; // the next frame paths again, from wherever the step left the player
+}
+
+// Chooses and starts a recovery step. False when the walk was failed instead (the command is gone then).
+bool BeginRecovery(PlayerCharacter *player, const char *why) {
+  const DoorAhead door = FindDoorAhead(player);
+  if (door.ref && door.closed && door.locked) {
+    g_state.lockedDoor = DoorLabel(door.ref);
+    if (door.distance <= kDoorBlockingDistance && std::abs(door.heading) <= kDoorBlockingCone) {
+      FinishFailed(player, WalkerLogic::FailureReason::DoorLocked, g_state.lockedDoor);
+      return false;
+    }
+  }
+  const bool doorOpenable = door.ref && door.closed && !door.locked;
+  const auto choice = g_state.planner.Next(IsJumpBound(), doorOpenable);
+  if (!choice) {
+    if (g_state.lockedDoor.empty())
+      FinishFailed(player, WalkerLogic::FailureReason::Stuck);
+    else
+      FinishFailed(player, WalkerLogic::FailureReason::DoorLocked, g_state.lockedDoor);
+    return false;
+  }
+
+  g_state.recovery = {};
+  g_state.recovery.active = true;
+  g_state.recovery.step = choice->step;
+  g_state.recovery.mirrored = choice->mirrored;
+  g_state.recovery.doorFormId = choice->step == WalkerLogic::RecoveryStep::Door ? door.ref->GetFormID() : 0;
+  g_state.oscillation.Reset();
+  g_state.stuck.StartGrace(0.0f);
+  if (choice->step == WalkerLogic::RecoveryStep::Repath)
+    g_state.navigationValid = false;
+  _MESSAGE("Walker recovery attempt %d (%s): step %d%s", g_state.planner.Attempts(), why,
+           static_cast<int>(choice->step), choice->mirrored ? " mirrored" : "");
+  return true;
+}
+
+MovementPlan StepRecovery(PlayerCharacter *player, float deltaTime) {
+  using WalkerLogic::RecoveryStep;
+  Recovery &recovery = g_state.recovery;
+  recovery.elapsed += deltaTime;
+  MovementPlan plan;
+  switch (recovery.step) {
+  case RecoveryStep::Door: {
+    plan.move = false;
+    auto *door = LookupReference(recovery.doorFormId);
+    if (!door) {
+      EndRecovery();
+      return plan;
+    }
+    plan.door = door;
+    if (!recovery.doorActivated) {
+      const float heading = Math::GetHeadingBetweenPoints(
+          player->pos.x, player->pos.y, Math::ToDegrees(EffectiveYaw(player)), door->pos.x, door->pos.y);
+      // Combat owns the view while it is engaged, so do not wait for a turn that will not happen.
+      if (std::abs(heading) <= kDoorFaceTolerance || recovery.elapsed >= kDoorFaceTimeout || g_lookSuppressed) {
+        if (kGetOpenState(door) == kOpenStateClosed && !IsLocked(door)) {
+          CALL_MEMBER_FN(door, Activate)(player, 0, 0, 1);
+          _MESSAGE("Walker opened %s during recovery", DoorLabel(door).c_str());
+        }
+        recovery.doorActivated = true;
+        recovery.doorActivatedAt = recovery.elapsed;
+      }
+    } else if (recovery.elapsed - recovery.doorActivatedAt >= kDoorOpenWait) {
+      EndRecovery();
+      return plan;
+    }
+    break;
+  }
+  case RecoveryStep::Jump:
+    if (recovery.jumps == 0 || (recovery.jumps == 1 && recovery.elapsed >= kSecondJumpAt)) {
+      PulseJump();
+      ++recovery.jumps;
+    }
+    break;
+  case RecoveryStep::Sidestep:
+    plan.headingOffset = recovery.mirrored ? -kQuarterTurn : kQuarterTurn;
+    break;
+  case RecoveryStep::BackOff:
+    plan.headingOffset = kHalfTurn;
+    break;
+  case RecoveryStep::Repath:
+    break;
+  }
+  if (recovery.active && recovery.elapsed >= WalkerLogic::StepDuration(recovery.step))
+    EndRecovery();
+  return plan;
+}
+
+// --- Completion -----------------------------------------------------------------------------------------------
+
+void UpdateLineOfSight(PlayerCharacter *player, TESObjectREFR *target, float deltaTime) {
+  g_state.lineOfSightTimer -= deltaTime;
+  if (g_state.lineOfSightTimer > 0.0f)
+    return;
+  g_state.lineOfSightTimer = kLineOfSightInterval;
+  const bool clear = WorldUtils::HasLineOfSight(player, target, AimUtils::TargetPoint(target, AimUtils::Purpose::Look),
+                                                {kInteractionRayStart, kInteractionRayEnd});
+  if (clear != g_state.lineOfSight)
+    _DMESSAGE("Walker line of sight to %s changed: %s", g_state.command.description.c_str(),
+              clear ? "clear" : "blocked");
+  g_state.lineOfSight = clear;
+}
+
 void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance, bool aligned, float deltaTime) {
   if (distance >= kInteractionDistance) {
     g_state.interactionTime = 0.0f;
     g_state.unalignedTime = 0.0f;
+    g_state.blockedTime = 0.0f;
+    g_state.lineOfSightTimer = 0.0f;
     return;
   }
   ReleaseMovementKeys();
+  UpdateLineOfSight(player, target, deltaTime);
   if (g_state.command.intent == Intent::Move) {
-    FinishCommand(player, EventType::Completed, "Reached " + g_state.command.description + ".");
+    // Within 100 units in 3D can still be another floor or behind a wall: reached means a clear ray or the same level.
+    const bool sameLevel = std::abs(target->GetPos().z - player->GetPos().z) <= kSameLevelHeight;
+    if (g_state.lineOfSight || sameLevel) {
+      FinishCompleted(player, "Reached " + g_state.command.description + ".");
+      return;
+    }
+    g_state.blockedTime += deltaTime;
+    if (g_state.blockedTime >= kAlignmentGiveUpDelay)
+      FinishFailed(player, WalkerLogic::FailureReason::WrongFloor);
     return;
   }
 
-  if (aligned) {
+  // Interaction prefers the view on the target and a clear ray, but gives up waiting after kAlignmentGiveUpDelay and
+  // lets the game accept or reject the activation.
+  if (aligned && g_state.lineOfSight) {
     g_state.unalignedTime = 0.0f;
   } else {
     g_state.interactionTime = 0.0f;
@@ -444,7 +654,8 @@ void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance,
     if (g_state.unalignedTime < kAlignmentGiveUpDelay)
       return;
     if (!g_state.alignmentGaveUp) {
-      _WARNING("Walker could not line up with %s; interacting without alignment", g_state.command.description.c_str());
+      _WARNING("Walker could not line up with %s (%s); interacting anyway", g_state.command.description.c_str(),
+               g_state.lineOfSight ? "view not on target" : "line of sight blocked");
       g_state.alignmentGaveUp = true;
     }
   }
@@ -452,16 +663,30 @@ void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance,
   if (g_state.interactionTime < kInteractionDelay)
     return;
   if (!IsInteractable(target)) {
-    FinishCommand(player, EventType::Failed, g_state.command.description + " is not interactable.");
+    FinishFailed(player, WalkerLogic::FailureReason::NotInteractable);
     return;
   }
 
   if (!CALL_MEMBER_FN(target, Activate)(player, 0, 0, 1)) {
-    FinishCommand(player, EventType::Failed, "The game rejected interaction with " + g_state.command.description + ".");
+    FinishFailed(player, WalkerLogic::FailureReason::ActivationRejected);
     return;
   }
   _MESSAGE("Walker interacted with: %s", g_state.command.description.c_str());
-  FinishCommand(player, EventType::Completed, "Reached and interacted with " + g_state.command.description + ".");
+  FinishCompleted(player, "Reached and interacted with " + g_state.command.description + ".");
+}
+
+// The progress reminder. Combat's approach is constant and has its own end conditions, so it never reminds.
+void UpdateReminder(float deltaTime, float walked, float remaining) {
+  if (g_state.command.owner == Owner::Combat)
+    return;
+  const auto snapshot = g_state.reminder.Update(deltaTime, walked, g_state.command.owner == Owner::Exploration);
+  if (!snapshot)
+    return;
+  Event event = MakeEvent(EventType::Progress);
+  event.walkedDistance = snapshot->walkedDistance;
+  event.walkSeconds = snapshot->walkSeconds;
+  event.remainingDistance = remaining;
+  g_events.push_back(std::move(event));
 }
 
 } // namespace
@@ -478,13 +703,17 @@ bool Start(uint32_t targetFormId, Intent intent, Owner owner, std::string descri
   ClearCommand(PlayerCharacter::GetSingleton());
   g_state.command = {targetFormId, intent, owner, std::move(description)};
   g_state.hasCommand = true;
-  const char *activity = owner == Owner::Exploration  ? "Exploring toward "
-                         : owner == Owner::Quest      ? "Following "
-                         : owner == Owner::Combat     ? "Closing in on "
-                         : intent == Intent::Interact ? "Moving to interact with "
-                                                      : "Moving to ";
-  g_events.push_back(
-      {EventType::Started, owner, targetFormId, std::string(activity) + g_state.command.description + "."});
+  g_state.planner.Reset(RetryBudget());
+  // CombatHandler closes in on melee targets constantly; announcing each approach would only be noise.
+  if (owner != Owner::Combat) {
+    const char *activity = owner == Owner::Exploration  ? "Exploring toward "
+                           : owner == Owner::Quest      ? "Following "
+                           : intent == Intent::Interact ? "Moving to interact with "
+                                                        : "Moving to ";
+    Event event = MakeEvent(EventType::Started);
+    event.message = std::string(activity) + g_state.command.description + ".";
+    g_events.push_back(std::move(event));
+  }
   _MESSAGE("Walker started target %08X with intent %d and owner %d", targetFormId, static_cast<int>(intent),
            static_cast<int>(owner));
   return true;
@@ -496,63 +725,115 @@ void Process() {
   auto *player = PlayerCharacter::GetSingleton();
   if (!g_state.hasCommand)
     return;
-  if (!player || StartMenu::Get() ||
-      (player->pcControlFlags & (PlayerCharacter::kControlFlag_Movement | PlayerCharacter::kControlFlag_Look)) != 0) {
-    Pause();
+  if (!player || StartMenu::Get()) {
+    Pause(PauseReason::Menu);
+    return;
+  }
+  if ((player->pcControlFlags & (PlayerCharacter::kControlFlag_Movement | PlayerCharacter::kControlFlag_Look)) != 0) {
+    Pause(PauseReason::Controls);
     return;
   }
   if (!EnsureWaypointMarker(player)) {
-    FinishCommand(player, EventType::Failed, "Could not create a navigation waypoint.");
+    FinishFailed(player, WalkerLogic::FailureReason::NoWaypoint);
     return;
   }
 
   auto *target = LookupReference(g_state.command.targetFormId);
   if (!target) {
-    FinishCommand(player, EventType::Failed, g_state.command.description + " is no longer available.");
+    FinishFailed(player, WalkerLogic::FailureReason::TargetGone);
     return;
   }
+  const float deltaTime = GetFrameTime();
+  g_state.pauseNotice.Update(deltaTime, false);
+  g_jumpPulses.Advance(deltaTime);
+
   auto *currentCell = player->GetParentCell();
   if (target != g_state.trackedTarget || currentCell != g_state.trackedCell) {
+    const bool changedCell = g_state.trackedCell && g_state.trackedCell != currentCell;
     ReleaseMovementKeys();
     ResetRouteState();
     g_state.trackedTarget = target;
     g_state.trackedCell = currentCell;
+    if (changedCell)
+      g_state.stuck.StartGrace(kCellChangeGrace); // positions jump and the world is still streaming in
   }
 
-  const float deltaTime = GetFrameTime();
-  const float distance = Distance3D(player->GetPos(), target->GetPos());
+  const NiPoint3 playerPosition = player->GetPos();
+  float walked = 0.0f;
+  if (g_state.positionInitialized) {
+    walked = Distance2D(playerPosition, g_state.lastPlayerPosition);
+    if (walked > WalkerLogic::StuckDetector::kTeleportDistance)
+      walked = 0.0f;
+  }
+  g_state.lastPlayerPosition = playerPosition;
+  g_state.positionInitialized = true;
+
+  const float distance = Distance3D(playerPosition, target->GetPos());
   const bool shouldMove = distance >= kInteractionDistance;
   const PathPoint3 navigationPoint = GetNavigationPoint(player, target, deltaTime);
-  if (!UpdateStuckState(player, distance, shouldMove, deltaTime)) {
-    FinishCommand(player, EventType::Failed, "Could not reach " + g_state.command.description + ".");
-    return;
+
+  MovementPlan plan;
+  plan.move = shouldMove;
+  if (!shouldMove) {
+    g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, false);
+    g_state.oscillation.Reset();
+    g_state.progress.Update(deltaTime, distance, false);
+    g_state.recovery = {};
+  } else if (g_state.recovery.active) {
+    plan = StepRecovery(player, deltaTime);
+  } else {
+    g_state.planner.NoteTravel(walked);
+    if (g_state.progress.Update(deltaTime, distance, true)) {
+      FinishFailed(player, WalkerLogic::FailureReason::NoProgress);
+      return;
+    }
+    const bool stuck = g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, true);
+    const bool oscillating = g_state.oscillation.Update(deltaTime, distance);
+    if (stuck || oscillating) {
+      if (!BeginRecovery(player, stuck ? "no player movement" : "target distance oscillation"))
+        return;
+      plan = StepRecovery(player, 0.0f);
+    }
   }
 
-  PathPoint3 movementPoint = navigationPoint;
-  if (g_state.recovering) {
-    auto *cell = GetNavigationCell(player);
-    NiPoint4 closest = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
-    if (cell && Pathing::GetPointNavMesh(cell, g_state.waypointMarker->GetPos(), false, 0.0f, closest))
-      movementPoint = {closest.x, closest.y, closest.z};
-  }
   float pitchError = 0.0f;
   if (!g_lookSuppressed) {
-    const NiPoint3 lookTarget = shouldMove ? UpdateSmoothedLookTarget(movementPoint, deltaTime) : target->GetPos();
+    NiPoint3 lookTarget = target->GetPos();
+    TESObjectREFR *lookObject = target;
+    bool closeToTarget = distance < kCloseLookDistance;
+    if (plan.door) {
+      lookTarget = plan.door->GetPos();
+      lookObject = plan.door;
+      closeToTarget = true;
+    } else if (shouldMove) {
+      lookTarget = UpdateSmoothedLookTarget(navigationPoint, deltaTime);
+    }
     UpdateLook(player, lookTarget, deltaTime);
-    const bool closeToTarget = distance < kCloseLookDistance;
-    pitchError = UpdatePitch(player, target, closeToTarget, deltaTime);
+    pitchError = UpdatePitch(player, lookObject, closeToTarget, deltaTime);
   }
   const float headingError = Math::GetHeadingBetweenPoints(
       player->pos.x, player->pos.y, Math::ToDegrees(EffectiveYaw(player)), target->pos.x, target->pos.y);
   const bool aligned = std::abs(headingError) <= kLookAlignmentTolerance && pitchError <= kLookAlignmentTolerance;
-  UpdateMovement(player, movementPoint, shouldMove);
+  UpdateMovement(player, navigationPoint, plan.move, plan.headingOffset);
+  UpdateReminder(deltaTime, walked, distance);
   TryComplete(player, target, distance, aligned, deltaTime);
 }
 
-void Pause() {
+void Pause(PauseReason reason) {
   auto *player = PlayerCharacter::GetSingleton();
   ReleaseMovementKeys();
+  g_jumpPulses.ReleaseAll();
   Player::SetAutoMove(player, false);
+  if (!g_state.hasCommand)
+    return;
+  if (!g_state.pauseNotice.Update(RealFrameDelta(), true))
+    return;
+  const char *cause = reason == PauseReason::PipBoy     ? "the Pip-Boy is being used"
+                      : reason == PauseReason::Controls ? "your controls are disabled (a scripted scene or cutscene)"
+                                                        : "a menu is open";
+  Event event = MakeEvent(EventType::Paused);
+  event.detail = cause;
+  g_events.push_back(std::move(event));
 }
 
 void Stop() {
