@@ -31,6 +31,8 @@ using Pacing::Clock;
 using Pacing::kCloseTimeout;
 using Pacing::kStepDelay;
 
+// The pane filter value that shows every item (the "All" arrow position).
+constexpr uint32_t kAllItemsFilter = 0;
 constexpr auto kTransferTimeout = std::chrono::seconds(60);
 
 struct Transfer {
@@ -265,7 +267,7 @@ void AdvanceTransfer() {
     return;
   }
   const auto filter = transfer.stow ? g_owner->leftFilter : g_owner->rightFilter;
-  if (filter != 0) {
+  if (filter != kAllItemsFilter) {
     const char *arrow = transfer.stow ? "NOGLOW_BRANCH/CM_ItemsRect/CM_Items_LeftFilterArrow"
                                       : "NOGLOW_BRANCH/CM_ContainerRect/CM_Container_LeftFilterArrow";
     if (!UIUtils::ClickControl(g_owner, arrow))

@@ -143,10 +143,15 @@ bool IsOpen() {
          Menu::IsMenuVisible(Interface::PipboyData);
 }
 
-bool IsActive(Tab tab) {
+namespace {
+// `current` is CurrentTab(), passed in so a caller that already has it does not resolve it again.
+bool IsActiveWith(Tab tab, const std::optional<Tab> &current) {
   auto *manager = InterfaceManager::GetSingleton();
-  return manager && manager->pipBoyMode == 3 && Menu::IsMenuVisible(MenuId(tab)) && CurrentTab() == tab;
+  return manager && manager->pipBoyMode == 3 && Menu::IsMenuVisible(MenuId(tab)) && current == tab;
 }
+} // namespace
+
+bool IsActive(Tab tab) { return IsActiveWith(tab, CurrentTab()); }
 
 bool IsTransitioning() { return g_transition.has_value(); }
 
@@ -177,7 +182,7 @@ bool Process() {
   if (g_actions.Empty())
     g_actions.Add(std::make_unique<Actions::PipBoy::ClosePipBoyAction>());
   const auto tab = CurrentTab();
-  g_actions.Sync(tab && IsActive(*tab) && !IsExecuting());
+  g_actions.Sync(tab && IsActiveWith(*tab, tab) && !IsExecuting());
   return open || IsTransitioning() || inventoryBlocks;
 }
 

@@ -1,5 +1,7 @@
 #include "Inventory/ItemQuery.hpp"
+#include <algorithm>
 #include <array>
+#include <sstream>
 #include <utility>
 
 namespace Inventory {
@@ -113,6 +115,34 @@ Actions::Json::JsonSchema BuildItemIndexSchema() {
   index.Minimum(1);
   schema.Property("index", std::move(index));
   return schema;
+}
+
+size_t PageCount(size_t total) { return std::max(size_t{1}, (total + kItemsPerPage - 1) / kItemsPerPage); }
+
+std::optional<std::string> ValidatePage(size_t total, int page) {
+  const size_t pages = PageCount(total);
+  // A negative page wraps to a huge value and is refused here as well.
+  if (static_cast<size_t>(page) >= pages)
+    return "Page index is out of range. Valid pages: 0.." + std::to_string(pages - 1) + ".";
+  return std::nullopt;
+}
+
+std::string FormatItemPage(ItemQueryType type, int page, size_t total, const std::vector<ListedItem> &items,
+                           const char *queryAction) {
+  const size_t first = static_cast<size_t>(page) * kItemsPerPage;
+  std::ostringstream context;
+  context << "Type: " << ItemQueryTypeName(type) << "; page " << page << "; " << total
+          << " item stacks. Pages start at 0; item indexes start at 1.\n";
+  if (total == 0)
+    context << (type == ItemQueryType::All ? "Empty.\n" : "No items match this type.\n");
+  for (size_t offset = 0; offset < items.size(); ++offset) {
+    context << "\n- `" << first + offset + 1 << "` - " << items[offset].name << " x" << items[offset].count;
+    if (items[offset].equipped)
+      context << " (equipped)";
+  }
+  if (first + items.size() < total)
+    context << "\nUse " << queryAction << " with index " << page + 1 << " and the same type for the next 15 items.";
+  return context.str();
 }
 
 } // namespace Inventory

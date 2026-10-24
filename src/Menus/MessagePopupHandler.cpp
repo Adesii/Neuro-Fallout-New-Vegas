@@ -11,6 +11,7 @@
 #include "utils/UIUtils.hpp"
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,7 +40,7 @@ struct ExecutionState {
 };
 
 std::unique_ptr<Actions::ActionWindow> g_window;
-std::unique_ptr<ExecutionState> g_execution;
+std::optional<ExecutionState> g_execution;
 std::string g_publishedSignature;
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 ScopedState::Delay g_acceptDelay;
@@ -131,7 +132,7 @@ void CloseWindow() {
 
 void StopExecution(const std::string &reason) {
   _WARNING("Popup selection stopped: %s", reason.c_str());
-  NeuroSDK::SendContext(("Popup selection stopped: " + reason).c_str());
+  NeuroSDK::SendContext(("## Popup selection stopped\n" + reason).c_str());
   g_execution.reset();
 }
 
@@ -254,12 +255,11 @@ bool RevalidateSelection(const SelectionSnapshot &snapshot, std::string &error) 
 void StartExecution(const SelectionSnapshot &snapshot) {
   std::string error;
   if (!RevalidateSelection(snapshot, error)) {
-    NeuroSDK::SendContext(("Popup selection could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## Popup selection could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(ExecutionState{
-      .selection = snapshot, .label = UIUtils::GetTileString(snapshot.tile), .clickAt = now + kSelectionDelay});
+  g_execution.emplace(ExecutionState{.selection = snapshot, .label = UIUtils::GetTileString(snapshot.tile)});
   g_execution->timer.Start(now);
 }
 
@@ -268,7 +268,7 @@ bool Process() {
   if (g_execution) {
     g_execution->timer.Tick(menu != nullptr);
     AdvanceExecution(menu);
-    return g_execution != nullptr || menu != nullptr;
+    return g_execution.has_value() || menu != nullptr;
   }
   if (!menu) {
     Reset();

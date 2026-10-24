@@ -82,35 +82,45 @@ ListBoxItem<ItemChange *> *FindLive(const Inventory::ItemIdentity &identity, boo
 
 // Native category order is corroborated by JIP's InventoryMenu::tabScrollPos
 // and FalloutNVAccess's InventoryMenuHandler. Shared API categories stay unchanged.
+// Keys are the sixth "category" but have no tab button: they sit behind the Misc tab's keyring row.
+enum NativeCategoryId : uint32_t {
+  kCategoryWeapons = 0,
+  kCategoryApparel = 1,
+  kCategoryAid = 2,
+  kCategoryMisc = 3,
+  kCategoryAmmo = 4,
+  kCategoryKeys = 5,
+};
+
 uint32_t NativeCategory(const TESForm &form) {
   if (form.eFormType == _FormType::TESAmmo)
-    return 4;
+    return kCategoryAmmo;
   switch (Inventory::ClassifyItem(form)) {
   case Inventory::ItemQueryType::Weapons:
-    return 0;
+    return kCategoryWeapons;
   case Inventory::ItemQueryType::Equipment:
-    return 1;
+    return kCategoryApparel;
   case Inventory::ItemQueryType::Consumerable:
-    return 2;
+    return kCategoryAid;
   case Inventory::ItemQueryType::Keys:
-    return 5;
+    return kCategoryKeys;
   default:
-    return 3;
+    return kCategoryMisc;
   }
 }
 
 uint32_t EmptyQueryCategory(Inventory::ItemQueryType type) {
   switch (type) {
   case Inventory::ItemQueryType::All:
-    return g_owner->filter < 5 ? g_owner->filter : 3;
+    return g_owner->filter < kCategoryKeys ? g_owner->filter : kCategoryMisc;
   case Inventory::ItemQueryType::Weapons:
-    return 0;
+    return kCategoryWeapons;
   case Inventory::ItemQueryType::Equipment:
-    return 1;
+    return kCategoryApparel;
   case Inventory::ItemQueryType::Consumerable:
-    return 2;
+    return kCategoryAid;
   default:
-    return 3;
+    return kCategoryMisc;
   }
 }
 
@@ -172,7 +182,7 @@ enum class Navigation { Ready, Waiting, Failed };
 Navigation Navigate(Execution &execution, std::string &error) {
   if (g_owner->filter == execution.category)
     return Navigation::Ready;
-  if (g_owner->filter == 5) {
+  if (g_owner->filter == kCategoryKeys) {
     if (!UIUtils::ClickTile(g_owner, g_owner->tile050)) {
       error = "The native keyring could not be closed.";
       return Navigation::Failed;
@@ -181,7 +191,7 @@ Navigation Navigate(Execution &execution, std::string &error) {
     return Navigation::Waiting;
   }
 
-  const uint32_t category = execution.category == 5 ? 3 : execution.category;
+  const uint32_t category = execution.category == kCategoryKeys ? kCategoryMisc : execution.category;
   if (g_owner->filter != category) {
     auto *button = CategoryButton(category);
     if (!UIUtils::IsControlAvailable(button) || !UIUtils::ClickTile(g_owner, button)) {

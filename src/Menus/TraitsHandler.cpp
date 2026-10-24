@@ -9,11 +9,13 @@
 #include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
+#include "defs/MenuSingletons.hpp"
 #include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -60,9 +62,9 @@ std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 std::string g_publishedSignature;
-std::unique_ptr<ExecutionState> g_execution;
+std::optional<ExecutionState> g_execution;
 
-TraitMenu *GetMenu() { return *reinterpret_cast<TraitMenu **>(0x11DAF74); }
+TraitMenu *GetMenu() { return MenuSingletons::Traits(); }
 
 bool IsTopMenu(TraitMenu *menu) { return UIUtils::IsTopMenu(menu, Interface::Traits); }
 
@@ -115,8 +117,11 @@ std::string BuildSignature(TraitMenu *menu, const std::vector<TraitOption> &opti
   return signature;
 }
 
+// A trait can be (un)selected: the menu has slots and the current selection fits them.
+bool CanSelect(const TraitMenu *menu) { return menu->maxSelect > 0 && menu->numSelected <= menu->maxSelect; }
+
 std::string BuildState(TraitMenu *menu, const std::vector<TraitOption> &options) {
-  const bool canSelect = menu->maxSelect > 0 && menu->numSelected <= menu->maxSelect;
+  const bool canSelect = CanSelect(menu);
   std::string state = "## Traits\nSelected slots: **" + std::to_string(menu->numSelected) + " of up to " +
                       std::to_string(menu->maxSelect) +
                       "**. Traits are optional; `done_traits_menu` keeps the current "
@@ -182,7 +187,7 @@ void CloseWindow() {
 
 void StopExecution(const std::string &reason) {
   _WARNING("Trait execution stopped: %s", reason.c_str());
-  NeuroSDK::SendContext(("Trait selection stopped: " + reason).c_str());
+  NeuroSDK::SendContext(("## Trait selection stopped\n" + reason).c_str());
   g_execution.reset();
 }
 
@@ -344,7 +349,7 @@ bool ValidateSelection(int select, int unselect, SelectionSnapshot &snapshot, st
 
 bool RevalidateSelection(const SelectionSnapshot &snapshot, std::string &error) {
   auto *menu = GetMenu();
-  if (!menu || !IsTopMenu(menu) || menu->maxSelect == 0 || menu->numSelected > menu->maxSelect || g_execution ||
+  if (!menu || !IsTopMenu(menu) || !CanSelect(menu) || g_execution ||
       !MatchesSelection(snapshot, menu, GetOptions(menu))) {
     error = "The selected traits changed before execution. Choose from the current menu and try again.";
     return false;
@@ -375,30 +380,29 @@ bool RevalidateDone(const DoneSnapshot &snapshot, std::string &error) {
 void StartSelection(const SelectionSnapshot &snapshot) {
   std::string error;
   if (!RevalidateSelection(snapshot, error)) {
-    NeuroSDK::SendContext(("Trait selection could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## Trait selection could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(
-      ExecutionState{.selection = snapshot,
-                     .nextStepAt = now,
-                     .phase = snapshot.shouldUnselect ? Phase::PrepareUnselect : Phase::PrepareSelect});
+  g_execution.emplace(ExecutionState{.selection = snapshot,
+                                     .nextStepAt = now,
+                                     .phase = snapshot.shouldUnselect ? Phase::PrepareUnselect : Phase::PrepareSelect});
   g_execution->timer.Start(now);
 }
 
 void StartDone(const DoneSnapshot &snapshot) {
   std::string error;
   if (!RevalidateDone(snapshot, error)) {
-    NeuroSDK::SendContext(("Traits Done could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## Traits Done could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(
+  g_execution.emplace(
       ExecutionState{.done = snapshot, .nextStepAt = now + kVisualDelay, .phase = Phase::ClickDone, .finishing = true});
   g_execution->timer.Start(now);
 }
 
-bool IsExecuting() { return g_execution != nullptr; }
+bool IsExecuting() { return g_execution.has_value(); }
 
 void Reset() {
   if (g_window) {
@@ -417,7 +421,7 @@ bool Process(bool unobstructed) {
     g_execution->timer.Tick(unobstructed && menuOpen);
     if (unobstructed)
       AdvanceExecution();
-    return g_execution != nullptr || menuOpen;
+    return g_execution.has_value() || menuOpen;
   }
   if (Actions::ActionRegistry::Get().HasPendingResult("select_trait") ||
       Actions::ActionRegistry::Get().HasPendingResult("done_traits_menu"))
@@ -452,7 +456,7 @@ bool Process(bool unobstructed) {
 
   const auto describedOptions = GetOptions(menu, true);
   const std::string state = BuildState(menu, describedOptions);
-  const bool canSelect = menu->maxSelect > 0 && menu->numSelected <= menu->maxSelect;
+  const bool canSelect = CanSelect(menu);
   const std::string query =
       canSelect ? "Either select one trait with select_trait, or use done_traits_menu to finish now without selecting "
                   "anything else. Traits are optional."

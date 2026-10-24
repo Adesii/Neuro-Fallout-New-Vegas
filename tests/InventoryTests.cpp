@@ -124,3 +124,52 @@ TEST("item listing: revisions change on replace and clear so stale actions are d
   CHECK(!listing.Available());
   CHECK(listing.Find(1) == nullptr);
 }
+
+TEST("inventory paging: an empty list still has page zero, fifteen stacks per page") {
+  using namespace Inventory;
+  CHECK_EQ(PageCount(0), size_t{1});
+  CHECK_EQ(PageCount(1), size_t{1});
+  CHECK_EQ(PageCount(15), size_t{1});
+  CHECK_EQ(PageCount(16), size_t{2});
+  CHECK_EQ(PageCount(45), size_t{3});
+  CHECK(!ValidatePage(0, 0));
+  CHECK(!ValidatePage(16, 1));
+  CHECK(ValidatePage(16, 2).has_value());
+  CHECK(ValidatePage(0, 1)->find("0..0") != std::string::npos);
+  CHECK(ValidatePage(45, 3)->find("0..2") != std::string::npos);
+  CHECK(ValidatePage(10, -1).has_value()); // the parser prevents it, the check still refuses it
+}
+
+TEST("inventory paging: a published page lists one-based indexes across pages and hints at the next one") {
+  using namespace Inventory;
+  std::vector<ListedItem> items = {{{1, 0}, "Pistol", 1, true}, {{2, 0}, "Stimpak", 3, false}};
+  const std::string first = FormatItemPage(ItemQueryType::All, 0, 20, items, "query_items");
+  CHECK(first.find("page 0; 20 item stacks") != std::string::npos);
+  CHECK(first.find("- `1` - Pistol x1 (equipped)") != std::string::npos);
+  CHECK(first.find("- `2` - Stimpak x3") != std::string::npos);
+  CHECK(first.find("query_items with index 1") != std::string::npos);
+
+  const std::string second = FormatItemPage(ItemQueryType::All, 1, 17, items, "query_items");
+  CHECK(second.find("- `16` - Pistol") != std::string::npos);
+  CHECK(second.find("- `17` - Stimpak") != std::string::npos);
+  CHECK(second.find("for the next") == std::string::npos); // the last page has no hint
+
+  CHECK(FormatItemPage(ItemQueryType::All, 0, 0, {}, "query_items").find("Empty.") != std::string::npos);
+  CHECK(FormatItemPage(ItemQueryType::Keys, 0, 0, {}, "query_items").find("No items match this type.") !=
+        std::string::npos);
+}
+
+TEST("inventory listing: lookup and consume share one slot rule") {
+  using namespace Inventory;
+  ItemListing listing;
+  CHECK(listing.Find(1) == nullptr);
+  listing.Replace({{{1, 0}, "A", 1}, {{2, 0}, "B", 1}}, 16);
+  CHECK(listing.Find(15) == nullptr && listing.Find(0) == nullptr && listing.Find(18) == nullptr);
+  REQUIRE(listing.Find(16) != nullptr);
+  CHECK_EQ(listing.Find(17)->name, std::string("B"));
+  listing.Consume(17);
+  listing.Consume(99);
+  CHECK(listing.Find(17)->consumed && !listing.Find(16)->consumed);
+  listing.Clear();
+  CHECK(listing.Find(16) == nullptr);
+}

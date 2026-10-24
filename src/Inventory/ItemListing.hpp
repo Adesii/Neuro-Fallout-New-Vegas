@@ -41,25 +41,26 @@ public:
     ++m_revision;
   }
 
-  const ListedItem *Find(int index) const {
-    if (!m_available || index < 1 || static_cast<size_t>(index) < m_firstIndex)
-      return nullptr;
-    const size_t offset = static_cast<size_t>(index) - m_firstIndex;
-    return offset < m_items.size() ? &m_items[offset] : nullptr;
-  }
+  const ListedItem *Find(int index) const { return Slot(index); }
 
   void Consume(int index) {
-    if (!m_available || index < 1 || static_cast<size_t>(index) < m_firstIndex)
-      return;
-    const size_t offset = static_cast<size_t>(index) - m_firstIndex;
-    if (offset < m_items.size())
-      m_items[offset].consumed = true;
+    if (ListedItem *item = Slot(index))
+      item->consumed = true;
   }
 
   bool Available() const { return m_available; }
   uint64_t Revision() const { return m_revision; }
 
 private:
+  // The published stack with this one-based index, or null when it is not on the published page.
+  ListedItem *Slot(int index) {
+    if (!m_available || index < 1 || static_cast<size_t>(index) < m_firstIndex)
+      return nullptr;
+    const size_t offset = static_cast<size_t>(index) - m_firstIndex;
+    return offset < m_items.size() ? &m_items[offset] : nullptr;
+  }
+  const ListedItem *Slot(int index) const { return const_cast<ItemListing *>(this)->Slot(index); }
+
   std::vector<ListedItem> m_items;
   size_t m_firstIndex = 1;
   uint64_t m_revision = 0;

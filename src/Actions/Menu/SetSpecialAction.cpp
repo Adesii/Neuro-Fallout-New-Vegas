@@ -10,14 +10,14 @@
 namespace Actions::Menu {
 namespace {
 
-constexpr std::array<const char *, 7> kNames = {"strength",     "perception", "endurance", "charisma",
-                                                "intelligence", "agility",    "luck"};
+constexpr std::array<const char *, Menus::Special::kAttributeCount> kNames = {
+    "strength", "perception", "endurance", "charisma", "intelligence", "agility", "luck"};
 
 Definition BuildDefinition() {
   auto schema = Actions::Json::JsonSchema::Object();
   for (const char *name : kNames) {
     auto attribute = Actions::Json::JsonSchema::Integer();
-    attribute.Minimum(1).Maximum(10);
+    attribute.Minimum(Menus::Special::kMinValue).Maximum(Menus::Special::kMaxValue);
     schema.Property(name, std::move(attribute));
   }
 
@@ -47,8 +47,10 @@ PreparedAction SetSpecialAction::Validate(const Request &request) {
   for (size_t index = 0; index < kNames.size(); ++index) {
     if (!data->GetInteger(kNames[index], values[index]))
       return PreparedAction::Failure(std::string(kNames[index]) + " must be an integer.");
-    if (values[index] < 1 || values[index] > 10)
-      return PreparedAction::Failure(std::string(kNames[index]) + " is out of range. Select a value from 1 to 10.");
+    if (values[index] < Menus::Special::kMinValue || values[index] > Menus::Special::kMaxValue)
+      return PreparedAction::Failure(std::string(kNames[index]) + " is out of range. Select a value from " +
+                                     std::to_string(Menus::Special::kMinValue) + " to " +
+                                     std::to_string(Menus::Special::kMaxValue) + ".");
   }
 
   if (!Menus::SpecialAllocationHandler::ValidateAllocation(values, error))

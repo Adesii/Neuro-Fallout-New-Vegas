@@ -15,6 +15,7 @@
 #include <chrono>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <string>
 
 namespace Menus::SpecialAllocationHandler {
@@ -32,8 +33,8 @@ constexpr int kMaxSteps = 120;
 
 enum class ExecutionPhase { Reduce, Rewind, Allocate };
 
-constexpr std::array<const char *, 7> kSpecialNames = {"Strength",     "Perception", "Endurance", "Charisma",
-                                                       "Intelligence", "Agility",    "Luck"};
+constexpr std::array<const char *, Special::kAttributeCount> kSpecialNames = {
+    "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck"};
 
 struct ExecutionState {
   Menu *owner = nullptr;
@@ -54,7 +55,7 @@ struct ExecutionState {
 std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
-std::unique_ptr<ExecutionState> g_execution;
+std::optional<ExecutionState> g_execution;
 bool g_invalidOverlayLogged = false;
 Menu *g_lastObservedMenu = nullptr;
 
@@ -66,14 +67,14 @@ int GetSpecialValue(int index) {
 std::string BuildState(int totalPoints) {
   std::string state =
       "## SPECIAL allocation\nAvailable total: **" + std::to_string(totalPoints) + "**\n\n## Current values";
-  for (int index = 0; index < 7; ++index)
+  for (int index = 0; index < Special::kAttributeCount; ++index)
     state += "\n- **" + std::string(kSpecialNames[index]) + ":** " + std::to_string(GetSpecialValue(index));
   return state;
 }
 
 std::string BuildCompletionSummary(const SpecialValues &values) {
   std::string summary = "## Character build: SPECIAL";
-  for (int index = 0; index < 7; ++index)
+  for (int index = 0; index < Special::kAttributeCount; ++index)
     summary += "\n- " + std::string(kSpecialNames[index]) + ": " + std::to_string(values[index]);
   return summary;
 }
@@ -81,7 +82,8 @@ std::string BuildCompletionSummary(const SpecialValues &values) {
 bool IsTopMenu() { return UIUtils::IsTopMenu(LoveTester::GetMenu(), Interface::LoveTester); }
 
 bool IsValidMenuData(const LoveTester::Data *data) {
-  return data && data->currentPage >= 0 && data->currentPage <= 8 && data->totalPoints >= 7 && data->totalPoints <= 70;
+  return data && data->currentPage >= 0 && data->currentPage <= Special::kLastPage &&
+         data->totalPoints >= Special::kMinTotal && data->totalPoints <= Special::kMaxTotal;
 }
 
 bool IsInitialPage(int page) { return page == 0 || page == 1; }
@@ -97,7 +99,7 @@ void AbortExecution(const std::string &reason) {
   if (!g_execution || g_execution->aborting)
     return;
   _WARNING("SPECIAL allocation stopped: %s", reason.c_str());
-  NeuroSDK::SendContext(("SPECIAL allocation stopped: " + reason).c_str());
+  NeuroSDK::SendContext(("## SPECIAL allocation stopped\n" + reason).c_str());
   g_execution->aborting = true;
   g_execution->waitingForClose = false;
   g_execution->confirmationClicked = false;
@@ -107,7 +109,7 @@ void AbortExecution(const std::string &reason) {
 }
 
 bool ValuesMatch(const SpecialValues &targets) {
-  for (int index = 0; index < 7; ++index) {
+  for (int index = 0; index < Special::kAttributeCount; ++index) {
     if (GetSpecialValue(index) != targets[index])
       return false;
   }
@@ -189,7 +191,7 @@ void AdvanceExecution(bool unobstructed) {
     if (clicked)
       _VMESSAGE("SPECIAL execution advancing from cover to Strength");
     delay = kPageChangeDelay;
-  } else if (page >= 1 && page <= 7) {
+  } else if (page >= 1 && page <= Special::kLastAttributePage) {
     const int index = page - 1;
     const int current = GetSpecialValue(index);
     if (g_execution->phase == ExecutionPhase::Reduce) {
@@ -309,17 +311,17 @@ void StartExecution(const SpecialValues &values) {
   auto *data = LoveTester::GetData();
   std::string error;
   if (!data || !RevalidateAllocation(values, menu, data->currentPage, data->totalPoints, error)) {
-    NeuroSDK::SendContext(("SPECIAL allocation could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## SPECIAL allocation could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(ExecutionState{.owner = menu, .targets = values, .nextStepAt = now});
+  g_execution.emplace(ExecutionState{.owner = menu, .targets = values, .nextStepAt = now});
   g_execution->timer.Start(now);
   _MESSAGE("SPECIAL visual execution started: S%d P%d E%d C%d I%d A%d L%d", values[0], values[1], values[2], values[3],
            values[4], values[5], values[6]);
 }
 
-bool IsExecuting() { return g_execution != nullptr; }
+bool IsExecuting() { return g_execution.has_value(); }
 
 void Reset() {
   if (g_window) {
@@ -363,7 +365,7 @@ bool Process(bool unobstructed) {
     g_execution->timer.Tick(unobstructed && menuOpen);
     g_execution->recoveryTimer.Tick(unobstructed && menuOpen);
     AdvanceExecution(unobstructed);
-    return g_execution != nullptr || menuOpen;
+    return g_execution.has_value() || menuOpen;
   }
 
   if (Actions::ActionRegistry::Get().HasPendingResult("set_special"))

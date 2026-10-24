@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -64,7 +65,7 @@ std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 std::string g_publishedSignature;
-std::unique_ptr<ExecutionState> g_execution;
+std::optional<ExecutionState> g_execution;
 
 Menu *AsMenu(MenuData *menu) { return reinterpret_cast<Menu *>(menu); }
 
@@ -121,9 +122,14 @@ std::string BuildSignature(MenuData *menu, const std::vector<SkillOption> &optio
   return signature;
 }
 
+// Done is only offered once every tag slot is assigned.
+bool CanFinish(MenuData *menu) {
+  const int currentPoints = GetMenuTrait(menu, "_CurrPoints");
+  return currentPoints >= 0 && currentPoints == GetMenuTrait(menu, "_MaxPoints");
+}
+
 std::string BuildState(MenuData *menu, const std::vector<SkillOption> &options) {
-  const bool canFinish =
-      GetMenuTrait(menu, "_CurrPoints") >= 0 && GetMenuTrait(menu, "_CurrPoints") == GetMenuTrait(menu, "_MaxPoints");
+  const bool canFinish = CanFinish(menu);
   std::string state = "## Tag skills\nTagged slots: **" + std::to_string(GetMenuTrait(menu, "_CurrPoints")) + " of " +
                       std::to_string(GetMenuTrait(menu, "_MaxPoints")) + "**.";
   state += canFinish ? " `done_char_gen_menu` is available to keep these skills and finish."
@@ -184,7 +190,7 @@ void CloseWindow() {
 
 void StopExecution(const std::string &reason) {
   _WARNING("Tag-skill execution stopped: %s", reason.c_str());
-  NeuroSDK::SendContext(("Tag-skill selection stopped: " + reason).c_str());
+  NeuroSDK::SendContext(("## Tag-skill selection stopped\n" + reason).c_str());
   g_execution.reset();
 }
 
@@ -383,30 +389,29 @@ bool RevalidateDone(const DoneSnapshot &snapshot, std::string &error) {
 void StartSelection(const SelectionSnapshot &snapshot) {
   std::string error;
   if (!RevalidateSelection(snapshot, error)) {
-    NeuroSDK::SendContext(("Skill selection could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## Skill selection could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(
-      ExecutionState{.selection = snapshot,
-                     .nextStepAt = now,
-                     .phase = snapshot.shouldUnselect ? Phase::PrepareUnselect : Phase::PrepareSelect});
+  g_execution.emplace(ExecutionState{.selection = snapshot,
+                                     .nextStepAt = now,
+                                     .phase = snapshot.shouldUnselect ? Phase::PrepareUnselect : Phase::PrepareSelect});
   g_execution->timer.Start(now);
 }
 
 void StartDone(const DoneSnapshot &snapshot) {
   std::string error;
   if (!RevalidateDone(snapshot, error)) {
-    NeuroSDK::SendContext(("Tag-skill Done could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## Tag-skill Done could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(
+  g_execution.emplace(
       ExecutionState{.done = snapshot, .nextStepAt = now + kVisualDelay, .phase = Phase::ClickDone, .finishing = true});
   g_execution->timer.Start(now);
 }
 
-bool IsExecuting() { return g_execution != nullptr; }
+bool IsExecuting() { return g_execution.has_value(); }
 
 void Reset() {
   if (g_window) {
@@ -425,7 +430,7 @@ bool Process(bool unobstructed) {
     g_execution->timer.Tick(unobstructed && menuOpen);
     if (unobstructed)
       AdvanceExecution();
-    return g_execution != nullptr || menuOpen;
+    return g_execution.has_value() || menuOpen;
   }
   if (Actions::ActionRegistry::Get().HasPendingResult("select_skill") ||
       Actions::ActionRegistry::Get().HasPendingResult("done_char_gen_menu"))
@@ -460,8 +465,7 @@ bool Process(bool unobstructed) {
 
   const auto describedOptions = GetOptions(menu, true);
   const std::string state = BuildState(menu, describedOptions);
-  const bool canFinish =
-      GetMenuTrait(menu, "_CurrPoints") >= 0 && GetMenuTrait(menu, "_CurrPoints") == GetMenuTrait(menu, "_MaxPoints");
+  const bool canFinish = CanFinish(menu);
   const std::string query = canFinish
                                 ? "Either change one tagged skill with select_skill, or use done_char_gen_menu to keep "
                                   "the current selection and finish now."

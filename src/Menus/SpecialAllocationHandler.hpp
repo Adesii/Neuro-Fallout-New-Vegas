@@ -1,11 +1,12 @@
 #pragma once
 
+#include "Menus/SpecialLimits.hpp"
 #include <array>
 #include <string>
 
 namespace Menus::SpecialAllocationHandler {
 
-using SpecialValues = std::array<int, 7>;
+using SpecialValues = std::array<int, Special::kAttributeCount>;
 
 bool Process(bool unobstructed);
 bool IsExecuting();

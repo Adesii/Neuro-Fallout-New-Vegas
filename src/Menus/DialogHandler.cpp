@@ -7,10 +7,12 @@
 #include "Menus/Pacing.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
+#include "defs/MenuSingletons.hpp"
 #include "utils/ScopedState.hpp"
 #include "utils/UIUtils.hpp"
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -48,7 +50,7 @@ std::unique_ptr<Actions::ActionWindow> g_window;
 // A registration that fails persistently must not be retried (and logged) every frame.
 ScopedState::Backoff g_registerRetry{kRegisterRetryDelay};
 std::string g_publishedSignature;
-std::unique_ptr<ExecutionState> g_execution;
+std::optional<ExecutionState> g_execution;
 std::vector<SpokenLine> g_pendingSpeech;
 // Lines already reported as context but still part of the current decision ("since the last choice").
 std::vector<SpokenLine> g_spokenSinceChoice;
@@ -56,7 +58,7 @@ DialogMenu *g_observedMenu = nullptr;
 std::string g_lastSpokenLine;
 bool g_wasShowingText = false;
 
-DialogMenu *GetMenu() { return *reinterpret_cast<DialogMenu **>(0x11D9510); }
+DialogMenu *GetMenu() { return MenuSingletons::Dialog(); }
 
 bool IsTopMenu(DialogMenu *menu) { return UIUtils::IsTopMenu(menu, Interface::Dialog); }
 
@@ -141,7 +143,7 @@ void CloseWindow() {
 
 void StopExecution(const std::string &reason) {
   _WARNING("Dialog selection stopped: %s", reason.c_str());
-  NeuroSDK::SendContext(("Dialog selection stopped: " + reason).c_str());
+  NeuroSDK::SendContext(("## Dialog selection stopped\n" + reason).c_str());
   g_execution.reset();
 }
 
@@ -298,12 +300,11 @@ bool RevalidateSelection(const SelectionSnapshot &snapshot, std::string &error) 
 void StartExecution(const SelectionSnapshot &snapshot) {
   std::string error;
   if (!RevalidateSelection(snapshot, error)) {
-    NeuroSDK::SendContext(("Dialog selection could not start: " + error).c_str());
+    NeuroSDK::SendContext(("## Dialog selection could not start\n" + error).c_str());
     return;
   }
   const auto now = Clock::now();
-  g_execution = std::make_unique<ExecutionState>(ExecutionState{
-      .selection = snapshot, .responseText = UIUtils::GetTileString(snapshot.tile), .clickAt = now + kSelectionDelay});
+  g_execution.emplace(ExecutionState{.selection = snapshot, .responseText = UIUtils::GetTileString(snapshot.tile)});
   g_execution->timer.Start(now);
   // The choice is made: the next decision starts a fresh "since the last choice" record.
   g_spokenSinceChoice.clear();
@@ -331,7 +332,7 @@ bool Process(bool automationAllowed) {
     g_execution->timer.Tick(automationAllowed && menuOpen);
     if (automationAllowed)
       AdvanceExecution();
-    return g_execution != nullptr || menuOpen;
+    return g_execution.has_value() || menuOpen;
   }
   if (Actions::ActionRegistry::Get().HasPendingResult("select_dialog"))
     return true;
