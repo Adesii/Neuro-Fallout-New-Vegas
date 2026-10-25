@@ -10,19 +10,25 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / ".reference-data"
 REPOS = DATA / "repos"
-MANAGED = DATA / "managed-repos"
+# Cloud setup points this outside the checkout (a cache dir) so a re-cloned repository can re-link without network.
+MANAGED = Path(os.environ.get("NEURO_FNV_MANAGED_DIR") or DATA / "managed-repos")
 EXTRACTS = DATA / "extracts"
 ROOT_FILE = ROOT / ".references"
 MANIFEST = ROOT / "tools" / "reference-manifest.json"
 MAX_TOTAL = 64 * 1024 * 1024
 MAX_FILE = 4 * 1024 * 1024
 MAX_RATIO = 200
-
+GIT_TIMEOUT = int(os.environ.get("NEURO_FNV_GIT_TIMEOUT", "60"))
+JOBS = max(1, int(os.environ.get("NEURO_FNV_REF_JOBS", "9")))
+# Set by `setup --offline` (or the environment): never contact a remote, only reuse what is already on disk.
+offline = os.environ.get("NEURO_FNV_OFFLINE") == "1"
 
 REQUIRED_FIELDS = ("name", "purpose", "license", "copy_allowed")
 COPY_ALLOWED = ("yes", "copyleft", "no")
@@ -102,6 +108,54 @@ def safe_link(link, target):
     link.symlink_to(target, target_is_directory=True)
 
 
+class GitError(RuntimeError):
+    """A failed git command. `refused_object` is set when the server rejected the requested commit itself."""
+
+    def __init__(self, message, refused_object=False):
+        super().__init__(message)
+        self.refused_object = refused_object
+
+
+# Server replies meaning "I will not serve that SHA" (as opposed to a network or HTTP error, which a clone would hit too).
+REFUSED_OBJECT = ("not our ref", "unadvertised object", "does not allow request", "couldn't find remote ref")
+
+
+def run_git(args):
+    """Run git with prompts disabled and a timeout; raise with the last stderr line (e.g. a proxy 403)."""
+    command = args[2] if args[0] == "-C" else args[0]  # ["-C", dir, "fetch", ...] -> "fetch"
+    try:
+        result = subprocess.run(["git", *args], text=True, capture_output=True, timeout=GIT_TIMEOUT,
+                                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    except subprocess.TimeoutExpired:
+        raise GitError(f"git {command} timed out after {GIT_TIMEOUT}s") from None
+    if result.returncode:
+        lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+        raise GitError(f"git {command} failed: {lines[-1] if lines else f'exit {result.returncode}'}",
+                       refused_object=any(text in result.stderr for text in REFUSED_OBJECT))
+
+
+def fetch_pinned(url, revision, dest):
+    """Shallow-fetch one full commit; fall back to a blobless clone for hosts that refuse fetch-by-SHA."""
+    dest = str(dest)
+    try:
+        run_git(["init", "-q", dest])
+        run_git(["-C", dest, "remote", "add", "origin", url])
+        run_git(["-C", dest, "fetch", "-q", "--depth", "1", "origin", revision])
+        run_git(["-C", dest, "checkout", "-q", "--detach", "FETCH_HEAD"])
+        return
+    except GitError as shallow_error:
+        if not shallow_error.refused_object:
+            # Network, TLS, HTTP 4xx/5xx or timeout: a clone would fail the same way, only slower.
+            raise RuntimeError(f"{urlparse(url).hostname}: {shallow_error}") from None
+        first = str(shallow_error)
+    shutil.rmtree(dest, ignore_errors=True)
+    try:
+        run_git(["clone", "-q", "--no-checkout", "--filter=blob:none", url, dest])
+        run_git(["-C", dest, "checkout", "-q", "--detach", revision])
+    except RuntimeError as clone_error:
+        raise RuntimeError(f"{urlparse(url).hostname}: {first}; fallback clone: {clone_error}") from None
+
+
 def acquire_repo(entry, local_root):
     name, revision = entry["name"], entry.get("revision")
     local = existing_reference(name, local_root)
@@ -119,11 +173,12 @@ def acquire_repo(entry, local_root):
             return target.resolve()
         else:
             raise RuntimeError(f"Refusing to overwrite existing non-repository path: {target}")
+    if offline:
+        raise RuntimeError(f"not available offline (expected at {target})")
     MANAGED.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=MANAGED))
     try:
-        run(["git", "clone", "--no-checkout", "--filter=blob:none", entry["url"], str(tmp)])
-        run(["git", "-C", str(tmp), "checkout", "--detach", revision])
+        fetch_pinned(entry["url"], revision, tmp)
         actual, dirty, _ = git_state(tmp)
         if actual != revision or dirty:
             raise RuntimeError(f"Clone did not produce clean pinned revision {revision}: {name}")
@@ -220,15 +275,17 @@ def extract_archive(archive):
 
 
 def setup():
+    """Link every reference that can be obtained. Returns 0 when complete, 3 when some are unavailable."""
     manifest = load_manifest()
     entries = root_entries()
-    selections = {}
     errors = []
     explicit = os.environ.get("NEURO_FNV_REFERENCE_ROOT")
     explicit_root = Path(explicit).expanduser().resolve(strict=True) if explicit else None
     if explicit_root and not explicit_root.is_dir():
         raise RuntimeError(f"NEURO_FNV_REFERENCE_ROOT is not a directory: {explicit_root}")
-    for entry in manifest["references"]:
+
+    def resolve(entry):
+        # Only acquisition runs in the pool; linking and the .references write below stay serial.
         try:
             candidate = explicit_root / entry["name"] if explicit_root else None
             if candidate and candidate.exists():
@@ -238,11 +295,19 @@ def setup():
             else:
                 path = acquire_repo(entry, entries)
             if path is None:
-                errors.append(f"{entry['name']}: no public upstream configured; supply it in an existing .references root")
-                continue
-            selections[entry["name"]] = path
+                return entry, None, "no public upstream configured; supply it in an existing .references root"
+            return entry, path, None
         except Exception as exc:
-            errors.append(f"{entry['name']}: {exc}")
+            return entry, None, str(exc)
+
+    with ThreadPoolExecutor(max_workers=JOBS) as pool:
+        results = list(pool.map(resolve, manifest["references"]))
+    selections = {}
+    for entry, path, error in results:
+        if error:
+            errors.append(f"{entry['name']}: {error}")
+        else:
+            selections[entry["name"]] = path
     for name, path in selections.items():
         canonical = REPOS / name
         if canonical.exists() and canonical.resolve() == path.resolve():
@@ -267,58 +332,117 @@ def setup():
     if menu_path:
         roots.append(str(menu_path))
     ROOT_FILE.write_text("".join(f"{path}\n" for path in dict.fromkeys(roots)), encoding="utf-8")
+    failures = check(brief=True)
     if errors:
-        raise RuntimeError("Reference setup incomplete:\n- " + "\n- ".join(errors))
-    check()
+        print("Reference setup incomplete:\n- " + "\n- ".join(errors), file=sys.stderr)
+        return 3
+    if failures:
+        print("error: reference check found problems: " + ", ".join(failures), file=sys.stderr)
+        return 1
+    return 0
 
 
-def check():
+def inspect_reference(entry):
+    name, expected = entry["name"], entry.get("revision")
+    path = REPOS / name
+    if not path.exists():
+        return {"name": name, "present": False}
+    managed_path = MANAGED / name
+    managed = managed_path.exists() and path.resolve() == managed_path.resolve()
+    actual, dirty, branch = git_state(path.resolve())
+    return {"name": name, "present": True, "expected": expected, "actual": actual, "dirty": dirty, "branch": branch,
+            "managed": managed, "path": path.resolve(), "copy_allowed": entry["copy_allowed"]}
+
+
+def check(brief=False):
+    """Print reference status (offline); return the names that are missing or incorrectly pinned."""
     manifest = load_manifest()
+    with ThreadPoolExecutor(max_workers=JOBS) as pool:
+        infos = list(pool.map(inspect_reference, manifest["references"]))
     failures = []
-    print("Reference status:")
-    for entry in manifest["references"]:
-        name, expected = entry["name"], entry.get("revision")
-        path = REPOS / name
-        if not path.exists():
-            print(f"- {name}: MISSING")
+    missing, pinned, other = [], 0, []
+    if not brief:
+        print("Reference status:")
+    for info in infos:
+        name = info["name"]
+        if not info["present"]:
+            if not brief:
+                print(f"- {name}: MISSING")
+            missing.append(name)
             failures.append(name)
             continue
-        managed_path = MANAGED / name
-        managed = managed_path.exists() and path.resolve() == managed_path.resolve()
-        actual, dirty, branch = git_state(path.resolve())
+        actual, expected, dirty, branch = info["actual"], info["expected"], info["dirty"], info["branch"]
         if actual is None:
             state = f"unversioned/non-git source (expected {expected or 'no pinned revision'})"
+            other.append(name)
+        elif expected and actual == expected:
+            state = "pinned"
+            pinned += 1
         else:
-            state = "pinned" if expected and actual == expected else f"unpinned/unexpected revision (expected {expected or 'none'})"
+            state = f"unpinned/unexpected revision (expected {expected or 'none'})"
+            other.append(name)
         if dirty:
             state += ", dirty"
         if branch is not None:
             state += ", attached HEAD"
-        print(f"- {name}: {actual or 'unknown'} ({state}) [{path.resolve()}]")
-        print(f"    copy_allowed: {entry['copy_allowed']}")
+        if not brief:
+            print(f"- {name}: {actual or 'unknown'} ({state}) [{info['path']}]")
+            print(f"    copy_allowed: {info['copy_allowed']}")
         # External roots are user-owned: report drift but never rewrite or reject them.
         # Managed acquisitions must remain clean, pinned, and detached.
-        if managed and (expected and actual != expected or dirty or branch is not None):
+        if info["managed"] and (expected and actual != expected or dirty or branch is not None):
             failures.append(name)
     if EXTRACTS.exists():
         menu_dir = EXTRACTS.resolve() / "menus"
         if menu_dir.is_dir():
-            xml = sorted(menu_dir.rglob("*.xml"))
-            print(f"- private menu XML: present ({len(xml)} XML files; {EXTRACTS.resolve()})")
+            menus = f"present ({len(list(menu_dir.rglob('*.xml')))} XML files; {EXTRACTS.resolve()})"
         else:
-            print("- private menu XML: absent (no menus/ directory)")
+            menus = "absent (no menus/ directory)"
     else:
-        print("- private menu XML: absent (optional; no archive/root configured)")
-    if failures:
-        raise RuntimeError("Reference check found missing or incorrectly pinned repositories: " + ", ".join(failures))
+        menus = "absent (optional; no archive/root configured)"
+    if brief:
+        total = len(infos)
+        line = f"references: {total - len(missing)}/{total} present, {pinned} pinned"
+        if other:
+            line += f", non-pinned: {', '.join(other)}"
+        if missing:
+            line += f", MISSING: {', '.join(missing)}"
+        print(f"{line}; private menu XML {menus.split(' (')[0]}")
+    else:
+        print(f"- private menu XML: {menus}")
+    return failures
+
+
+def hosts():
+    """Hosts the references are fetched from (network allowlist input for Cloud environments)."""
+    names = {urlparse(entry["url"]).hostname for entry in load_manifest()["references"] if entry.get("url")}
+    print("\n".join(sorted(names)))
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("setup", "check"):
-        print("Usage: python3 tools/references.py {setup|check}", file=sys.stderr)
+    global offline
+    args = sys.argv[1:]
+    usage = "Usage: python3 tools/references.py {setup [--offline]|check [--brief]|hosts}"
+    if not args or args[0] not in ("setup", "check", "hosts"):
+        print(usage, file=sys.stderr)
         return 2
+    command, flags = args[0], set(args[1:])
+    allowed = {"setup": {"--offline"}, "check": {"--brief"}, "hosts": set()}[command]
+    if flags - allowed:
+        print(usage, file=sys.stderr)
+        return 2
+    offline = offline or "--offline" in flags
     try:
-        setup() if sys.argv[1] == "setup" else check()
+        if command == "setup":
+            return setup()
+        if command == "hosts":
+            hosts()
+            return 0
+        failures = check(brief="--brief" in flags)
+        if failures:
+            print("error: Reference check found missing or incorrectly pinned repositories: " + ", ".join(failures),
+                  file=sys.stderr)
+            return 1
         return 0
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
