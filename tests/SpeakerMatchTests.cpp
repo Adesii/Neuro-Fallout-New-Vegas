@@ -2,6 +2,8 @@
 #include "Menus/SubtitleTracker.hpp"
 #include "TestFramework.hpp"
 
+#include <limits>
+
 using namespace Menus::SpeakerMatch;
 
 namespace {

@@ -16,3 +16,6 @@ build
 
 # Claude Code per-user settings.
 /.claude/settings.local.json
+
+# Python bytecode from tools/*.py.
+__pycache__/
