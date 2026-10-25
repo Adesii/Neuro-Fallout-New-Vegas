@@ -70,18 +70,8 @@ phase_end
 
 # --- cmake >= 3.30 for the plugin build (host tests need only 3.20); kept in the cache, linked into the checkout ----
 phase_start cmake
-link_cache_cmake "$cache"
-plugin_bin=$(plugin_cmake)
-if [[ -z "$plugin_bin" ]] || ! version_ge "$(cmake_version "$plugin_bin")" 3.30; then
-  if command -v python3 >/dev/null 2>&1 && mkdir -p "$cache" 2>/dev/null &&
-    { python3 -m venv "$cache/cmake-venv" >/dev/null 2>&1 || {
-      apt_install python3-venv >/dev/null 2>&1 && python3 -m venv "$cache/cmake-venv" >/dev/null 2>&1
-    }; } &&
-    timeout 90 "$cache/cmake-venv/bin/python" -m pip install -q --timeout 20 --upgrade 'cmake>=3.30' >/dev/null 2>&1; then
-    link_cache_cmake "$cache"
-  else
-    echo "  note: could not obtain CMake >= 3.30 (pip/pypi.org blocked?); the plugin build is unavailable, host tests are unaffected"
-  fi
+if ! ensure_plugin_cmake "$cache"; then
+  echo "  note: could not obtain CMake >= 3.30 (pip/pypi.org blocked?); the plugin build is unavailable, host tests are unaffected"
 fi
 phase_end
 

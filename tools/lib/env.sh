@@ -173,6 +173,21 @@ link_cache_cmake() { # link_cache_cmake <cache_dir>
   ln -sfn "$cmake" "$ROOT_DIR/.cloud-tools/bin/cmake"
 }
 
+# Install CMake >= 3.30 into a venv in the cache and link it, unless the plugin build already has one. Bounded; returns
+# non-zero when the upgrade could not be obtained (host tests only need 3.20, so callers treat that as non-fatal).
+ensure_plugin_cmake() { # ensure_plugin_cmake <cache_dir>
+  local cache="$1" plugin_bin
+  link_cache_cmake "$cache"
+  plugin_bin=$(plugin_cmake)
+  if [[ -n "$plugin_bin" ]] && version_ge "$(cmake_version "$plugin_bin")" 3.30; then return 0; fi
+  command -v python3 >/dev/null 2>&1 && mkdir -p "$cache" 2>/dev/null || return 1
+  { python3 -m venv "$cache/cmake-venv" >/dev/null 2>&1 || {
+    apt_install python3-venv >/dev/null 2>&1 && python3 -m venv "$cache/cmake-venv" >/dev/null 2>&1
+  }; } || return 1
+  timeout 90 "$cache/cmake-venv/bin/python" -m pip install -q --timeout 20 --upgrade 'cmake>=3.30' >/dev/null 2>&1 || return 1
+  link_cache_cmake "$cache"
+}
+
 # One-screen readiness report. Sets READY_* and appends to DEGRADED/FAILED. Offline and fast.
 readiness_report() {
   local tool path v expected actual dirty plugin_bin refs_out

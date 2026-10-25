@@ -30,7 +30,8 @@ if ((${#missing[@]})); then
   # shellcheck disable=SC2016  # the child shell expands $ROOT_DIR
   ROOT_DIR="$ROOT_DIR" timeout 130 bash -c 'source "$ROOT_DIR/tools/lib/env.sh"; install_missing_tools' >/dev/null 2>&1 || true
 fi
-link_cache_cmake "$cache"
+# CMake >= 3.30 for the plugin build: re-link from the cache, else install it (covers a missing or stale setup script).
+ensure_plugin_cmake "$cache" >/dev/null 2>&1 || true
 
 export NEURO_FNV_MANAGED_DIR="$cache/managed-repos"
 sdk_log=$(mktemp) refs_log=$(mktemp)
