@@ -2,14 +2,14 @@
 
 ## Build and verification
 
-- Initialize the SDK submodule with `git submodule update --init --recursive`.
+- Initialize the SDK submodule with `git submodule update --init --recursive`. When bumping `libs/libneurosdk`, update `SDK_JSON_SHA256` in `tools/lib/env.sh` if `vendor/json.h` changed (it pins the Cloud json.h fallback).
 - This is a 32-bit Windows DLL built on Linux with real MSVC over Wine; ordinary host CMake configurations are rejected. Portable entry point: `bash tools/build.sh Debug` (CMake 3.30+, x86 toolchain at `NEURO_FNV_MSVC_ROOT` or `/opt/msvc`).
 - Use `just debug` for incremental Debug compilation and `just rebuild` for a clean-first Debug build. Both use `build/cloud/` without deleting the existing local build tree; override with `NEURO_FNV_BUILD_DIR`. `just release` builds Release.
 - Supported CMake presets use the repository's Windows x86 MSVC toolchain. Do not substitute MinGW or host GCC for compiler verification.
 - Set `FalloutNVNeuroPlugin` before configuring to deploy `neuro-fnv.dll` and its PDB after each build to `$FalloutNVNeuroPlugin/nvse/plugins`. The ESM is not deployed by CMake.
 - `bash tools/test.sh [name-filter]` (or `just test`) builds and runs the host-side unit tests in `tests/` with the host compiler. They cover engine-independent logic only (action registry/window/set state machines, `ActionData`, `JsonSchema`, item query parsing, `ItemListing`, `ScopedState`) against a fake NeuroSDK transport in `tests/stubs/` and `tests/FakeNeuro.*`; they prove nothing about engine, menu or in-game behaviour. Add a test beside any change to that logic; new engine-free sources must be added to `tests/CMakeLists.txt` (configure fails for an unlisted `tests/*Tests.cpp`, and `tools/test.sh` warns about an unlisted source in `src/Combat`, `src/Context` or `src/Movement`).
 - There are no CI checks or lint targets. Format changed C/C++ files with `clang-format -i <files>` (LLVM style, 120 columns), then build.
-- For Cloud setup, private menu data, optional compiler provisioning and environment publication, read `docs/cloud-development.md`. Run `bash tools/cloud-setup.sh`; offline readiness: `bash tools/cloud-setup.sh --check`.
+- For Cloud setup (Claude Code cloud and Codex Cloud), private menu data, optional compiler provisioning and environment configuration, read `docs/cloud-development.md`. Run `bash tools/cloud-setup.sh` (exit 0 ready, 3 degraded, 1 failed; `--exit-zero` always exits 0); offline readiness: `bash tools/cloud-setup.sh --check`. In Claude Code cloud a SessionStart hook runs `tools/ensure-env.sh`; where hooks do not run (multi-repo sessions, Codex), run `bash tools/ensure-env.sh --force` yourself. `tools/test.sh` needs the SDK's `libs/libneurosdk/vendor/json.h`.
 - Cloud cannot run FNV or prove engine/menu behavior. After relevant changes, report evidence and checks actually run, unresolved assumptions, and a concrete manual in-game checklist. Compilation is not runtime verification; no mock engine or fabricated addresses to claim completion.
 
 ## Runtime architecture
