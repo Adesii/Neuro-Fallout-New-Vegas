@@ -88,6 +88,8 @@ target_include_directories(neuro_fnv_tests BEFORE PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
     "${REPO}/src"
     "${REPO}/libs/libneurosdk/vendor"
+    # Cloud fallback (tools/lib/env.sh): only json.h, fetched when the SDK submodule cannot be cloned. Ignored by Git.
+    "${REPO}/.cloud-tools/sdk-fallback/vendor"
 )
 target_compile_options(neuro_fnv_tests PRIVATE -Wall -Wextra -Wno-unused-parameter)
 
