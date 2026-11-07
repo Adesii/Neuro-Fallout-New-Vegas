@@ -114,3 +114,18 @@ corner added up to that. Changes (engine-free in `RecoveryPlanner`, host-tested)
 Additional checks: stand in a corner so the first sidestep frees you and the path leads straight back in; the log
 should show attempts 1 to 6 ending with two `Wander` steps and then the "stuck" failure, not an endless series.
 Unverified: whether `GetClosestNavMeshTriangle` snapped spots are good Wander targets in tight interiors.
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- Behind rubble or a low obstacle: `Walker recovery attempt` lines appear, and she gets past or fails with "got stuck"
+  (check 1).
+- Ledge that needs a hop: with Jump unbound the step is skipped (check 4).
+- Right after a load and through a load door: no false stuck in the first seconds (check 5).
+- A long quest route bending around a hill or fence does not end with "never got meaningfully closer" (check 8).
+
+Partly checked (marked `[/]`): the corner case from the follow-up (attempts 1-6 ending in two `Wander` steps, then
+"stuck"). Ask the designer what was left open.
+
+Not run yet: closed unlocked door opened by Walker (check 2), locked door failure (check 3), menu open over 30 s mid-walk
+(check 6), unreachable target across a gap (check 7), encumbered or crippled legs (check 9), combat melee approach
+through an obstacle (check 10).

@@ -69,3 +69,15 @@ reconnect, 10 minute greeting).
 Walk completion and idle gameplay both lead to a nudge within the agreed window, repeated nudges back off, nothing is
 sent during combat/menus/forces, timer logic is host-tested, and the manual checklist (walk, idle 30 s, open Pip-Boy
 while idle) is given.
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- Load a save: one silent greeting with "You are currently ...". Idle: first poke after 6-10 s, then about 10-17 s, then
+  17-29 s, then every 30-60 s.
+- Idle for 10+ minutes: the greeting repeats silently.
+- Reconnect: one "Status after reconnecting" message, not two; the first connection of a session gets only the greeting.
+- About 1 s after "Reached" one poke arrives, none while walking.
+- Pip-Boy or dialogue open for 60 s: no poke.
+
+Not run yet: no poke during a combat engagement or the combat update batches. The phrase list is still the draft (no
+comment on it yet).

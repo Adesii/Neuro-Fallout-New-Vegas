@@ -1,6 +1,6 @@
 # 05 - close_container action
 
-Status: to verify (code complete, not yet tested in game)
+Status: archived (verified in game, 2026-11-07)
 
 ## Problem
 When a container is open Neuro can only loot or stow; she cannot just close it. She is forced to take something to
@@ -37,3 +37,12 @@ Opening a container then `close_container` leaves the menu and resumes Walker; w
 - Stub `close_*` actions (from the old shared checklist): open each stubbed menu (barter, lockpick, repair, repair services,
   weapon mod, recipe, sleep/wait, slot machine, roulette, companion wheel, tutorial, book) and call its `close_*`. Check the
   exit tile click closes it, and that the menu IDs 1035 (item repair) and 1058 (repair services) map to the right menus.
+
+## Verified in game (designer, 2026-11-07)
+- `close_container` straight after opening a container: it closes, Walker resumes, and "You closed the container." is sent.
+- `close_container` right after `loot_item`: refused while the transfer runs, accepted afterwards.
+- `close_container` accepted, then a popup over the container before the Exit click: Exit waits until the popup is gone
+  (todo 31 item 2).
+- Every stubbed menu's `close_*` closes it (barter, lockpick, repair, repair services, weapon mod, recipe, sleep/wait,
+  slot machine, roulette, companion wheel, tutorial, book); menu IDs 1035 (item repair) and 1058 (repair services) map
+  to the right menus.

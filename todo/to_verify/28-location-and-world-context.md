@@ -65,3 +65,15 @@ Manual checks: the checklist in the design note.
 ## Done when
 Walking through a door and loading a save both produce one correct location line; the push stays quiet in idle
 cells, fires for a quest target / container entering range, and never repeats the same form id.
+
+## Playtest (designer, 2026-11-07)
+Passed (design-note checklist):
+- Load a save: one silent greeting with "You are currently ...", then one "You are now in ..." line after the load
+  screen and none during it (1).
+- Into the saloon and out: one line each, none repeated (2).
+- Across the wilderness: "near <place>", later "in the wasteland", at most one change per 30 s (3).
+- Near a container and an NPC: one silent "You see" summary that does not repeat; a quest target gives a non-silent
+  one starting with "Quest target:" (4).
+- Frame-rate dips while walking outdoors were checked (6). The intervals were not changed.
+
+Not run yet: no "You see" lines while fighting, in the Pip-Boy or in dialogue (5).

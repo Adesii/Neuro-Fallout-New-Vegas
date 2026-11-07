@@ -3,7 +3,7 @@
 Status: to verify
 Area: `src/GameplayHandler.cpp`, `src/WalkerHandler.cpp`
 Source: `docs/code-review.md` D (ResolveQuestTarget, PrepareCurrentQuest, CategoryFor vs IsInteractable), A7 notes.
-Related: `todo/04-quest-categories.md`, `todo/07-query-nearby-priority.md`
+Related: `todo/04-quest-categories.md`, `todo/archive/07-query-nearby-priority.md`
 
 ## Problem
 1. `ResolveQuestTarget` returns from inside the loop for the first target that passes the filters
@@ -66,3 +66,13 @@ door, `do_current_quest` still walks to the other.
 ## Done when
 A quest with several targets resolves any reachable one, `query_nearby` and Walker agree on interactability, and the
 quest-completion behaviour is confirmed in game.
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- `query_nearby` in Goodsprings: at most 20 entries, people and containers first, junk last, "Showing 20 of N", quest
+  targets tagged (todo 07 archived on this).
+- `move_to_object` on any listed id never answered "not interactable", so the shared classifier agrees with Walker.
+
+Not run yet: finish a quest and check the single "Quest completed" message (`Quest completed:` / `left the objective
+list` log lines), and a two-target objective with one target behind an unknown door (`do_current_quest` walks to the
+other).

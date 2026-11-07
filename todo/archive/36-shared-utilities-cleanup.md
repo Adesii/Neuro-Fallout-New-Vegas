@@ -1,6 +1,6 @@
 # 36 - Cross-module duplication and hygiene (mechanical)
 
-Status: to verify
+Status: archived (verified in game, 2026-11-07)
 Area: whole `src/`
 Source: `docs/code-review.md` C1, C4, C9-C16, D
 
@@ -96,3 +96,10 @@ work with the DirectInput hook (no stuck keys).
 
 ## Done when
 `just debug` and `bash tools/test.sh` still pass, no behaviour changed, and the duplicated names above exist once.
+
+## Verified in game (designer, 2026-11-07)
+- `query_quests`, `query_nearby` and `query_enemies` with a stale id: the correction text lists the valid ids.
+- Regression pass: SPECIAL, traits, tag skills, a dialogue line, a popup, container loot, Pip-Boy inventory and
+  `close_container` all still open, select and finish.
+- Keyboard and mouse keep working with the DirectInput hook in normal play. The stuck-key checks on reset paths
+  (disconnect or load mid-fight) belong to todo 32 and were not run here.

@@ -1,6 +1,6 @@
 # 07 - query_nearby: top 20 with priority
 
-Status: to verify (implemented together with todo 35; tiers are a proposal)
+Status: archived (verified in game, 2026-11-07)
 
 ## Problem
 `query_nearby` fills up with junk (unusable or worthless objects) while more valuable things slightly further away
@@ -36,3 +36,7 @@ targets tagged and ranked first, a "Showing N of M" note, scoring in `src/Contex
 harvestables 500, armor 450, ammo 420, readables 380, furniture 350, corpses 300, activators 250, loot 100) are my
 proposal: change them in `Objects::Tier` if Goodsprings looks wrong. The "you see" push (todo 28) reuses the same scorer.
 In-game checklist: see the Result of todo 35.
+
+## Verified in game (designer, 2026-11-07)
+- Goodsprings `query_nearby`: at most 20 entries, people and containers first, junk last, "Showing 20 of N", quest targets
+  tagged, distances in meters. The tier values stay as proposed (no change asked for).

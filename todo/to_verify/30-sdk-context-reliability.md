@@ -83,3 +83,17 @@ in this file served as its approval).
 See the design note; in short: stop the server mid-fight (one warning, no stale combat notes), restart it (one "Status
 after reconnecting" message with health, weapon and objectives), restart it again at the main menu and load a save (one
 status after the load; none on the very first connection of a session), listen near NPCs (the log line per subtitle shows the match, and the batch names speakers), load a save with subtitles on screen (no stale batch, a repeated bark is reported afterwards).
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- Server stopped mid-game and restarted: one "not connected" warning and one "Status after reconnecting" message
+  (health, weapon, objectives), not two. So `neurosdk_context_connected` does flip after a server restart.
+- Server restarted at the main menu, then a save loaded: one status after the load. The first connection of a session
+  gets only the greeting.
+- Near NPCs the subtitle log lines show a speaker match with small distances, and batches read `- Name: "text"`. The
+  subtitle position is the speaker's.
+- Load a save with subtitles on screen: no stale batch; a repeated bark is still reported afterwards.
+
+Not run yet: the disconnect **mid-fight** (no stale "Combat update" lines from the outage; the playtest stopped the
+server mid-game, not in a fight), two NPCs close together and a radio/Pip-Boy voice (expect no name), and
+`query_quests` twice within 3 s (design-note check 6).

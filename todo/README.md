@@ -46,8 +46,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 05 | [close_container action](to_verify/05-close-container.md) (also the stub `close_*` actions) | Container |
-| 07 | [query_nearby top 20 with priority](to_verify/07-query-nearby-priority.md) (tier values are a proposal) | Gameplay actions |
 | 23 | [Keep the game running and unpaused when the window is unfocused](to_verify/23-background-focus.md) (patches the window procedure's pause on focus loss; needs `bAlwaysActive=1`) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](to_verify/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) | Walker |
@@ -60,9 +58,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 33 | [Action registry, scripts and tooling correctness](to_verify/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
 | 35 | [Quest routing and object classification fixes](to_verify/35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
-| 36 | [Cross-module duplication and hygiene](to_verify/36-shared-utilities-cleanup.md) | Cleanup |
 | 38 | [Engine-free extraction and missing host tests](to_verify/38-engine-free-extraction-and-tests.md) | Tests |
-| 39 | [Report all distances to Neuro in metres](to_verify/39-distances-in-metres.md) (factor sourced, not yet measured in game) | Context formatting |
 
 ## Archive
 
@@ -70,6 +66,10 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | - | ---- | ---- |
 | 01 | [crouch_toggle action](archive/01-crouch-toggle.md) | Gameplay actions |
 | 02 | [stop_move action](archive/02-stop-move.md) | Walker |
+| 05 | [close_container action](archive/05-close-container.md) (also the stub `close_*` actions) | Container |
+| 07 | [query_nearby top 20 with priority](archive/07-query-nearby-priority.md) | Gameplay actions |
+| 36 | [Cross-module duplication and hygiene](archive/36-shared-utilities-cleanup.md) | Cleanup |
+| 39 | [Report all distances to Neuro in metres](archive/39-distances-in-metres.md) | Context formatting |
 
 See [archive/](archive/README.md).
 

@@ -1,6 +1,6 @@
 # 39 - Report all distances to Neuro in metres
 
-Status: to verify
+Status: archived (verified in game, 2026-11-07)
 Area: Context formatting (all modules that print a distance)
 Source: designer decision 2026-10-21; `docs/code-review.md` section A (message wording)
 
@@ -65,3 +65,9 @@ Manual in-game checks:
 ## Done when
 No message sent to Neuro contains "units", all distances come from one formatter, the conversion factor is justified
 by a recorded source and an in-game measurement, and the host tests cover the formatter.
+
+## Verified in game (designer, 2026-11-07)
+- `query_nearby`, `query_quests`, `query_enemies` and the walk progress reminder all read "N meters", never "units" or
+  "nearby".
+- `player.getdistance <ref>` divided by 70 matches the meters Neuro was told for the same reference, so the factor
+  `69.99125671386719` holds. The designer reported a match; the measured numbers were not given.

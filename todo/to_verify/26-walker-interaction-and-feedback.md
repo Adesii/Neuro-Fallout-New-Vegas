@@ -123,3 +123,17 @@ Check:
 2. A container, a door and a terminal straight on: still about 1 s after arriving, no change.
 3. A container behind a railing or thin wall within 100 units: interacts after 5 s, as before (the design kept that).
 4. A walking quest NPC: still stops and talks within a second or two.
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- Interacting with a container, door or NPC completes within a couple of seconds, no `line of sight ... changed`
+  flapping (check 2).
+- A walk of 2+ minutes: non-silent progress reminder every 20 s when exploring and every 40 s for move or quest walks,
+  plausible numbers (check 3).
+- Following a walking quest NPC: she stops and talks within 1-2 s of getting close, so the game accepts dialogue from
+  150 units (`kActorInteractionDistance` stays).
+- "got stuck" failures name the cause (check 4, through todo 25's rubble check).
+
+Not run yet: target behind a railing or on another floor (check 1: "not reachable from here" after 5 s for a move,
+interact anyway with `line of sight blocked`), melee `attack` with no "Closing in on ..." messages (check 5), and the
+mailbox / off-centre object checks from the 2026-11-07 follow-up.

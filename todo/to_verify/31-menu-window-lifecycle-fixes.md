@@ -95,3 +95,15 @@ Built and committed (one commit per item). Host tests: 127 pass (new: `StepTimer
    until the popup is gone.
 6. Character creation: the face editor (race/sex menu) advances to the next screen on its own; the name prompt: the name is filled and OK is clicked; with the server's display name missing the log
    warns once.
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- Popup over the trait screen and the tag-skill screen: answerable, and the window returns afterwards (check 2).
+- A popup appearing mid-click in a menu: the sequence waits and finishes, no timeout message (check 3).
+- Two identical popups in a row: the second is answered, no "timed out" (check 4).
+- `close_container` accepted, then covered by a popup: Exit is not clicked until the popup is gone (check 5).
+- The face editor advances on its own (so the `IsControlAvailable` check on `RSM_next_button` is fine); the name prompt
+  is filled and OK clicked; with the server's display name missing the log warns once (check 6).
+
+Not run yet: a message popup over an open `select_dialog` window (check 1: popup forced and answerable, no "cannot
+register while another force is active" spam, dialog window returns).

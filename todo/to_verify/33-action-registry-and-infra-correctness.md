@@ -79,3 +79,12 @@ game.
 2. Open and close a container, the Pip-Boy inventory and a stubbed menu several times: their actions register and
    unregister each time and Neuro can use them.
 3. Load a save with an action window open: no crash, and the next menu's window registers normally.
+
+## Playtest (designer, 2026-11-07)
+Passed:
+- Game started with the server down, then the server started: persistent actions appear once, no repeating
+  `PersistentActionSet` warning (check 1).
+- Container, Pip-Boy inventory and a stubbed menu opened and closed several times: their actions register and
+  unregister each time (check 2).
+
+Not run yet: load a save with an action window open, no crash, and the next menu's window registers normally (check 3).
