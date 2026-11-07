@@ -102,8 +102,11 @@ tools/build.sh Debug` (builds, no warnings in the new files). Nothing was run in
 deployed.
 
 Unverified (needs the game):
-- That the game shows frames through `IDirect3DDevice9::Present` (and not a swap chain's Present). If it does not, the
-  log has `Present hook installed` but never `first frame drawn`.
+- That the game shows frames through `IDirect3DDevice9::Present` (and not a swap chain's Present). The log tells the
+  failures apart, each line once: `Present hook installed` (hook written), `Present reached the hook` (the game calls
+  it), `no usable world camera at Present` (camera missing), `a route exists but nothing projected` (with the
+  matrix's w row and the player's clip w: all-zero or negative w means the matrix is not what was assumed), and
+  `first frame drawn` (it works).
 - That the world camera's matrix read at Present is the one the world was drawn with. JG only trusts it while the
   camera's FOV equals the player's world FOV, so it may be rewritten mid-frame (viewmodel, scope). Symptom: lines that
   slide against the ground while turning, or shift when the weapon is drawn.
@@ -119,7 +122,8 @@ Manual in-game checks:
    `Present hook installed` in `neuro-fnv.log`. Run it again: off, the overlay disappears.
 2. With debug on, give Neuro a move to something about 20 m away in the open. Expected: a cyan route with numbered
    yellow nodes, a green steering point a little ahead, a white pole on the target, a blue trail behind the player,
-   and `first frame drawn` in the log once.
+   and `Present reached the hook` then `first frame drawn` in the log once. If nothing shows, send the
+   `Walker debug overlay:` lines from the log: they say which step stopped it.
 3. Turn the view left and right and walk. Expected: lines stay glued to the ground. Draw and holster the weapon, zoom
    with a scope: nothing jumps. Symptom of failure: lines drift or scale with the view.
 4. The Primm spots from the 2026-11-07 playtest. Expected: the overlay shows whether the route itself leads into the

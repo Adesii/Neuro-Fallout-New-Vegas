@@ -39,6 +39,11 @@ using PresentFn = HRESULT(__stdcall *)(IDirect3DDevice9 *, const RECT *, const R
 bool g_enabled = false;
 bool g_hookInstalled = false;
 bool g_hookFailed = false;
+// One-time log lines that tell apart "Present never reached the hook", "no usable camera", "nothing projected"
+// and "drawn".
+bool g_loggedFirstPresent = false;
+bool g_loggedNoCamera = false;
+bool g_loggedEmptyBatch = false;
 bool g_loggedFirstDraw = false;
 IDirect3DDevice9 *g_device = nullptr;
 PresentFn g_originalPresent = nullptr;
@@ -116,16 +121,32 @@ void Draw(IDirect3DDevice9 *device) {
   backBuffer->GetDesc(&desc);
   Overlay::Camera camera;
   if (!ReadCamera(static_cast<float>(desc.Width), static_cast<float>(desc.Height), camera)) {
+    if (!g_loggedNoCamera) {
+      g_loggedNoCamera = true;
+      _WARNING("Walker debug overlay: no usable world camera at Present (%ux%u back buffer); nothing drawn.",
+               desc.Width, desc.Height);
+    }
     backBuffer->Release();
     return;
   }
 
   g_batch.Clear();
+  RouteDebug::Point3 player;
   {
     std::lock_guard lock(g_viewMutex);
     RouteDebug::BuildOverlay(g_view, camera, camera.height / kReferenceHeight, g_batch);
+    player = g_view.player;
   }
   if (g_batch.Triangles() == 0) {
+    // Normal while the route is behind the view; logged once in case it is the matrix (w not in front of the camera).
+    if (!g_loggedEmptyBatch) {
+      g_loggedEmptyBatch = true;
+      const auto &w = camera.worldToClip[3];
+      _MESSAGE("Walker debug overlay: a route exists but nothing projected on screen (matrix row 3: %.4f %.4f %.4f "
+               "%.4f; clip w at the player %.2f, needs >= %.1f; viewport l %.3f r %.3f t %.3f b %.3f)",
+               w[0], w[1], w[2], w[3], w[0] * player.x + w[1] * player.y + w[2] * player.z + w[3], Overlay::kNearW,
+               camera.left, camera.right, camera.top, camera.bottom);
+    }
     backBuffer->Release();
     return;
   }
@@ -163,8 +184,14 @@ void Draw(IDirect3DDevice9 *device) {
 
 HRESULT __stdcall HookedPresent(IDirect3DDevice9 *device, const RECT *source, const RECT *destination, HWND window,
                                 const RGNDATA *dirty) {
-  if (g_enabled && device == g_device)
+  if (g_enabled && device == g_device) {
+    if (!g_loggedFirstPresent) {
+      g_loggedFirstPresent = true;
+      _MESSAGE("Walker debug overlay: Present reached the hook on the game's device (thread %lu).",
+               GetCurrentThreadId());
+    }
     Draw(device);
+  }
   return g_originalPresent(device, source, destination, window, dirty);
 }
 
@@ -222,8 +249,9 @@ void Update() {
     InstallHook();
 }
 
-// Console only: `NWalkerDebug` toggles, `NWalkerDebug 1` / `NWalkerDebug 0` set it. Returns the new state.
-DEFINE_NEURO_COMMAND_PLUGIN(WalkerDebug, "Walker debug overlay: no argument toggles, 1 on, 0 off", true,
+// From the console: `NWalkerDebug` toggles, `NWalkerDebug 1` / `NWalkerDebug 0` set it. Returns the new state. The
+// macro's third argument is refRequired (DEFINE_CMD_FULL in nvse/CommandTable.h), so false: no reference needed.
+DEFINE_NEURO_COMMAND_PLUGIN(WalkerDebug, "Walker debug overlay: no argument toggles, 1 on, 0 off", false,
                             kParams_OneOptionalInt);
 
 bool Cmd_NWalkerDebug_Execute(COMMAND_ARGS) {
