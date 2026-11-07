@@ -1,9 +1,11 @@
 #include "WalkerHandler.hpp"
+#include "Debug/WalkerOverlay.hpp"
 #include "GameData.h"
 #include "GameOSDepend.h"
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Movement/AimLogic.hpp"
+#include "Movement/RouteDebug.hpp"
 #include "Movement/WalkerLogic.hpp"
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
@@ -11,6 +13,7 @@
 #include "defs/Player.h"
 #include "hooks/Hooks_DirectInput8Create.h"
 #include "itr/PathingCommands.h"
+#include "nvse/GameAPI.h"
 #include "nvse/GameForms.h"
 #include "nvse/GameUI.h"
 #include "utils/AimUtils.hpp"
@@ -145,7 +148,9 @@ struct WalkerState {
   bool positionInitialized = false;
   bool navigationValid = false;
   bool lineOfSight = false;
-  bool engaged = false; // an actor target is within interaction range
+  bool engaged = false;        // an actor target is within interaction range
+  bool loggedSnapped = false;  // the route fell back to the navmesh point next to the destination (logged once)
+  bool loggedStraight = false; // the route fell back to a straight line (logged once)
   PathPoint3 navigationPoint{};
   NiPoint3 navigationDestination = {0.0f, 0.0f, 0.0f};
   WalkerLogic::StuckDetector stuck;
@@ -165,6 +170,19 @@ struct WalkerState {
 };
 
 WalkerState g_state;
+
+// Debug mode (todo 43): what the last route search steered by and where the player went. Kept apart from WalkerState
+// so it outlives the command: a failed walk is exactly when the route needs looking at. Filled only while
+// WalkerOverlay::Enabled(); it never feeds back into steering.
+struct DebugCapture {
+  RouteDebug::View view;
+  RouteDebug::Trail trail;
+  bool hasLogged = false;
+  RouteDebug::Route logged;
+  RouteDebug::Mode loggedMode = RouteDebug::Mode::None;
+  bool wasEnabled = false;
+};
+DebugCapture g_debug;
 std::vector<Event> g_events;
 bool g_lookSuppressed = false;
 InputUtils::PulseQueue g_jumpPulses{InputCore::Owner::WalkerPulse};
@@ -212,6 +230,8 @@ void ResetRouteState() {
   g_state.lineOfSightTimer = 0.0f;
   g_state.lineOfSight = false;
   g_state.engaged = false;
+  g_state.loggedSnapped = false;
+  g_state.loggedStraight = false;
   g_state.navigationValid = false;
   g_state.navigationAge = 0.0f;
   g_state.turnVelocity = 0.0f;
@@ -227,7 +247,26 @@ void ResetRouteState() {
   g_state.lockedDoor.clear();
 }
 
+RouteDebug::Point3 ToDebugPoint(const NiPoint3 &p) { return {p.x, p.y, p.z}; }
+RouteDebug::Point3 ToDebugPoint(const PathPoint3 &p) { return {p.x, p.y, p.z}; }
+
+void ResetDebugCapture() {
+  const bool wasEnabled = g_debug.wasEnabled;
+  g_debug = {};
+  g_debug.wasEnabled = wasEnabled;
+}
+
+void PublishDebug(bool active) {
+  if (!WalkerOverlay::Enabled() || !g_debug.view.hasRoute)
+    return;
+  g_debug.view.active = active;
+  g_debug.view.trail = g_debug.trail.Points();
+  WalkerOverlay::Publish(g_debug.view);
+}
+
 void ClearCommand(PlayerCharacter *player) {
+  if (g_state.hasCommand)
+    PublishDebug(false); // the route stays on screen, dimmed, after the walk ends
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
   ResetRouteState();
@@ -278,7 +317,9 @@ TESObjectCELL *GetNavigationCell(PlayerCharacter *player) {
 
 // The first path node past the waypoint-reached radius, so a node the player is already standing on does not become
 // the steering target (and force a repath every frame). The last node when every one is that close.
-bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPoint3 &pathPoint) {
+// `debug` (debug mode only) receives the nodes and the chosen index.
+bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPoint3 &pathPoint,
+                    RouteDebug::Route *debug = nullptr) {
   g_state.waypointMarker->pos = destination;
   Pathing::PathResult path;
   if (!Pathing::BuildPath(player, g_state.waypointMarker, path) || path.nodes.empty())
@@ -292,28 +333,110 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
     }
   }
   pathPoint = path.nodes[chosen];
+  if (debug) {
+    debug->nodes.clear();
+    debug->nodes.reserve(path.nodes.size());
+    for (const PathPoint3 &node : path.nodes)
+      debug->nodes.push_back(ToDebugPoint(node));
+    debug->chosen = static_cast<int>(chosen);
+  }
   return IsValidPoint(pathPoint);
 }
 
-PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &destination) {
-  if (Distance3D(player->GetPos(), destination) < kInteractionDistance)
+// `debug` (debug mode only) records how the point was found. The two fallbacks are logged once per route either way.
+PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &destination, RouteDebug::Route *debug) {
+  using RouteDebug::Mode;
+  if (Distance3D(player->GetPos(), destination) < kInteractionDistance) {
+    if (debug)
+      debug->mode = Mode::Close;
     return {destination.x, destination.y, destination.z};
+  }
 
   PathPoint3 pathPoint;
-  if (BuildPathPoint(player, destination, pathPoint))
+  if (BuildPathPoint(player, destination, pathPoint, debug)) {
+    if (debug)
+      debug->mode = Mode::Path;
     return pathPoint;
+  }
 
   auto *cell = GetNavigationCell(player);
+  bool snapped = false;
+  NiPoint3 onNavmesh = {0.0f, 0.0f, 0.0f};
   if (cell) {
     NiPoint4 closest = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
     Pathing::GetClosestNavMeshTriangle(cell, destination, false, 0.0f, closest);
     if (closest.x != FLT_MAX) {
-      const NiPoint3 onNavmesh = {closest.x, closest.y, closest.z};
-      if (BuildPathPoint(player, onNavmesh, pathPoint))
+      snapped = true;
+      onNavmesh = {closest.x, closest.y, closest.z};
+      if (debug) {
+        debug->hasSnapped = true;
+        debug->snapped = ToDebugPoint(onNavmesh);
+      }
+      if (BuildPathPoint(player, onNavmesh, pathPoint, debug)) {
+        if (debug)
+          debug->mode = Mode::Snapped;
+        if (!g_state.loggedSnapped) {
+          g_state.loggedSnapped = true;
+          _MESSAGE("Walker found no path to %s itself; heading for the closest navmesh point (%.0f, %.0f, %.0f)",
+                   g_state.command.description.c_str(), onNavmesh.x, onNavmesh.y, onNavmesh.z);
+        }
         return pathPoint;
+      }
     }
   }
+  if (debug) {
+    debug->mode = Mode::Straight;
+    debug->nodes.clear();
+    debug->chosen = -1;
+  }
+  if (!g_state.loggedStraight) {
+    g_state.loggedStraight = true;
+    if (snapped)
+      _WARNING("Walker found no path to %s, nor to the closest navmesh point (%.0f, %.0f, %.0f); steering in a "
+               "straight line at (%.0f, %.0f, %.0f)",
+               g_state.command.description.c_str(), onNavmesh.x, onNavmesh.y, onNavmesh.z, destination.x, destination.y,
+               destination.z);
+    else
+      _WARNING("Walker found no path to %s and no navmesh near it%s; steering in a straight line at (%.0f, %.0f, "
+               "%.0f)",
+               g_state.command.description.c_str(), cell ? "" : " (no navigation cell)", destination.x, destination.y,
+               destination.z);
+  }
   return {destination.x, destination.y, destination.z};
+}
+
+// Debug mode: fills in where the search ran from and for, logs the route when it differs from the last one logged,
+// and keeps it for the overlay.
+void RecordRoute(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &destination, RouteDebug::Route route,
+                 const PathPoint3 &steer) {
+  const NiPoint3 here = player->GetPos();
+  route.steer = ToDebugPoint(steer);
+  route.destination = ToDebugPoint(destination);
+  route.detour = g_state.recovery.hasDetour;
+  route.start = ToDebugPoint(here);
+  auto *searchCell = GetNavigationCell(player);
+  auto *playerCell = player->GetParentCell();
+  route.searchCell = searchCell ? searchCell->GetFormID() : 0;
+  route.playerCell = playerCell ? playerCell->GetFormID() : 0;
+  route.markerCell = g_state.waypointMarker && g_state.waypointMarker->parentCell
+                         ? g_state.waypointMarker->parentCell->GetFormID()
+                         : 0;
+  route.targetCell = target && target->parentCell ? target->parentCell->GetFormID() : 0;
+  // Within reach the check is skipped: it would run every frame and says nothing about the route.
+  if (route.mode != RouteDebug::Mode::Close && searchCell)
+    route.playerOnNavmesh = Pathing::PointOnNavmesh({here.x, here.y, here.z}, searchCell, searchCell->worldSpace);
+
+  if (!g_debug.hasLogged || !RouteDebug::SameRoute(g_debug.logged, route)) {
+    _MESSAGE("Walker debug route to %s: %s", g_state.command.description.c_str(),
+             RouteDebug::Describe(route, route.start).c_str());
+    if (!g_debug.hasLogged || route.mode != g_debug.loggedMode)
+      Console_Print("Walker debug: %s", RouteDebug::ModeName(route.mode));
+    g_debug.logged = route;
+    g_debug.loggedMode = route.mode;
+    g_debug.hasLogged = true;
+  }
+  g_debug.view.route = std::move(route);
+  g_debug.view.hasRoute = true;
 }
 
 // Steers at the target, or at the Wander spot while a Wander recovery step is running.
@@ -322,7 +445,13 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
   const NiPoint3 playerPosition = player->GetPos();
   if (Distance3D(playerPosition, destination) < kInteractionDistance) {
     g_state.navigationValid = false;
-    return {destination.x, destination.y, destination.z};
+    const PathPoint3 direct = {destination.x, destination.y, destination.z};
+    if (WalkerOverlay::Enabled()) {
+      RouteDebug::Route route;
+      route.mode = RouteDebug::Mode::Close;
+      RecordRoute(player, target, destination, std::move(route), direct);
+    }
+    return direct;
   }
 
   g_state.navigationAge += deltaTime;
@@ -332,10 +461,14 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
     refresh = Math::GetDistance2D(playerPosition, g_state.navigationPoint) < kWaypointReachedDistance;
   }
   if (refresh) {
-    g_state.navigationPoint = ResolveNavigationPoint(player, destination);
+    RouteDebug::Route route;
+    RouteDebug::Route *debug = WalkerOverlay::Enabled() ? &route : nullptr;
+    g_state.navigationPoint = ResolveNavigationPoint(player, destination, debug);
     g_state.navigationDestination = destination;
     g_state.navigationAge = 0.0f;
     g_state.navigationValid = true;
+    if (debug)
+      RecordRoute(player, target, destination, std::move(route), g_state.navigationPoint);
   }
   return g_state.navigationPoint;
 }
@@ -731,6 +864,7 @@ bool Start(uint32_t targetFormId, Intent intent, Owner owner, std::string descri
   }
 
   ClearCommand(PlayerCharacter::GetSingleton());
+  ResetDebugCapture();
   g_state.command = {targetFormId, intent, owner, std::move(description)};
   g_state.hasCommand = true;
   g_state.planner.Reset(RetryBudget());
@@ -773,6 +907,11 @@ void Process() {
     FinishFailed(player, WalkerLogic::FailureReason::TargetGone);
     return;
   }
+  const bool debug = WalkerOverlay::Enabled();
+  if (debug != g_debug.wasEnabled) {
+    ResetDebugCapture(); // switched on mid-walk: start from this route, not one from before
+    g_debug.wasEnabled = debug;
+  }
   const float deltaTime = TimeUtils::FrameSeconds();
   g_state.pauseNotice.Update(deltaTime, false);
   g_jumpPulses.Advance(deltaTime);
@@ -797,6 +936,7 @@ void Process() {
       g_state.progress = progress;
     } else if (changedCell) {
       g_state.stuck.StartGrace(kCellChangeGrace); // positions jump and the world is still streaming in
+      ResetDebugCapture();                        // the old route and trail are in another place
     }
   }
 
@@ -813,6 +953,12 @@ void Process() {
   }
   g_state.lastPlayerPosition = playerPosition;
   g_state.positionInitialized = true;
+  if (debug) {
+    g_debug.trail.Add(ToDebugPoint(playerPosition));
+    g_debug.view.player = ToDebugPoint(playerPosition);
+    g_debug.view.target = ToDebugPoint(target->GetPos());
+    g_debug.view.hasTarget = true;
+  }
 
   const float distance = Distance3D(playerPosition, target->GetPos());
   const float reach = InteractionReach(target);
@@ -875,6 +1021,8 @@ void Process() {
   UpdateMovement(player, navigationPoint, plan.move, plan.headingOffset);
   UpdateReminder(deltaTime, walked, distance);
   TryComplete(player, target, distance, reach, aligned, std::abs(headingError) + pitchError, deltaTime);
+  if (g_state.hasCommand)
+    PublishDebug(true);
 }
 
 void Pause(PauseReason reason) {
@@ -897,6 +1045,11 @@ void Pause(PauseReason reason) {
 void Stop() {
   ClearCommand(PlayerCharacter::GetSingleton());
   g_events.clear();
+}
+
+void ResetDebug() {
+  ResetDebugCapture();
+  WalkerOverlay::Clear();
 }
 
 bool IsActive() { return g_state.hasCommand; }

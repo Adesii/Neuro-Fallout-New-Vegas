@@ -1,7 +1,9 @@
 #include "CombatHandler.hpp"
+#include "Debug/WalkerOverlay.hpp"
 #include "GameplayHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
+#include "WalkerHandler.hpp"
 #include "common.hpp"
 #include "hooks/Hooks_DirectInput8Create.h"
 #include "hooks/Hooks_FocusLoss.h"
@@ -41,11 +43,13 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
     GameplayHandler::SetReady(false);
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
+    Walker::ResetDebug();
     break;
   case NVSEMessagingInterface::kMessage_PreLoadGame:
     GameplayHandler::SetReady(false);
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
+    Walker::ResetDebug();
     break;
   case NVSEMessagingInterface::kMessage_PostLoadGame:
     GameplayHandler::SetReady(msg->data != nullptr);
@@ -55,6 +59,7 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
   case NVSEMessagingInterface::kMessage_NewGame:
     if (g_neuroSDK)
       g_neuroSDK->ResetAutomation();
+    Walker::ResetDebug();
     GameplayHandler::SetReady(true);
     if (g_neuroSDK)
       g_neuroSDK->RequestGreeting();
@@ -66,6 +71,7 @@ void MessageHandler(NVSEMessagingInterface::Message *msg) {
 #endif
     break;
   case NVSEMessagingInterface::kMessage_MainGameLoop:
+    WalkerOverlay::Update();
     if (g_neuroSDK)
       g_neuroSDK->MainLoop();
     break;
@@ -143,6 +149,8 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
 #endif
   // Register commands
   NeuroSDK::GetSingleton().RegisterCommands(nvse);
+  // After SendContext: opcodes follow registration order, and the ESM's compiled scripts store SendContext's.
+  WalkerOverlay::RegisterCommands(nvse);
 // HOOKS
 #if RUNTIME
   if (!nvse->isEditor)
