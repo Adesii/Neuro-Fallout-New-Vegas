@@ -129,14 +129,8 @@ bool CanFinish(MenuData *menu) {
 }
 
 std::string BuildState(MenuData *menu, const std::vector<SkillOption> &options) {
-  const bool canFinish = CanFinish(menu);
   std::string state = "## Tag skills\nTagged slots: **" + std::to_string(GetMenuTrait(menu, "_CurrPoints")) + " of " +
                       std::to_string(GetMenuTrait(menu, "_MaxPoints")) + "**.";
-  state += canFinish ? " `done_char_gen_menu` is available to keep these skills and finish."
-                     : " `done_char_gen_menu` is unavailable until every slot is assigned.";
-  state +=
-      " `select_skill` requires `select` and `unselect` indexes. `unselect` is ignored while a free slot exists or no "
-      "skill is selected, but it must still be a valid skill index.";
   state += "\n\n## Skills";
   for (size_t index = 0; index < options.size(); ++index) {
     state += "\n- `" + std::to_string(index) + "` - **" +

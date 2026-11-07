@@ -363,19 +363,10 @@ bool ObserveItem(const Execution &execution) {
   return false;
 }
 
-bool SendListing(int page, Inventory::ItemQueryType type, size_t total, std::vector<Inventory::ListedItem> items,
-                 bool opening) {
+bool SendListing(int page, Inventory::ItemQueryType type, size_t total, std::vector<Inventory::ListedItem> items) {
   const size_t first = static_cast<size_t>(page) * Inventory::kItemsPerPage;
   std::ostringstream context;
-  context << "## Your inventory: Pip-Boy\n" << Inventory::FormatItemPage(type, page, total, items, "query_own_items");
-  context << "\nItem actions use stable indexes from this listing. An accepted index cannot be reused until "
-             "query_own_items refreshes the listing; other indexes stay fixed. Closing inventory or switching "
-             "Pip-Boy tabs clears the listing.";
-  if (opening)
-    context << "\nInventory actions: query_own_items, equip_item, unequip_item, use_item, drop_item, close_pipboy. "
-               "Equip and unequip apply to weapons, armor and clothing; use_item consumes one aid item; drop_item "
-               "drops the whole stack. "
-            << Inventory::QueryTypesHelp() << " Queries and closing wait for accepted item actions to finish.";
+  context << "## Your inventory: Pip-Boy\n" << Inventory::FormatItemPage(type, page, total, items);
   if (!NeuroSDK::SendContext(context.str().c_str(), true))
     return false;
   g_listing.Replace(std::move(items), first + 1);
@@ -387,7 +378,7 @@ bool PublishOpening() {
   // and never moves their category or selection; queries navigate visibly.
   return SendListing(0, Inventory::ItemQueryType::All,
                      Inventory::CountMenuItems(g_owner->itemList, Inventory::ItemQueryType::All),
-                     Inventory::ReadMenuItemPage(g_owner->itemList, Inventory::ItemQueryType::All, 0), true);
+                     Inventory::ReadMenuItemPage(g_owner->itemList, Inventory::ItemQueryType::All, 0));
 }
 
 bool PublishPage(const Execution &execution) {
@@ -409,7 +400,7 @@ bool PublishPage(const Execution &execution) {
     StopExecution("The inventory changed while the requested page was being shown.");
     return false;
   }
-  return SendListing(execution.page, execution.type, execution.total, execution.items, false);
+  return SendListing(execution.page, execution.type, execution.total, execution.items);
 }
 
 void AdvanceQuantity(Execution &execution, Clock::time_point now) {

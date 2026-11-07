@@ -994,10 +994,9 @@ void StartAttack(const TargetSelection &selection) {
   std::ostringstream text;
   text << "## Attacking\nYou are " << (retarget ? "now " : "") << "attacking " << selection.name << ".";
   if (selection.isActor)
-    text << " You will keep attacking until it dies, you run out of ammo, or you lose sight of it for too long. ";
+    text << " You will keep attacking until it dies, you run out of ammo, or you lose sight of it for too long.";
   else
-    text << " You will fire a short burst at it. ";
-  text << "You can still move, switch weapons, call attack again to change target, or stop_attack to stop.";
+    text << " You will fire a short burst at it.";
   NeuroSDK::SendContext(text.str().c_str(), true);
 }
 

@@ -100,7 +100,7 @@ std::optional<std::string> ValidatePage(bool own, int page, Inventory::ItemQuery
   return Inventory::ValidateMenuPage(Items(own), page, type);
 }
 
-bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool opening = false) {
+bool PublishItems(bool own, int page, Inventory::ItemQueryType type) {
   const size_t count = CountItems(own, type);
   const size_t first = static_cast<size_t>(page) * Inventory::kItemsPerPage;
   auto listed = ReadPage(own, type, first);
@@ -109,16 +109,7 @@ bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool openin
   if (!own)
     context << ": "
             << UIUtils::GetTileString(UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ContainerRect/CM_ContainerTitle"));
-  context << "\n" << Inventory::FormatItemPage(type, page, count, listed, own ? "query_own_items" : "query_items");
-  context << "\n"
-          << (own ? "stow_away_item" : "loot_item")
-          << " uses indexes from this listing and transfers the entire stack. Indexes stay fixed until your next "
-          << (own ? "query_own_items" : "query_items") << " or until the container closes.";
-  if (opening)
-    context << "\nContainer actions: loot_item, query_items, loot_all, query_own_items, stow_away_item, "
-               "close_container (leave without taking anything). "
-               "Query your own items before stowing anything. "
-            << Inventory::QueryTypesHelp();
+  context << "\n" << Inventory::FormatItemPage(type, page, count, listed);
   if (!NeuroSDK::SendContext(context.str().c_str(), true))
     return false;
   Listing(own).Replace(std::move(listed), first + 1);
@@ -397,7 +388,7 @@ bool Process() {
     // Wait a visible frame for native inventory population before announcing an empty container.
     if (Clock::now() - g_openedAt < kStepDelay)
       return true;
-    g_announced = PublishItems(false, 0, Inventory::ItemQueryType::All, true);
+    g_announced = PublishItems(false, 0, Inventory::ItemQueryType::All);
   }
   if (g_announced)
     g_actions.Register();

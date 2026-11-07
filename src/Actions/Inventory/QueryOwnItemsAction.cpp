@@ -9,9 +9,11 @@ namespace {
 
 const Definition kDefinition = {
     .name = "query_own_items",
-    .description = "Visibly show your inventory on a zero-based page of 15 items; index is the page number. The "
-                   "optional type filter defaults to All. Weapons includes ammunition; WeaponMods and Keys have "
-                   "separate filters. Use the published stable one-based item indexes for inventory actions.",
+    .description =
+        "Visibly show your inventory on a zero-based page of 15 items; index is the page number. The "
+        "optional type filter defaults to All. Weapons includes ammunition, Equipment is armor and clothing, "
+        "Consumerable is food, drinks, chems and ingredients, and Misc is books, notes, junk, components "
+        "and currency. Item actions use the one-based indexes of the last listing.",
     .schema = ::Inventory::BuildItemQuerySchema()};
 
 } // namespace

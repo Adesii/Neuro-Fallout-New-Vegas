@@ -11,7 +11,8 @@ const Definition kDefinition = {
     .name = "query_items",
     .description =
         "List container items on a zero-based page of 15 items; index is the page number. The optional "
-        "type filter defaults to All. Weapons includes ammunition; WeaponMods and Keys have separate filters.",
+        "type filter defaults to All. Weapons includes ammunition, Equipment is armor and clothing, Consumerable is "
+        "food, drinks, chems and ingredients, and Misc is books, notes, junk, components and currency.",
     .schema = Inventory::BuildItemQuerySchema()};
 
 } // namespace

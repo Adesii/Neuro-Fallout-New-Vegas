@@ -121,16 +121,8 @@ std::string BuildSignature(TraitMenu *menu, const std::vector<TraitOption> &opti
 bool CanSelect(const TraitMenu *menu) { return menu->maxSelect > 0 && menu->numSelected <= menu->maxSelect; }
 
 std::string BuildState(TraitMenu *menu, const std::vector<TraitOption> &options) {
-  const bool canSelect = CanSelect(menu);
   std::string state = "## Traits\nSelected slots: **" + std::to_string(menu->numSelected) + " of up to " +
-                      std::to_string(menu->maxSelect) +
-                      "**. Traits are optional; `done_traits_menu` keeps the current "
-                      "selection and may be used with zero traits.";
-  if (canSelect)
-    state += " `select_trait` requires `select` and `unselect` indexes. `unselect` is ignored while a free slot exists "
-             "or no trait is selected, but it must still be a valid trait index.";
-  else
-    state += " Trait selection is unavailable in the current menu state.";
+                      std::to_string(menu->maxSelect) + "**.";
   state += "\n\n## Available traits";
   for (size_t index = 0; index < options.size(); ++index) {
     state += "\n- `" + std::to_string(index) + "` - **" +

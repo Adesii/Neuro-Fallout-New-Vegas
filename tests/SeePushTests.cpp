@@ -39,7 +39,7 @@ TEST("see push: a container and a person produce one silent summary without ids"
   CHECK(message->text.find("Easy Pete (20 meters)") != std::string::npos);
   CHECK(message->text.find("Footlocker (8 meters)") != std::string::npos);
   CHECK(message->text.find('`') == std::string::npos);
-  CHECK(message->text.find("query_nearby") != std::string::npos);
+  CHECK(message->text.find("query_nearby") == std::string::npos); // state only, no action how-to
   // People come before containers, as in the importance tiers.
   CHECK(message->text.find("People") < message->text.find("Containers"));
 }

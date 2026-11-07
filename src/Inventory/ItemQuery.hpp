@@ -21,8 +21,8 @@ Actions::Json::JsonSchema BuildItemQuerySchema();
 bool ParseItemIndex(const Actions::ActionData &data, int &index, std::string &error);
 Actions::Json::JsonSchema BuildItemIndexSchema();
 
-// The "Query types: ..." sentence for the opening listing of a container or the Pip-Boy inventory. The type names come
-// from the same table the schema and the parser use, so the help text cannot drift from what is accepted.
+// A "Query types: ..." sentence built from the same table the schema and the parser use, so it cannot drift from what
+// is accepted. Currently unused: listings carry state only, and how to query belongs in the action descriptions.
 std::string QueryTypesHelp();
 
 // Pages hold kItemsPerPage stacks; an empty list still has page 0.
@@ -30,9 +30,9 @@ size_t PageCount(size_t total);
 // Null when `page` (zero-based; the parser already guarantees it is not negative) exists for `total` stacks, otherwise
 // the correction message naming the valid pages.
 std::optional<std::string> ValidatePage(size_t total, int page);
-// Formats a published page: type/count header, numbered stacks and the next-page hint for queryAction.
-std::string FormatItemPage(ItemQueryType type, int page, size_t total, const std::vector<ListedItem> &items,
-                           const char *queryAction);
+// Formats a published page as state only: filter (when not All), stack count, the page range when the listing spans
+// several pages, and the numbered stacks. It never explains how to use the actions.
+std::string FormatItemPage(ItemQueryType type, int page, size_t total, const std::vector<ListedItem> &items);
 
 ItemQueryType ClassifyItem(const TESForm &form);
 bool MatchesQuery(const TESForm *form, ItemQueryType type);

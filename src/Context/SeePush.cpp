@@ -65,7 +65,6 @@ std::optional<SeeMessage> SeePush::Update(const std::vector<SeenObject> &inRange
     message.text += "\n- People and creatures: " + people;
   if (!containers.empty())
     message.text += "\n- Containers: " + containers;
-  message.text += "\nUse query_nearby for ids and details.";
   m_sinceLastPush = 0.0f;
   return message;
 }

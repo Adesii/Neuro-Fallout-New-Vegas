@@ -8,6 +8,7 @@ Source: designer's play-testing, 2026-10-25
 After a container opens, Neuro sits there idle forever. The listing is sent silent (`PublishItems` ends in
 `SendContext(..., true)`), and `.claude/rules/container-inventory.md` says no container action force is issued, so
 nothing prompts a response. The "Container actions: loot_item, query_items, ..." line is in a silent message too.
+(2026-11-07: that line and all other action how-to text were removed from the listing; it is state only now.)
 
 ## Questions to settle with the designer
 - Is the right fix a **non-silent opening message** (cheapest, matches the "never leave her with nothing" rule), a

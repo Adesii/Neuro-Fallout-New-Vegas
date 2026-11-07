@@ -33,7 +33,7 @@ Done:
   `ContainerHandler` and `StubMenuHandler` keep only their wording and their control path. The pause behaviour of the timer
   is unchanged (the clock runs only while the menu is actionable).
 - Item 4: the pause/timeout arithmetic of Container transfers and Pip-Boy inventory executions is now `ScopedState::StepTimer`
-  (already host-tested); the "Query types" help text is `Inventory::QueryTypesHelp()`, built from the same table as the schema
+  (already host-tested); the "Query types" help text (no longer sent since 2026-11-07; the filter meanings are in the query action descriptions) is `Inventory::QueryTypesHelp()`, built from the same table as the schema
   and the parser (host-tested). The quantity-prompt result switch was not merged: its failure messages differ per menu.
 - Item 6: `UIUtils::ClickAvailable(menu, tile)`, used by the native close, the container filter arrow, the inventory category
   button and VATS.

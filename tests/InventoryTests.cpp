@@ -140,23 +140,26 @@ TEST("inventory paging: an empty list still has page zero, fifteen stacks per pa
   CHECK(ValidatePage(10, -1).has_value()); // the parser prevents it, the check still refuses it
 }
 
-TEST("inventory paging: a published page lists one-based indexes across pages and hints at the next one") {
+TEST("inventory paging: a published page is state only, with one-based indexes and a range when it spans pages") {
   using namespace Inventory;
   std::vector<ListedItem> items = {{{1, 0}, "Pistol", 1, true}, {{2, 0}, "Stimpak", 3, false}};
-  const std::string first = FormatItemPage(ItemQueryType::All, 0, 20, items, "query_items");
-  CHECK(first.find("page 0; 20 item stacks") != std::string::npos);
+  const std::string first = FormatItemPage(ItemQueryType::All, 0, 20, items);
+  CHECK(first.find("20 item stacks; page 0 shows 1-2.") == 0);
   CHECK(first.find("- `1` - Pistol x1 (equipped)") != std::string::npos);
   CHECK(first.find("- `2` - Stimpak x3") != std::string::npos);
-  CHECK(first.find("query_items with index 1") != std::string::npos);
+  CHECK(first.find("query_") == std::string::npos); // listings never explain how to use the actions
+  CHECK(first.find("Filter") == std::string::npos); // All is the default and not worth stating
 
-  const std::string second = FormatItemPage(ItemQueryType::All, 1, 17, items, "query_items");
+  const std::string second = FormatItemPage(ItemQueryType::Weapons, 1, 17, items);
+  CHECK(second.find("Filter: Weapons. 17 item stacks; page 1 shows 16-17.") == 0);
   CHECK(second.find("- `16` - Pistol") != std::string::npos);
   CHECK(second.find("- `17` - Stimpak") != std::string::npos);
-  CHECK(second.find("for the next") == std::string::npos); // the last page has no hint
 
-  CHECK(FormatItemPage(ItemQueryType::All, 0, 0, {}, "query_items").find("Empty.") != std::string::npos);
-  CHECK(FormatItemPage(ItemQueryType::Keys, 0, 0, {}, "query_items").find("No items match this type.") !=
-        std::string::npos);
+  // A listing that fits on one page states only the count.
+  CHECK_EQ(FormatItemPage(ItemQueryType::All, 0, 1, {{{1, 0}, "Cup", 1, false}}),
+           std::string("1 item stack.\n\n- `1` - Cup x1"));
+  CHECK_EQ(FormatItemPage(ItemQueryType::All, 0, 0, {}), std::string("Empty."));
+  CHECK_EQ(FormatItemPage(ItemQueryType::Keys, 0, 0, {}), std::string("Filter: Keys. No items match this filter."));
 }
 
 TEST("inventory listing: lookup and consume share one slot rule") {

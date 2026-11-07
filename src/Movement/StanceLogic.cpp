@@ -28,8 +28,7 @@ Outcome CrouchVerifier::Update(float dt, bool crouching) {
 }
 
 std::string DescribeCrouched(bool crouching) {
-  return crouching ? "## Stance\nYou are now crouching and sneaking. Call crouch_toggle again to stand up."
-                   : "## Stance\nYou are now standing up. Call crouch_toggle to crouch and sneak again.";
+  return crouching ? "## Stance\nYou are now crouching and sneaking." : "## Stance\nYou are now standing up.";
 }
 
 std::string DescribeNoEffect(bool crouching) {

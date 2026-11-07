@@ -140,21 +140,23 @@ std::optional<std::string> ValidatePage(size_t total, int page) {
   return std::nullopt;
 }
 
-std::string FormatItemPage(ItemQueryType type, int page, size_t total, const std::vector<ListedItem> &items,
-                           const char *queryAction) {
+std::string FormatItemPage(ItemQueryType type, int page, size_t total, const std::vector<ListedItem> &items) {
   const size_t first = static_cast<size_t>(page) * kItemsPerPage;
   std::ostringstream context;
-  context << "Type: " << ItemQueryTypeName(type) << "; page " << page << "; " << total
-          << " item stacks. Pages start at 0; item indexes start at 1.\n";
+  if (type != ItemQueryType::All)
+    context << "Filter: " << ItemQueryTypeName(type) << ". ";
   if (total == 0)
-    context << (type == ItemQueryType::All ? "Empty.\n" : "No items match this type.\n");
+    return context.str() + (type == ItemQueryType::All ? "Empty." : "No items match this filter.");
+  context << total << (total == 1 ? " item stack" : " item stacks");
+  // The page and range are only worth stating when the listing does not fit on one page.
+  if (page > 0 || total > kItemsPerPage)
+    context << "; page " << page << " shows " << first + 1 << "-" << first + items.size();
+  context << ".\n";
   for (size_t offset = 0; offset < items.size(); ++offset) {
     context << "\n- `" << first + offset + 1 << "` - " << items[offset].name << " x" << items[offset].count;
     if (items[offset].equipped)
       context << " (equipped)";
   }
-  if (first + items.size() < total)
-    context << "\nUse " << queryAction << " with index " << page + 1 << " and the same type for the next 15 items.";
   return context.str();
 }
 
