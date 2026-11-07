@@ -1,4 +1,5 @@
 #include "AimUtils.hpp"
+#include "Bethesda/TESMain.hpp"
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Movement/StanceLogic.hpp"
@@ -74,11 +75,27 @@ bool IsCrouching(PlayerCharacter *player) {
   return player && player->actorMover && Stance::IsSneakingFlags(player->GetMovementFlags());
 }
 
-// PlayerCharacter::cameraPos at 0xDE0: JG `nvse/GameObjects.h` and JIP-LN-NVSE `nvse/GameObjects.h` agree, and JIP
-// casts its crosshair ray from it (`functions_jip/jip_fn_miscellaneous.h`, GetRayCastObject(g_thePlayer->cameraPos,
-// ...)). It replaced the modelled eye (feet + 100, a guess): the 2026-11-07 bottle log showed the aim converging on the
-// modelled point while the shots missed. Not yet confirmed at runtime; the Aim log line prints it.
+// The rendered world camera: TESMain::GetWorldRootCamera() (JG `internal/Game/Bethesda/TESMain.cpp`: the world scene
+// graph at 0x11DEB7C, its spCamera) and its world translate, as JG's LandRemapping.cpp reads it. JIP-LN-NVSE keeps the
+// same object as g_mainCamera (`internal/patches_game.h`, sceneGraph->camera) and casts most of its view rays from
+// g_mainCamera->WorldTranslate(). It replaced the modelled eye (feet + 100, a guess) on 2026-11-07 and the player's
+// cameraPos field on 2026-11-08. Not confirmed at runtime yet; the Aim and line-of-sight log lines print both.
 bool CameraPosition(PlayerCharacter *player, NiPoint3 &camera) {
+  if (!player)
+    return false;
+  NiCamera *sceneCamera = TESMain::GetWorldSceneGraph() ? TESMain::GetWorldRootCamera() : nullptr;
+  if (!sceneCamera)
+    return false;
+  const auto &translate = sceneCamera->m_kWorld.m_kTranslate;
+  if (!AimLogic::UsableCamera(translate.x, translate.y, translate.z))
+    return false;
+  camera = {translate.x, translate.y, translate.z};
+  return true;
+}
+
+// PlayerCharacter::cameraPos at 0xDE0: JG `nvse/GameObjects.h` and JIP-LN-NVSE `nvse/GameObjects.h` agree; JIP casts
+// its crosshair pick from it (`functions_jip/jip_fn_miscellaneous.h`).
+bool PlayerCameraField(PlayerCharacter *player, NiPoint3 &camera) {
   if (!player || !AimLogic::UsableCamera(player->cameraPos.x, player->cameraPos.y, player->cameraPos.z))
     return false;
   camera = {player->cameraPos.x, player->cameraPos.y, player->cameraPos.z};

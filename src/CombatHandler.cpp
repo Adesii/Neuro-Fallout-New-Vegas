@@ -396,6 +396,8 @@ void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &
   g_aimLogTimer = kAimLogInterval;
   NiPoint3 camera;
   const bool hasCamera = AimUtils::CameraPosition(player, camera);
+  NiPoint3 field;
+  const bool hasField = AimUtils::PlayerCameraField(player, field);
   const NiPoint3 feet = player->GetPos();
   NiPoint3 boundCentre;
   float boundRadius = 0.0f;
@@ -404,12 +406,12 @@ void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &
   // InterfaceManager::crosshairRef (0xFC in both JG and JIP-LN-NVSE): what the crosshair rests on, for any reference.
   auto *manager = InterfaceManager::GetSingleton();
   TESObjectREFR *crosshair = manager ? manager->crosshairRef : nullptr;
-  _MESSAGE("Aim %s: camera (%.1f %.1f %.1f)%s, %.1f above the feet (z %.1f); crouching %d scale %.2f; target origin "
-           "(%.1f %.1f %.1f) scale %.2f; bound %s centre z+%.1f radius %.1f; aim point z+%.1f; distance %.1f; yaw %.3f "
-           "rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; crosshair %08X (target %08X), reticle actor on "
-           "target %d",
-           g_target.name.c_str(), player->cameraPos.x, player->cameraPos.y, player->cameraPos.z,
-           hasCamera ? "" : " UNUSABLE", player->cameraPos.z - feet.z, feet.z, AimUtils::IsCrouching(player) ? 1 : 0,
+  _MESSAGE("Aim %s: camera (%.1f %.1f %.1f)%s, %.1f above the feet (z %.1f), player cameraPos field (%.1f %.1f "
+           "%.1f)%s; crouching %d scale %.2f; target origin (%.1f %.1f %.1f) scale %.2f; bound %s centre z+%.1f radius "
+           "%.1f; aim point z+%.1f; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; "
+           "crosshair %08X (target %08X), reticle actor on target %d",
+           g_target.name.c_str(), camera.x, camera.y, camera.z, hasCamera ? "" : " UNUSABLE", camera.z - feet.z, feet.z,
+           field.x, field.y, field.z, hasField ? "" : " unusable", AimUtils::IsCrouching(player) ? 1 : 0,
            player->GetScale(), origin.x, origin.y, origin.z, target->GetScale(), hasBound ? "used" : "none",
            hasBound ? boundCentre.z - origin.z : 0.0f, boundRadius, point.z - origin.z,
            hasCamera ? Distance3D(camera, point) : 0.0f, AimUtils::EffectiveYaw(player), error.heading,
@@ -477,9 +479,13 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
   const NiPoint3 point = AimPoint(target);
   g_lineOfSightTimer -= deltaTime;
   if (g_lineOfSightTimer <= 0.0f) {
-    const bool lineOfSight = WorldUtils::HasLineOfSight(player, target, point);
-    if (lineOfSight != g_lineOfSight)
+    const auto trace = WorldUtils::TraceLineOfSight(player, target, point);
+    const bool lineOfSight = trace.clear;
+    if (lineOfSight != g_lineOfSight) {
       _DMESSAGE("Combat line of sight to %s changed: %s", g_target.name.c_str(), lineOfSight ? "clear" : "blocked");
+      if (!lineOfSight)
+        WorldUtils::LogLineOfSight(player, target, point, trace, "engagement");
+    }
     g_lineOfSight = lineOfSight;
     g_lineOfSightTimer = kLineOfSightInterval;
   }
@@ -967,7 +973,14 @@ bool ValidateAttack(const Combat::AttackRequest &request, TargetSelection &selec
   }
 
   auto *ref = LookupReference(selection.referenceFormId);
-  if (!ref || !WorldUtils::HasLineOfSight(player, ref, AimPoint(ref))) {
+  if (!ref) {
+    error = selection.name + " is no longer there.";
+    return false;
+  }
+  const NiPoint3 point = AimPoint(ref);
+  const auto trace = WorldUtils::TraceLineOfSight(player, ref, point);
+  if (!trace.clear) {
+    WorldUtils::LogLineOfSight(player, ref, point, trace, "attack refused");
     error = selection.name +
             " is not in your line of sight (behind a wall or cover). Move to get a clear view, then try again.";
     return false;

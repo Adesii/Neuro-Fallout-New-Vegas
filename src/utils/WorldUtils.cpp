@@ -7,6 +7,7 @@
 #include "itr/internal/EngineFunctions.h"
 #include "itr/internal/RayCast.h"
 #include "utils/AimUtils.hpp"
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
 
@@ -90,7 +91,10 @@ constexpr uint8_t kLineOfSightLayer =
     37; // LAYER_LINEOFSIGHT, the engine vision filter (see src/itr/NavmeshCommands.cpp)
 } // namespace
 
-bool RayBlocked(const NiPoint3 &from, const NiPoint3 &to) {
+namespace {
+
+// The fraction along from -> to where the ray hit something, 1 when it is clear or no cast was performed.
+float RayHitFraction(const NiPoint3 &from, const NiPoint3 &to) {
   RayCastData ray = {};
   ray.pos0[0] = from.x * kHavokScale;
   ray.pos0[1] = from.y * kHavokScale;
@@ -103,27 +107,74 @@ bool RayBlocked(const NiPoint3 &from, const NiPoint3 &to) {
   ray.unk44[6] = 0xFFFFFFFF;
   ray.layerType = kLineOfSightLayer;
   if (!Engine::TESPickObject(&ray, true))
-    return false; // no cast was performed; do not claim a blockage that was not observed
-  return ray.hitFraction < 1.0f;
+    return 1.0f; // no cast was performed; do not claim a blockage that was not observed
+  return std::isfinite(ray.hitFraction) ? std::clamp(ray.hitFraction, 0.0f, 1.0f) : 1.0f;
 }
 
-bool HasLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint, LineOfSightTrim trim) {
-  if (player->reticleActor && player->reticleActor == target)
-    return true;
-  NiPoint3 eye;
-  if (!AimUtils::CameraPosition(player, eye))
-    return false; // no usable camera: do not claim a clear view that was never checked
+float Distance(const NiPoint3 &a, const NiPoint3 &b) {
+  const float dx = a.x - b.x;
+  const float dy = a.y - b.y;
+  const float dz = a.z - b.z;
+  return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+} // namespace
+
+bool RayBlocked(const NiPoint3 &from, const NiPoint3 &to) { return RayHitFraction(from, to) < 1.0f; }
+
+LineOfSightTrace TraceLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint,
+                                  LineOfSightTrim trim) {
+  LineOfSightTrace trace;
+  if (player->reticleActor && player->reticleActor == target) {
+    trace.clear = trace.reticle = true;
+    return trace;
+  }
+  trace.hasCamera = AimUtils::CameraPosition(player, trace.camera);
+  if (!trace.hasCamera)
+    return trace; // no usable camera: do not claim a clear view that was never checked
+  const NiPoint3 &eye = trace.camera;
   const float dx = targetPoint.x - eye.x;
   const float dy = targetPoint.y - eye.y;
   const float dz = targetPoint.z - eye.z;
   const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
-  if (!(length > trim.start + trim.end))
-    return true; // already within arm's reach of it
+  if (!(length > trim.start + trim.end)) {
+    trace.clear = trace.tooShort = true; // already within arm's reach of it
+    return trace;
+  }
   const float start = trim.start / length;
   const float end = 1.0f - trim.end / length;
-  const NiPoint3 from = {eye.x + dx * start, eye.y + dy * start, eye.z + dz * start};
-  const NiPoint3 to = {eye.x + dx * end, eye.y + dy * end, eye.z + dz * end};
-  return !RayBlocked(from, to);
+  trace.from = {eye.x + dx * start, eye.y + dy * start, eye.z + dz * start};
+  trace.to = {eye.x + dx * end, eye.y + dy * end, eye.z + dz * end};
+  trace.hitFraction = RayHitFraction(trace.from, trace.to);
+  trace.clear = trace.hitFraction >= 1.0f;
+  return trace;
+}
+
+bool HasLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint, LineOfSightTrim trim) {
+  return TraceLineOfSight(player, target, targetPoint, trim).clear;
+}
+
+void LogLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint,
+                    const LineOfSightTrace &trace, const char *context) {
+  const NiPoint3 feet = player->GetPos();
+  NiPoint3 field;
+  const bool hasField = AimUtils::PlayerCameraField(player, field);
+  const NiPoint3 hit = {trace.from.x + (trace.to.x - trace.from.x) * trace.hitFraction,
+                        trace.from.y + (trace.to.y - trace.from.y) * trace.hitFraction,
+                        trace.from.z + (trace.to.z - trace.from.z) * trace.hitFraction};
+  _WARNING(
+      "Line of sight %s to %08X (%s): %s; camera (%.1f %.1f %.1f) %.1f above the feet, player cameraPos field "
+      "(%.1f %.1f %.1f)%s, feet (%.1f %.1f %.1f) crouching %d; target point (%.1f %.1f %.1f), %.1f from the camera; "
+      "ray blocked at fraction %.3f, %.1f from the camera and %.1f short of the target point (hit z %.1f)",
+      trace.clear ? "clear" : "BLOCKED", target ? target->GetFormID() : 0, context,
+      !trace.hasCamera ? "no usable camera"
+      : trace.reticle  ? "reticle"
+      : trace.tooShort ? "within trims"
+                       : "ray",
+      trace.camera.x, trace.camera.y, trace.camera.z, trace.camera.z - feet.z, field.x, field.y, field.z,
+      hasField ? "" : " unusable", feet.x, feet.y, feet.z, AimUtils::IsCrouching(player) ? 1 : 0, targetPoint.x,
+      targetPoint.y, targetPoint.z, Distance(trace.camera, targetPoint), trace.hitFraction, Distance(trace.camera, hit),
+      Distance(hit, targetPoint), hit.z);
 }
 
 void ForEachLoadedReference(const std::function<void(TESObjectREFR *, TESObjectCELL *)> &visit) {

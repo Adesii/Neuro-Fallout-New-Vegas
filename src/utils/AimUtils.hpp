@@ -37,9 +37,13 @@ NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose);
 // The world-space centre and radius of a reference's loaded 3D, when AimLogic::UsableObjectBound accepts it.
 bool ObjectBoundCentre(TESObjectREFR *ref, NiPoint3 &centre, float &radius);
 
-// The engine's camera position (PlayerCharacter::cameraPos), where every aim and line-of-sight ray starts. False when
-// it is not usable (AimLogic::UsableCamera); there is no modelled fallback.
+// The rendered world camera's position, where every aim and line-of-sight ray starts. False when it is not usable
+// (no camera yet, or AimLogic::UsableCamera refuses it); there is no modelled fallback.
 bool CameraPosition(PlayerCharacter *player, NiPoint3 &camera);
+// PlayerCharacter::cameraPos, the camera position the player record keeps. Used before 2026-11-08; now only logged
+// next to CameraPosition. Suspected (not shown) of going stale after a crouch or iron sights, when line of sight to
+// clearly visible bottles started failing (todo 03); the logs print both so the two can be compared.
+bool PlayerCameraField(PlayerCharacter *player, NiPoint3 &camera);
 bool IsCrouching(PlayerCharacter *player);
 
 } // namespace AimUtils

@@ -76,3 +76,23 @@ Checks:
 5. Walker regressions (the camera now feeds the Walker's look pitch and every line-of-sight check): walking and
    interacting with containers, doors and NPCs still finish within a couple of seconds, in first and third person,
    with no `line of sight blocked` give-ups that did not happen before.
+
+## Second test (designer, 2026-11-08) and change
+- Report: the first bottle worked, then every other bottle was refused at validation with "is not in your line of
+  sight (behind a wall or cover)" while clearly visible. It started after crouching once, or after aiming down sights
+  by hand.
+- No log line showed why: the refusal printed nothing about the ray. Both the camera source and the ray are therefore
+  unconfirmed suspects. `PlayerCharacter::cameraPos` may not follow the rendered camera after a crouch or iron sights,
+  or the ray may hit something near the bottles (the fence) once the camera sits lower.
+- Change: aim and line of sight now start at the rendered world camera, `TESMain::GetWorldRootCamera()`'s world
+  translate (JG `TESMain.cpp`, the scene graph at 0x11DEB7C). JIP keeps the same object as `g_mainCamera` and casts
+  most of its view rays from it. `cameraPos` is only logged now (`AimUtils::PlayerCameraField`).
+- New diagnostics: every refused `attack` and every engagement losing line of sight writes a `Line of sight BLOCKED`
+  warning. It has both camera readings, the feet and crouch state, the target point, and where the ray was blocked
+  (distance from the camera, distance short of the target, hit height). The `Aim` line prints both cameras too.
+
+Checks:
+1. Repeat: first bottle, crouch, the other bottles, then aim down sights by hand and try again. If any is refused,
+   send the `Line of sight BLOCKED` line. "Short of the target" near 0 means the bottle's own collision. A hit near
+   the fence height means the fence. A camera far from the `cameraPos field` means one of the two readings is stale.
+2. The first-bottle checks above still apply (where the shots land, `bound used`).

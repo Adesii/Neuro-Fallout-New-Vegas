@@ -105,7 +105,7 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
    moves her without cancelling the engagement; `stop_attack` ends it and Walker stops.
 6. `attack` a second enemy while engaged: retargets. Open the Pip-Boy mid-fight and equip another weapon: the engagement
    resumes after closing; no mouse button stays stuck in any case (also test disconnect and loading a save mid-fight).
-7. `attack` a bottle by `object_id`: short burst, then a stop message; the log gets `Aim <name>:` lines (todo 03 / 27 measurements). Aim and line of sight start at the engine camera (`PlayerCharacter::cameraPos`; no modelled eye) and objects are aimed at their mesh bound centre (`bound used`); `UNUSABLE` or `bound none` is worth reporting. An explicit ally/companion is rejected from both
+7. `attack` a bottle by `object_id`: short burst, then a stop message; the log gets `Aim <name>:` lines (todo 03 / 27 measurements). Aim and line of sight start at the rendered world camera (`TESMain::GetWorldRootCamera()`; no modelled eye); a refused attack or lost line of sight logs a `Line of sight BLOCKED` warning with the ray and objects are aimed at their mesh bound centre (`bound used`); `UNUSABLE` or `bound none` is worth reporting. An explicit ally/companion is rejected from both
    `enemy_id` and `object_id`.
 8. Combat start/end messages and updates (health bands, rads, empty magazine, kills) arrive once each, not per frame.
 9. `open_vats`, with and without `enemy_id`: menu opens, window lists targets and body parts with hit chances.
