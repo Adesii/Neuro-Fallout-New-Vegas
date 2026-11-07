@@ -56,13 +56,6 @@ TEST("aim: target height scales with the reference and a corrupt scale is clampe
   CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Shoot, std::numeric_limits<float>::quiet_NaN()), 70.0f);
 }
 
-TEST("aim: eye height follows scale and, once measured, stance") {
-  CHECK_EQ(EyeHeight(1.0f, false), kStandingEyeHeight);
-  CHECK_EQ(EyeHeight(1.1f, false), kStandingEyeHeight * 1.1f);
-  CHECK_EQ(EyeHeight(1.0f, true), kStandingEyeHeight * kCrouchEyeRatio);
-  CHECK(EyeHeight(1.0f, true) <= EyeHeight(1.0f, false));
-}
-
 TEST("aim: PitchTo is negative for a target above the eye and positive below") {
   CHECK(PitchTo(100.0f, 0.0f, 100.0f) < 0.0f);
   CHECK(PitchTo(100.0f, 0.0f, -100.0f) > 0.0f);
@@ -71,12 +64,12 @@ TEST("aim: PitchTo is negative for a target above the eye and positive below") {
   CHECK(std::abs(PitchTo(100.0f, 0.0f, 100.0f) + kPi / 4.0f) < 1e-5f);
 }
 
-TEST("aim: the engine camera is used only when it sits near the player") {
-  CHECK(AimLogic::PlausibleCameraOffset(0.0f, 0.0f, 120.0f));     // first person, head height
-  CHECK(AimLogic::PlausibleCameraOffset(-250.0f, 40.0f, 150.0f)); // third person, behind and above
-  CHECK(!AimLogic::PlausibleCameraOffset(0.0f, 0.0f, 5000.0f));   // stale (another cell, a menu camera)
-  CHECK(!AimLogic::PlausibleCameraOffset(std::numeric_limits<float>::quiet_NaN(), 0.0f, 100.0f));
-  CHECK(!AimLogic::PlausibleCameraOffset(0.0f, std::numeric_limits<float>::infinity(), 100.0f));
+TEST("aim: any finite camera position is used, a non-finite one never") {
+  CHECK(AimLogic::UsableCamera(-68303.5f, 5765.0f, 8563.0f));
+  CHECK(AimLogic::UsableCamera(0.0f, 0.0f, 0.0f));
+  CHECK(!AimLogic::UsableCamera(std::numeric_limits<float>::quiet_NaN(), 0.0f, 100.0f));
+  CHECK(!AimLogic::UsableCamera(0.0f, std::numeric_limits<float>::infinity(), 100.0f));
+  CHECK(!AimLogic::UsableCamera(0.0f, 0.0f, -std::numeric_limits<float>::infinity()));
 }
 
 TEST("aim: an object's bound is used only when it belongs to the object") {

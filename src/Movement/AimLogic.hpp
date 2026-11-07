@@ -28,18 +28,10 @@ float TargetHeight(TargetKind kind, Purpose purpose);
 // TargetHeight scaled by the reference's scale, clamped so a corrupt scale cannot throw the aim away.
 float ScaledTargetHeight(TargetKind kind, Purpose purpose, float scale);
 
-// Standing eye height of a scale 1 player (the constant AimUtils always used) and the multiplier for a crouched one.
-// kCrouchEyeRatio is 1 (no change) until the crouched eye height is measured in game; no verified engine value is
-// available to this project (see todo 27). Set it from the logged numbers.
-inline constexpr float kStandingEyeHeight = 100.0f;
-inline constexpr float kCrouchEyeRatio = 1.0f;
-float EyeHeight(float scale, bool crouching);
-
-// The engine's own camera position (PlayerCharacter::cameraPos) replaces the modelled eye when it is finite and within
-// kMaxCameraOffset of the player's feet; third-person cameras sit a few hundred units away at most. A value outside
-// that is stale or garbage, and the modelled eye is used instead.
-inline constexpr float kMaxCameraOffset = 600.0f;
-bool PlausibleCameraOffset(float dx, float dy, float dz);
+// Aim and line of sight start at the engine's own camera position (PlayerCharacter::cameraPos); there is no modelled
+// eye height any more (designer, 2026-11-07: use the real value, never a guess). A non-finite camera is unusable, and
+// callers then hold the aim and report no line of sight instead of substituting anything.
+bool UsableCamera(float x, float y, float z);
 
 // A small object's mesh bound (its world-space centre and radius) replaces the Shoot height table when it is finite,
 // the radius is positive and under kMaxObjectBoundRadius, and the centre lies within radius + kBoundSlack of the

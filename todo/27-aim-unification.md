@@ -74,8 +74,7 @@ Built and host-tested; nothing here has run in the game.
 2. Then steps 1 and 7 can be closed and the task moved to `to_verify/`.
 
 ## Follow-up (2026-11-07, todo 03)
-The first bottle log showed the aim converging exactly on the modelled point while the shots missed. `EyePosition` now
-returns the engine camera (`PlayerCharacter::cameraPos`, JG and JIP agree on 0xDE0) when it is plausible, with the
-modelled eye as fallback (`ModelledEyePosition`). Non-actor shoot points use the mesh bound centre. That may make
-`kCrouchEyeRatio` unnecessary for aiming; it now only matters for the fallback and for line of sight, which stays on
-the modelled eye. Details and checks are in todo 03.
+The first bottle log showed the aim converging exactly on the modelled point while the shots missed. Aim and line of
+sight now start at the engine camera (`PlayerCharacter::cameraPos`, JG and JIP agree on 0xDE0). The designer decided
+the guess must not be used anywhere, so step 3's modelled eye (`EyeHeight`, `kCrouchEyeRatio`) is removed with no
+fallback. Non-actor shoot points use the mesh bound centre. Details and checks are in todo 03.

@@ -74,34 +74,15 @@ bool IsCrouching(PlayerCharacter *player) {
   return player && player->actorMover && Stance::IsSneakingFlags(player->GetMovementFlags());
 }
 
-float EyeHeight(PlayerCharacter *player) { return AimLogic::EyeHeight(player->GetScale(), IsCrouching(player)); }
-
-NiPoint3 ModelledEyePosition(PlayerCharacter *player) {
-  NiPoint3 eye = player->GetPos();
-  eye.z += EyeHeight(player);
-  return eye;
-}
-
 // PlayerCharacter::cameraPos at 0xDE0: JG `nvse/GameObjects.h` and JIP-LN-NVSE `nvse/GameObjects.h` agree, and JIP
 // casts its crosshair ray from it (`functions_jip/jip_fn_miscellaneous.h`, GetRayCastObject(g_thePlayer->cameraPos,
-// ...)). The modelled eye (feet + 100) is a guess; the 2026-11-07 bottle log showed the aim converging on the modelled
-// point while the shots missed. Not yet confirmed at runtime: the Aim log line prints both for comparison.
+// ...)). It replaced the modelled eye (feet + 100, a guess): the 2026-11-07 bottle log showed the aim converging on the
+// modelled point while the shots missed. Not yet confirmed at runtime; the Aim log line prints it.
 bool CameraPosition(PlayerCharacter *player, NiPoint3 &camera) {
-  if (!player)
+  if (!player || !AimLogic::UsableCamera(player->cameraPos.x, player->cameraPos.y, player->cameraPos.z))
     return false;
-  const NiPoint3 feet = player->GetPos();
-  const NiPoint3 candidate = {player->cameraPos.x, player->cameraPos.y, player->cameraPos.z};
-  if (!AimLogic::PlausibleCameraOffset(candidate.x - feet.x, candidate.y - feet.y, candidate.z - feet.z))
-    return false;
-  camera = candidate;
+  camera = {player->cameraPos.x, player->cameraPos.y, player->cameraPos.z};
   return true;
-}
-
-NiPoint3 EyePosition(PlayerCharacter *player) {
-  NiPoint3 camera;
-  if (CameraPosition(player, camera))
-    return camera;
-  return ModelledEyePosition(player);
 }
 
 // The loaded root node's world bound (TESObjectREFR::Get3DSimple -> renderState->rootNode, NiAVObject::GetWorldBound
@@ -138,8 +119,10 @@ NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose) {
 }
 
 float DesiredPitch(PlayerCharacter *player, const NiPoint3 &point) {
-  const NiPoint3 eye = EyePosition(player);
-  return AimLogic::PitchTo(point.x - eye.x, point.y - eye.y, point.z - eye.z);
+  NiPoint3 camera;
+  if (!CameraPosition(player, camera))
+    return CameraPitch();
+  return AimLogic::PitchTo(point.x - camera.x, point.y - camera.y, point.z - camera.z);
 }
 
 Error AimAt(PlayerCharacter *player, const NiPoint3 &point, float deltaTime) {

@@ -51,24 +51,28 @@ One `attack` on a Sunset Sarsaparilla Bottle about 10 m away, standing. The shot
 
 ## Change (2026-11-07)
 - Aim pitch is now measured from `PlayerCharacter::cameraPos` (0xDE0). JG and JIP-LN-NVSE define it at the same
-  offset, and JIP casts its own crosshair ray from it. `AimLogic::PlausibleCameraOffset` (within 600 units of the
-  feet, finite) guards against a stale value, with the old modelled eye as fallback. This covers crouching and third
-  person without guessing `kCrouchEyeRatio`.
+  offset, and JIP casts its own crosshair ray from it. This covers crouching and third person without a crouch ratio.
+- Designer's follow-up the same day: never use the guess. The modelled eye (`EyeHeight`, `kStandingEyeHeight`,
+  `kCrouchEyeRatio`, `ModelledEyePosition`) is removed, with no fallback. Only a non-finite camera is refused
+  (`AimLogic::UsableCamera`). The aim then holds its current pitch and line of sight reports blocked.
 - Shooting a non-actor object aims at the centre of its mesh world bound (`Get3DSimple()->GetWorldBound()`, JG
   definitions; JohnnyGuitarNVSE reads bounds the same way). `AimLogic::UsableObjectBound` refuses a bound with a radius
   over 300 or a centre further than radius + 30 from the origin, and falls back to origin + 20.
-- Unchanged on purpose: actors still use the height table, and `WorldUtils::HasLineOfSight` still starts at the
-  modelled eye, so the Walker's interaction checks verified in game do not move.
-- The `Aim` log line now also prints the source (`camera` or `model`), the modelled eye z, the raw camera position,
-  and the bound (`used` or `none`, centre height above the origin, radius).
+- `WorldUtils::HasLineOfSight` (Walker interaction, plain moves, combat) also starts at the camera now. In first
+  person that is close to the old eye. In third person the ray starts behind the player and may pass through the
+  player's own collision or a wall behind it (unverified).
+- Actors still use the aim height table (70 / 35 units shooting, 100 looking). Those are estimates too, the next
+  candidates for real data (bounds or skeleton nodes).
+- The `Aim` log line prints the camera, its height above the feet (`UNUSABLE` when not finite) and the bound
+  (`used` or `none`, centre height above the origin, radius).
 - Host tests for the two plausibility checks in `tests/AimLogicTests.cpp`. Builds; not run in game.
 
 Checks:
-1. The same bottle, about 10 m, standing: send the new `Aim` line and say where the shots land. It should say
-   `from camera` with the camera z above the modelled eye z (that difference was the miss), and `bound used`.
-2. Close (about 5 m), far (about 15 m) and crouched: the bottle is hit. Crouched, the camera z should drop.
+1. The same bottle, about 10 m, standing: send the new `Aim` line and say where the shots land. The camera should be
+   more than 100 above the feet (that difference was the miss), with `bound used`.
+2. Close (about 5 m), far (about 15 m) and crouched: the bottle is hit. Crouched, the height above the feet drops.
 3. Third person: the bottle is hit, or note how far off it is.
-4. If it says `from model` or `bound none`, the offset or the bound is not usable at runtime: send the line, because
-   the raw camera values in it show why.
-5. Walker regressions (`EyePosition` also feeds the Walker's look pitch): walking and interacting still look natural,
-   with no pitch jumps.
+4. `UNUSABLE` or `bound none` in the line: the camera or the bound is not usable at runtime; send the line.
+5. Walker regressions (the camera now feeds the Walker's look pitch and every line-of-sight check): walking and
+   interacting with containers, doors and NPCs still finish within a couple of seconds, in first and third person,
+   with no `line of sight blocked` give-ups that did not happen before.

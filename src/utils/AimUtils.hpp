@@ -24,7 +24,8 @@ struct Error {
 // Turns the view toward a world point at a bounded rate and returns the error that remains afterwards.
 Error AimAt(PlayerCharacter *player, const NiPoint3 &point, float deltaTime);
 
-// Pitch that points the view from the player's eye at `point` (negative looks up, matching SetPitch).
+// Pitch that points the view from the camera at `point` (negative looks up, matching SetPitch). Without a usable
+// camera it returns the current pitch, so the view holds still.
 float DesiredPitch(PlayerCharacter *player, const NiPoint3 &point);
 
 using AimLogic::Purpose;
@@ -36,13 +37,9 @@ NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose);
 // The world-space centre and radius of a reference's loaded 3D, when AimLogic::UsableObjectBound accepts it.
 bool ObjectBoundCentre(TESObjectREFR *ref, NiPoint3 &centre, float &radius);
 
-// Eye height above the player's feet for the current scale and stance (crouching). See AimLogic::kCrouchEyeRatio.
-float EyeHeight(PlayerCharacter *player);
-// The engine's camera position (PlayerCharacter::cameraPos), when AimLogic::PlausibleCameraOffset accepts it.
+// The engine's camera position (PlayerCharacter::cameraPos), where every aim and line-of-sight ray starts. False when
+// it is not usable (AimLogic::UsableCamera); there is no modelled fallback.
 bool CameraPosition(PlayerCharacter *player, NiPoint3 &camera);
-// Where aim is measured from: the camera when it is plausible, otherwise the modelled eye (feet + EyeHeight).
-NiPoint3 EyePosition(PlayerCharacter *player);
-NiPoint3 ModelledEyePosition(PlayerCharacter *player);
 bool IsCrouching(PlayerCharacter *player);
 
 } // namespace AimUtils
