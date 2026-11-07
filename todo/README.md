@@ -41,6 +41,9 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) | Context / Menus |
 | 41 | [query_quests should say which quest is already selected](41-query-quests-selected-line.md) | Gameplay actions |
 | 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
+| 43 | [In-game Walker debug mode: show the computed path](43-walker-debug-path-overlay.md) | Walker / tooling |
+| 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
+| 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (evaluate first) | Walker / pathing |
 
 ## To verify (implemented, waiting for an in-game test)
 
@@ -48,7 +51,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | - | ---- | ---- |
 | 23 | [Keep the game running and unpaused when the window is unfocused](to_verify/23-background-focus.md) (forces `bAlwaysActive` on and patches the window procedure's pause on focus loss; INI no longer matters) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](to_verify/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
-| 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) | Walker |
+| 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) (stricter recovery after the 2026-11-07 playtest) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](to_verify/26-walker-interaction-and-feedback.md) | Walker / Context |
 | 28 | [Location notices and throttled "you see" push](to_verify/28-location-and-world-context.md) | Context |
 | 29 | [Damage, death and combat-start messages](to_verify/29-player-status-and-damage-context.md) (cause/lesson texts are drafts) | Context / Combat |
