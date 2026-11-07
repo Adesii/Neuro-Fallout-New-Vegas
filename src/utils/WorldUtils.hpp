@@ -42,6 +42,7 @@ struct LineOfSightTrace {
   NiPoint3 from = {0.0f, 0.0f, 0.0f}; // the trimmed ray
   NiPoint3 to = {0.0f, 0.0f, 0.0f};
   float hitFraction = 1.0f; // along from -> to; below 1 when blocked
+  uint16_t group = 0;       // the player's collision group the ray ignored (0: none found)
 };
 LineOfSightTrace TraceLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint,
                                   LineOfSightTrim trim = {});

@@ -2,13 +2,16 @@
 #include "GameData.h"
 #include "GameForms.h"
 #include "GameObjects.h"
+#include "GameProcess.h"
 #include "Gamebryo/NiPoint3.hpp"
 #include "decoding.h"
+#include "havok.h"
 #include "itr/internal/EngineFunctions.h"
 #include "itr/internal/RayCast.h"
 #include "utils/AimUtils.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <unordered_set>
 
 namespace WorldUtils {
@@ -93,8 +96,31 @@ constexpr uint8_t kLineOfSightLayer =
 
 namespace {
 
-// The fraction along from -> to where the ray hit something, 1 when it is clear or no cast was performed.
-float RayHitFraction(const NiPoint3 &from, const NiPoint3 &to) {
+// The Havok collision group of the player's character controller, so a ray can carry it and pass through the player's
+// own body. Without it the ray can hit the player: crouched with a weapon out, the line-of-sight ray hit something
+// 62 units in front of the camera at about 1 m (designer's log, 2026-11-08), which is where the arms and the gun are.
+// JIP-LN-NVSE does the same for its view rays (`internal/jip_core.cpp`, _GetRayCastObject: the player's filter info
+// with the layer replaced). Every link is named in the vendored JG definitions: Actor::baseProcess (0x68),
+// MiddleHighProcess::charCtrl (0x138), bhkCharacterController::chrPhantom (0x594), bhkRefObject::refObject (0x08), and
+// hkpWorldObject's filter info at 0x2C (layer, flags, then the 16-bit group at 0x2E, which JIP names `group`).
+// 0 when any link is missing; a ray with group 0 behaves as before.
+uint16_t PlayerCollisionGroup(PlayerCharacter *player) {
+  auto *process = player ? player->baseProcess : nullptr;
+  if (!process || process->processLevel > 1) // charCtrl exists from MiddleHighProcess (level 1) up
+    return 0;
+  auto *controller = static_cast<MiddleHighProcess *>(process)->charCtrl;
+  auto *phantom = controller ? controller->chrPhantom : nullptr;
+  auto *object = phantom ? static_cast<hkpWorldObject *>(phantom->refObject) : nullptr;
+  if (!object)
+    return 0;
+  uint16_t group = 0;
+  std::memcpy(&group, object->unk2E, sizeof(group));
+  return group;
+}
+
+// The fraction along from -> to where the ray hit something, 1 when it is clear or no cast was performed. `group` is a
+// collision group the ray ignores (PlayerCollisionGroup), 0 for none.
+float RayHitFraction(const NiPoint3 &from, const NiPoint3 &to, uint16_t group = 0) {
   RayCastData ray = {};
   ray.pos0[0] = from.x * kHavokScale;
   ray.pos0[1] = from.y * kHavokScale;
@@ -106,6 +132,7 @@ float RayHitFraction(const NiPoint3 &from, const NiPoint3 &to) {
   ray.unk44[0] = 0xFFFFFFFF;
   ray.unk44[6] = 0xFFFFFFFF;
   ray.layerType = kLineOfSightLayer;
+  ray.group = group;
   if (!Engine::TESPickObject(&ray, true))
     return 1.0f; // no cast was performed; do not claim a blockage that was not observed
   return std::isfinite(ray.hitFraction) ? std::clamp(ray.hitFraction, 0.0f, 1.0f) : 1.0f;
@@ -145,7 +172,8 @@ LineOfSightTrace TraceLineOfSight(PlayerCharacter *player, TESObjectREFR *target
   const float end = 1.0f - trim.end / length;
   trace.from = {eye.x + dx * start, eye.y + dy * start, eye.z + dz * start};
   trace.to = {eye.x + dx * end, eye.y + dy * end, eye.z + dz * end};
-  trace.hitFraction = RayHitFraction(trace.from, trace.to);
+  trace.group = PlayerCollisionGroup(player);
+  trace.hitFraction = RayHitFraction(trace.from, trace.to, trace.group);
   trace.clear = trace.hitFraction >= 1.0f;
   return trace;
 }
@@ -165,7 +193,8 @@ void LogLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoin
   _WARNING(
       "Line of sight %s to %08X (%s): %s; camera (%.1f %.1f %.1f) %.1f above the feet, player cameraPos field "
       "(%.1f %.1f %.1f)%s, feet (%.1f %.1f %.1f) crouching %d; target point (%.1f %.1f %.1f), %.1f from the camera; "
-      "ray blocked at fraction %.3f, %.1f from the camera and %.1f short of the target point (hit z %.1f)",
+      "ray (ignoring player collision group %u) blocked at fraction %.3f, %.1f from the camera and %.1f short of the "
+      "target point (hit z %.1f)",
       trace.clear ? "clear" : "BLOCKED", target ? target->GetFormID() : 0, context,
       !trace.hasCamera ? "no usable camera"
       : trace.reticle  ? "reticle"
@@ -173,8 +202,8 @@ void LogLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoin
                        : "ray",
       trace.camera.x, trace.camera.y, trace.camera.z, trace.camera.z - feet.z, field.x, field.y, field.z,
       hasField ? "" : " unusable", feet.x, feet.y, feet.z, AimUtils::IsCrouching(player) ? 1 : 0, targetPoint.x,
-      targetPoint.y, targetPoint.z, Distance(trace.camera, targetPoint), trace.hitFraction, Distance(trace.camera, hit),
-      Distance(hit, targetPoint), hit.z);
+      targetPoint.y, targetPoint.z, Distance(trace.camera, targetPoint), static_cast<unsigned>(trace.group),
+      trace.hitFraction, Distance(trace.camera, hit), Distance(hit, targetPoint), hit.z);
 }
 
 void ForEachLoadedReference(const std::function<void(TESObjectREFR *, TESObjectCELL *)> &visit) {

@@ -96,3 +96,25 @@ Checks:
    send the `Line of sight BLOCKED` line. "Short of the target" near 0 means the bottle's own collision. A hit near
    the fence height means the fence. A camera far from the `cameraPos field` means one of the two readings is stale.
 2. The first-bottle checks above still apply (where the shots land, `bound used`).
+
+## Third test (designer, 2026-11-08): the refusal explained
+`Line of sight BLOCKED ... camera (-68330.4 5361.3 8494.1) 79.1 above the feet, player cameraPos field (same) ...
+crouching 1; target point 372.9 from the camera; ray blocked at fraction 0.097, 61.9 from the camera and 310.9 short of
+the target point (hit z 8487.2)`.
+- Both camera readings agree, so the camera is not stale.
+- The ray hit something 62 units in front of a crouched player's camera, about 72 units above the feet. That is where
+  the arms and the gun are when crouched with a weapon out. The ray was hitting the player's own body.
+- Cause: our ray had collision group 0. JIP-LN-NVSE's view rays carry the player's own collision filter group (from
+  the character controller's phantom), so Havok skips the player's body.
+- Change: `WorldUtils` line-of-sight rays now carry the player's group (`PlayerCollisionGroup`, every link named in the
+  vendored JG definitions, see the comment there). This covers combat, attack validation and Walker interaction. The
+  `BLOCKED` line prints the group (0 means it could not be read, and the ray then behaves as before).
+- Unverified: that the ragdoll/biped bodies share the controller's group (JIP relying on it suggests so), and that
+  nothing else now passes through the player that should not.
+
+Checks:
+1. Crouched, then standing again: `attack` every bottle. No refusal, and no `BLOCKED` line with a hit within about
+   100 units of the camera.
+2. A real wall: stand behind a wall or post with a bottle on the other side. `attack` is still refused, and the line
+   shows a hit near the wall.
+3. If a refusal still happens, send the `BLOCKED` line. Group 0 there means the chain could not be read.
