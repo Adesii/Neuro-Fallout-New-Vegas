@@ -32,17 +32,14 @@ using WorldUtils::Distance3D;
 using WorldUtils::LookupReference;
 
 constexpr float kInteractionDistance = 100.0f;
-constexpr float kInteractionDelay = 1.0f;
 // Actors that are the object of an interaction (a quest NPC to talk to) walk around, so waiting for a 100-unit approach
 // and a settled view never succeeds. Within this range she stops and interacts at once; once engaged the range grows
 // so a step back by the NPC does not cancel it. The distances are estimates: whether the game accepts an activation
-// from this far is unverified.
+// from this far is unverified. When to activate once within reach is WalkerLogic::InteractionGate.
 constexpr float kActorInteractionDistance = 150.0f;
 constexpr float kActorInteractionRelease = 250.0f;
-constexpr float kActorInteractionDelay = 0.3f;
-// Unaligned (or with the line of sight blocked) this long within reach: interact anyway and let the game accept or
-// reject it. For a plain move, the same wait before failing with "not reachable from here".
-constexpr float kAlignmentGiveUpDelay = 5.0f;
+// A plain move within reach but without a clear ray or the same level this long fails with "not reachable from here".
+constexpr float kMoveBlockedGiveUpDelay = WalkerLogic::InteractionGate::kGiveUpSeconds;
 // The engine path search is expensive, so the next waypoint is reused between these refreshes.
 constexpr float kRepathInterval = 0.25f;
 constexpr float kRepathMinInterval = 0.1f; // floor for the early refresh when the cached waypoint is reached
@@ -139,15 +136,13 @@ struct WalkerState {
   TESObjectCELL *trackedCell = nullptr;
   NiPoint3 smoothedLookTarget = {0.0f, 0.0f, 0.0f};
   NiPoint3 lastPlayerPosition = {0.0f, 0.0f, 0.0f};
-  float interactionTime = 0.0f;
-  float unalignedTime = 0.0f;
+  WalkerLogic::InteractionGate interaction;
   float blockedTime = 0.0f;
   float navigationAge = 0.0f;
   float lineOfSightTimer = 0.0f;
   float turnVelocity = 0.0f;
   bool lookTargetInitialized = false;
   bool positionInitialized = false;
-  bool alignmentGaveUp = false;
   bool navigationValid = false;
   bool lineOfSight = false;
   bool engaged = false; // an actor target is within interaction range
@@ -211,13 +206,11 @@ void ResetRouteState() {
   g_jumpPulses.ReleaseAll();
   g_state.trackedTarget = nullptr;
   g_state.trackedCell = nullptr;
-  g_state.interactionTime = 0.0f;
-  g_state.unalignedTime = 0.0f;
+  g_state.interaction.Reset();
   g_state.blockedTime = 0.0f;
   g_state.lineOfSightTimer = 0.0f;
   g_state.lineOfSight = false;
   g_state.engaged = false;
-  g_state.alignmentGaveUp = false;
   g_state.navigationValid = false;
   g_state.navigationAge = 0.0f;
   g_state.turnVelocity = 0.0f;
@@ -660,11 +653,10 @@ float InteractionReach(TESObjectREFR *target) {
 }
 
 void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance, float reach, bool aligned,
-                 float deltaTime) {
+                 float aimError, float deltaTime) {
   if (distance >= reach) {
     g_state.engaged = false;
-    g_state.interactionTime = 0.0f;
-    g_state.unalignedTime = 0.0f;
+    g_state.interaction.Reset();
     g_state.blockedTime = 0.0f;
     g_state.lineOfSightTimer = 0.0f;
     return;
@@ -681,30 +673,22 @@ void TryComplete(PlayerCharacter *player, TESObjectREFR *target, float distance,
       return;
     }
     g_state.blockedTime += deltaTime;
-    if (g_state.blockedTime >= kAlignmentGiveUpDelay)
+    if (g_state.blockedTime >= kMoveBlockedGiveUpDelay)
       FinishFailed(player, WalkerLogic::FailureReason::WrongFloor);
     return;
   }
 
-  // Interaction prefers the view on the target and a clear ray, but gives up waiting after kAlignmentGiveUpDelay and
-  // lets the game accept or reject the activation.
-  // A moving actor never holds still long enough for the view to settle on it, so only the ray is waited for.
-  if ((aligned || chasingActor) && g_state.lineOfSight) {
-    g_state.unalignedTime = 0.0f;
-  } else {
-    g_state.interactionTime = 0.0f;
-    g_state.unalignedTime += deltaTime;
-    if (g_state.unalignedTime < kAlignmentGiveUpDelay)
-      return;
-    if (!g_state.alignmentGaveUp) {
-      _WARNING("Walker could not line up with %s (%s); interacting anyway", g_state.command.description.c_str(),
-               g_state.lineOfSight ? "view not on target" : "line of sight blocked");
-      g_state.alignmentGaveUp = true;
-    }
-  }
-  g_state.interactionTime += deltaTime;
-  if (g_state.interactionTime < (chasingActor ? kActorInteractionDelay : kInteractionDelay))
+  // Activation does not need the crosshair on the target: one second after the aim is done with a clear ray, or after
+  // the give-up delay whatever held it up (see WalkerLogic::InteractionGate).
+  const auto verdict = g_state.interaction.Update(deltaTime, aligned, aimError, g_state.lineOfSight, chasingActor);
+  if (verdict == WalkerLogic::InteractionGate::Verdict::Wait)
     return;
+  if (verdict == WalkerLogic::InteractionGate::Verdict::GiveUp)
+    _WARNING("Walker could not line up with %s (%s); interacting anyway", g_state.command.description.c_str(),
+             !g_state.lineOfSight ? "line of sight blocked" : "view still turning");
+  else if (!aligned && !chasingActor)
+    _MESSAGE("Walker aim settled off %s (aim error %.3f rad); interacting", g_state.command.description.c_str(),
+             aimError);
   if (!IsInteractable(target)) {
     FinishFailed(player, WalkerLogic::FailureReason::NotInteractable);
     return;
@@ -861,7 +845,7 @@ void Process() {
   const bool aligned = std::abs(headingError) <= kLookAlignmentTolerance && pitchError <= kLookAlignmentTolerance;
   UpdateMovement(player, navigationPoint, plan.move, plan.headingOffset);
   UpdateReminder(deltaTime, walked, distance);
-  TryComplete(player, target, distance, reach, aligned, deltaTime);
+  TryComplete(player, target, distance, reach, aligned, std::abs(headingError) + pitchError, deltaTime);
 }
 
 void Pause(PauseReason reason) {

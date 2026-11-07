@@ -328,3 +328,82 @@ TEST("walker messages: progress and pause texts name the target") {
   const std::string pause = DescribePause("the saloon", "a menu is open");
   CHECK(pause.find("the saloon") != std::string::npos && pause.find("a menu is open") != std::string::npos);
 }
+
+namespace {
+
+// Runs a gate for `seconds` at 60 fps with fixed inputs; returns the first verdict that is not Wait, or Wait.
+InteractionGate::Verdict Hold(InteractionGate &gate, float seconds, bool aligned, float aimError, bool lineOfSight,
+                              bool movingTarget = false, float errorStep = 0.0f) {
+  const float dt = 1.0f / 60.0f;
+  for (float t = 0.0f; t < seconds; t += dt) {
+    const auto verdict = gate.Update(dt, aligned, aimError, lineOfSight, movingTarget);
+    if (verdict != InteractionGate::Verdict::Wait)
+      return verdict;
+    aimError += errorStep;
+  }
+  return InteractionGate::Verdict::Wait;
+}
+
+} // namespace
+
+TEST("walker interaction: aligned with a clear ray interacts after one second") {
+  InteractionGate gate;
+  CHECK(Hold(gate, 0.9f, true, 0.0f, true) == InteractionGate::Verdict::Wait);
+  CHECK(Hold(gate, 0.2f, true, 0.0f, true) == InteractionGate::Verdict::Interact);
+}
+
+TEST("walker interaction: a moving actor waits only for the ray, 0.3 s") {
+  InteractionGate gate;
+  CHECK(Hold(gate, 0.25f, false, 0.5f, true, true, 0.01f) == InteractionGate::Verdict::Wait);
+  CHECK(Hold(gate, 0.1f, false, 0.5f, true, true, 0.01f) == InteractionGate::Verdict::Interact);
+}
+
+TEST("walker interaction: an aim that stopped short of the target counts as done") {
+  // The view settles 0.3 rad off (an odd hitbox, a clamped turn): 0.25 s still, then the one-second delay.
+  InteractionGate gate;
+  CHECK(Hold(gate, 1.1f, false, 0.3f, true) == InteractionGate::Verdict::Wait);
+  CHECK(Hold(gate, 0.3f, false, 0.3f, true) == InteractionGate::Verdict::Interact);
+}
+
+TEST("walker interaction: a view still turning is not done") {
+  InteractionGate gate;
+  // 0.02 rad per frame is 1.2 rad/s: well above the settle rate.
+  CHECK(Hold(gate, 3.0f, false, 2.0f, true, false, -0.02f / 3.0f) == InteractionGate::Verdict::Wait);
+  CHECK(!gate.AimDone());
+}
+
+TEST("walker interaction: a one-frame ray flicker restarts the delay") {
+  InteractionGate gate;
+  CHECK(Hold(gate, 0.8f, true, 0.0f, true) == InteractionGate::Verdict::Wait);
+  CHECK(gate.Update(1.0f / 60.0f, true, 0.0f, false, false) == InteractionGate::Verdict::Wait);
+  CHECK(Hold(gate, 0.9f, true, 0.0f, true) == InteractionGate::Verdict::Wait);
+  CHECK(Hold(gate, 0.2f, true, 0.0f, true) == InteractionGate::Verdict::Interact);
+}
+
+TEST("walker interaction: a ray that stays blocked still gives up and interacts") {
+  // Regression: the old timer was zeroed every blocked frame, so the 5 s give-up could never activate.
+  InteractionGate gate;
+  CHECK(Hold(gate, 4.9f, true, 0.0f, false) == InteractionGate::Verdict::Wait);
+  CHECK(Hold(gate, 0.2f, true, 0.0f, false) == InteractionGate::Verdict::GiveUp);
+}
+
+TEST("walker interaction: flickering readiness cannot postpone the give-up") {
+  InteractionGate gate;
+  const float dt = 1.0f / 60.0f;
+  auto verdict = InteractionGate::Verdict::Wait;
+  int frame = 0;
+  for (float t = 0.0f; t < 5.2f && verdict == InteractionGate::Verdict::Wait; t += dt, ++frame)
+    verdict = gate.Update(dt, true, 0.0f, frame % 30 != 0, false); // blocked twice a second
+  CHECK(verdict == InteractionGate::Verdict::GiveUp);
+}
+
+TEST("walker interaction: reset starts over and bad input does not fire") {
+  InteractionGate gate;
+  CHECK(Hold(gate, 0.8f, true, 0.0f, true) == InteractionGate::Verdict::Wait);
+  gate.Reset();
+  CHECK(Hold(gate, 0.8f, true, 0.0f, true) == InteractionGate::Verdict::Wait);
+  gate.Reset();
+  CHECK(gate.Update(std::numeric_limits<float>::quiet_NaN(), false, std::numeric_limits<float>::infinity(), true,
+                    false) == InteractionGate::Verdict::Wait);
+  CHECK(gate.Update(-1.0f, false, 0.0f, true, false) == InteractionGate::Verdict::Wait);
+}

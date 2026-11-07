@@ -43,7 +43,9 @@ Engine side (`src/WalkerHandler.cpp`):
   locked one seen further off is named only if the budget runs out.
 - Repath uses a 0.1 s floor and skips nodes already within 60 units of the player.
 - Interaction and plain moves use the shared `WorldUtils::HasLineOfSight` with shorter trims (15/25 units). Interact
-  waits for the view on the target and a clear ray, then gives up after 5 s as before. Move counts as reached with a
+  (`WalkerLogic::InteractionGate`) waits for the aim to be done (view on the target, or the view stopped moving for
+  0.25 s) and a clear ray, then activates after 1 s; whatever holds it up, it activates after 5 s within reach. The
+  crosshair never has to be on the target: Walker calls `Activate` directly. Move counts as reached with a
   clear ray or a height difference up to 60 units; otherwise `WrongFloor` after 5 s.
 - Events carry a reason/description/detail; `GameplayHandler::ProcessWalkerEvents` builds the text. Started events are
   no longer produced for `Owner::Combat`. Progress is non-silent, Paused silent.
@@ -59,8 +61,8 @@ Engine side (`src/WalkerHandler.cpp`):
 ## Unverified assumptions
 1. The locked bit really is bit 1 of `flags` in the 1.4.0.525 layout.
 2. `GetOpenState` returns Closed (3) for a closed ordinary door and something else for sliding/odd doors.
-3. The 15/25-unit ray trims give a correct answer at about one metre: a false "blocked" only costs 5 s before the
-   activation happens anyway (logged as `Walker line of sight to ... changed`).
+3. The 15/25-unit ray trims give a correct answer at about one metre: a false "blocked" (possibly the target's own
+   collision, e.g. a mailbox seen from the side) only costs 5 s before the activation happens anyway (logged as `Walker line of sight to ... changed`).
 4. A jump pulse of 0.12 s actually jumps with the player's binding; stock FNV has no sprint or sneak-jump conflict.
 5. Whether `Activate` on a door at up to 200 units behaves like the player's own activation.
 6. `PlayerCharacter::reticleActor` is only trusted for actors; for doors and containers the ray decides.

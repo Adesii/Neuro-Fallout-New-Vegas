@@ -102,6 +102,45 @@ private:
   bool m_initialized = false;
 };
 
+// --- Interaction trigger ----------------------------------------------------------------------------------------
+
+// When to activate a target the player is already within reach of. Walker activates the reference directly, so the
+// crosshair never has to rest on it: an off-centre hitbox (a mailbox seen from the side) does not matter. Once the aim
+// is done and the line of sight is clear it waits `kDelay` and interacts. The aim is done when the view is on the
+// target, or when the view has stopped moving for `kSettleSeconds` (the turn finished short of the tolerance). A moving
+// actor is never waited for: only the ray. Whatever holds it up, after `kGiveUpSeconds` within reach it interacts
+// anyway and lets the game accept or reject the activation.
+class InteractionGate {
+public:
+  static constexpr float kDelay = 1.0f;
+  static constexpr float kActorDelay = 0.3f;
+  static constexpr float kGiveUpSeconds = 5.0f;
+  static constexpr float kSettleSeconds = 0.25f;
+  static constexpr float kSettleRate = 0.05f; // radians per second of aim error change
+
+  enum class Verdict {
+    Wait,
+    Interact, // aim done, ray clear, delay over
+    GiveUp,   // within reach for kGiveUpSeconds without that happening: interact anyway
+  };
+
+  // Call when the player leaves reach or the route changes.
+  void Reset();
+  // One frame within reach. `aimError` is the remaining view error (heading plus pitch, radians) and `aligned` whether
+  // it is within the walker's tolerance. `movingTarget` is an actor, whose view is not waited for.
+  Verdict Update(float dt, bool aligned, float aimError, bool lineOfSight, bool movingTarget);
+  // Whether the last Update judged the aim done (for the give-up log line).
+  bool AimDone() const { return m_aimDone; }
+
+private:
+  float m_lastError = 0.0f;
+  float m_still = 0.0f;
+  float m_ready = 0.0f;
+  float m_within = 0.0f;
+  bool m_hasError = false;
+  bool m_aimDone = false;
+};
+
 // --- Recovery ladder --------------------------------------------------------------------------------------------
 
 enum class RecoveryStep {

@@ -169,6 +169,41 @@ bool ProgressTracker::Update(float dt, float remaining, bool counting) {
   return true;
 }
 
+// --- Interaction trigger ----------------------------------------------------------------------------------------
+
+void InteractionGate::Reset() {
+  m_lastError = 0.0f;
+  m_still = 0.0f;
+  m_ready = 0.0f;
+  m_within = 0.0f;
+  m_hasError = false;
+  m_aimDone = false;
+}
+
+InteractionGate::Verdict InteractionGate::Update(float dt, bool aligned, float aimError, bool lineOfSight,
+                                                 bool movingTarget) {
+  dt = std::isfinite(dt) ? std::max(dt, 0.0f) : 0.0f;
+  if (!std::isfinite(aimError))
+    aimError = 0.0f;
+  if (dt > 0.0f) {
+    const bool still = m_hasError && std::abs(aimError - m_lastError) <= kSettleRate * dt;
+    m_still = still ? m_still + dt : 0.0f;
+    m_lastError = aimError;
+    m_hasError = true;
+  }
+  m_aimDone = aligned || m_still >= kSettleSeconds;
+
+  m_within += dt;
+  if ((m_aimDone || movingTarget) && lineOfSight) {
+    m_ready += dt;
+    if (m_ready >= (movingTarget ? kActorDelay : kDelay))
+      return Verdict::Interact;
+  } else {
+    m_ready = 0.0f;
+  }
+  return m_within >= kGiveUpSeconds ? Verdict::GiveUp : Verdict::Wait;
+}
+
 // --- Recovery ladder --------------------------------------------------------------------------------------------
 
 float StepDuration(RecoveryStep step) {

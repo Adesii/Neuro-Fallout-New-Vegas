@@ -93,3 +93,33 @@ moves, combat approaches) keeps the 100-unit rule. The stuck/progress checks tre
 Unverified: that the game accepts an activation (dialogue) from 150 units, and whether 150 feels natural on stream. If
 the activation is rejected from that far the failure will read "The game rejected interaction"; lower the constant.
 Check: follow a walking quest NPC; she should stop and talk within a second or two of getting close.
+
+## Follow-up: stuck in front of off-centre objects (2026-11-07)
+Designer's report: `interact_with_object` on a mailbox walked up, aimed, and then stood there for good at some angles,
+because the crosshair was not on the hitbox. Wanted: close enough and a clear line of sight, then interact one second
+after the aiming is finished, crosshair or not.
+
+Cause found in `TryComplete`: whenever the view was off or the ray blocked, the interaction timer was zeroed every
+frame, so after the 5 s give-up it only ever held one frame's time and the "interact anyway" fallback never fired. Any
+target the view could not line up with exactly was stuck forever.
+
+Change: the decision is the engine-free `WalkerLogic::InteractionGate` (host-tested in `tests/WalkerLogicTests.cpp`,
+including a regression test for the fallback). Within reach:
+- The aim is done when the view is within the old tolerance, **or** when it has stopped moving for 0.25 s (the turn
+  finished short of the tolerance). Activation never needed the crosshair: Walker calls `Activate` on the reference.
+- Aim done and a clear ray: interact after 1 s (actors: ray only, 0.3 s, unchanged).
+- Whatever holds it up, 5 s after getting within reach it interacts anyway; flickering readiness no longer postpones
+  that. Log: `Walker could not line up with X (line of sight blocked | view still turning); interacting anyway`, or
+  `Walker aim settled off X (aim error ... rad); interacting` when the settle rule fired.
+
+Unverified: whether the mailbox case was the view or the ray. The last game log (2026-11-07) had no stuck instance.
+If the log shows `line of sight blocked` for an object right in front of the player, the 25-unit end trim of the
+interaction ray is probably hitting the object's own collision; that would be the next thing to tune (it still
+interacts after 5 s meanwhile).
+
+Check:
+1. Mailbox from the side and at awkward angles: she interacts about 1 s after the turn stops (at most 5 s), never stands
+   there for good. Note which of the two log lines above appears.
+2. A container, a door and a terminal straight on: still about 1 s after arriving, no change.
+3. A container behind a railing or thin wall within 100 units: interacts after 5 s, as before (the design kept that).
+4. A walking quest NPC: still stops and talks within a second or two.
