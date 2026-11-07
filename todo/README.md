@@ -19,7 +19,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) (aim now from the engine camera at the bound centre; needs a retest) | Combat |
+| 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) (aim from the rendered camera at the bound centre; line-of-sight refusals now logged; needs a retest) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
 | 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
 | 09 | [Hacking menu (terminal lock minigame)](09-hacking-menu.md) | Menus |
@@ -44,6 +44,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 43 | [In-game Walker debug mode: show the computed path](43-walker-debug-path-overlay.md) | Walker / tooling |
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
 | 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (evaluate first) | Walker / pathing |
+| 47 | [Aim down sights automatically past 10 meters](47-auto-aim-down-sights.md) | Combat |
 
 ## To verify (implemented, waiting for an in-game test)
 
