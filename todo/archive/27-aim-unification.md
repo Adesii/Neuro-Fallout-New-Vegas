@@ -1,6 +1,6 @@
 # 27 - Aim: one target point, stance-aware eye height, safe angle maths
 
-Status: to verify (all steps done or replaced; bottle aim confirmed in game through todo 03)
+Status: archived (verified in game, 2026-11-08)
 Area: Aim / Walker / Combat (`src/utils/AimUtils.*`, `WalkerHandler.cpp`, `CombatHandler.cpp`)
 Source: `docs/code-review.md` A6, B5, C13, C14. Extends `todo/archive/03-attack-object-aim.md`.
 
@@ -90,3 +90,7 @@ fallback. Non-actor shoot points use the mesh bound centre. Details and checks a
 - Confirmed in game (designer, 2026-11-08, todo 03): fence bottles hit standing and crouched, the first shot included.
   Not yet confirmed: that the Walker's look pitch and its interaction line of sight feel the same with the camera
   origin, and actor shooting with the settle gate (it will come up in normal play).
+
+## Verified in game (designer, 2026-11-08)
+The designer is happy with the aim as it is and asked to archive this. The Walker look pitch with the camera origin and
+actor shooting with the settle gate were not checked separately; they come up in normal play.
