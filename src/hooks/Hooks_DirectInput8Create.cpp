@@ -64,7 +64,17 @@ public:
   }
   HRESULT _stdcall GetProperty(REFGUID a, DIPROPHEADER *b) { return m_device->GetProperty(a, b); }
   HRESULT _stdcall SetProperty(REFGUID a, const DIPROPHEADER *b) { return m_device->SetProperty(a, b); }
-  HRESULT _stdcall Acquire(void) { return m_device->Acquire(); }
+  // The engine's per-frame poll (0xA23010 in FalloutNV.exe 1.4.0.525) calls Acquire first and only reads the device
+  // state when it returns DI_OK or S_FALSE; on any other result it zeroes the key/button arrays and never calls
+  // GetDeviceState. A foreground-cooperative device cannot be acquired while the window is unfocused
+  // (DIERR_OTHERAPPHASPRIO), which silently dropped Neuro's held keys (the Walker stopped moving). Report success then
+  // so the engine goes on to GetDeviceState/GetDeviceData, which return no real input plus the injected input.
+  HRESULT _stdcall Acquire(void) {
+    const HRESULT hr = m_device->Acquire();
+    if (hr == DIERR_OTHERAPPHASPRIO || IsDeviceUnavailable(hr))
+      return DI_OK;
+    return hr;
+  }
   HRESULT _stdcall Unacquire(void) { return m_device->Unacquire(); }
 
   HRESULT _stdcall GetDeviceState(DWORD outDataLen, LPVOID outData) {
