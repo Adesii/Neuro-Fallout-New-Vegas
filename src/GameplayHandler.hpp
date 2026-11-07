@@ -40,7 +40,8 @@ bool PrepareCurrentQuest(QuestSelection &selection, std::string &error);
 bool RevalidateCurrentQuest(const QuestSelection &selection, std::string &error);
 void DoCurrentQuest(const QuestSelection &selection);
 
-void QueryNearby();
+// `page` is one-based; an empty `search` lists everything (Nearby::ParseQuery has validated both).
+void QueryNearby(int page, const std::string &search);
 bool ValidateObjectSelection(int id, ObjectSelection &selection, std::string &error);
 bool RevalidateObjectSelection(const ObjectSelection &selection, std::string &error);
 void StartObjectAction(const ObjectSelection &selection, Walker::Intent intent);

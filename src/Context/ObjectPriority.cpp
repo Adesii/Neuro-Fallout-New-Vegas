@@ -111,11 +111,4 @@ size_t Rank(std::vector<Candidate> &candidates, size_t limit) {
   return total;
 }
 
-std::string TruncationNote(size_t shown, size_t total) {
-  if (shown >= total)
-    return {};
-  return "Showing " + std::to_string(shown) + " of " + std::to_string(total) +
-         ", most important first. Move or query again for the rest.";
-}
-
 } // namespace Objects

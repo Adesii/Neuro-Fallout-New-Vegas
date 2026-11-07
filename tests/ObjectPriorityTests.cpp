@@ -59,15 +59,8 @@ TEST("objects: the cap keeps the most important and reports how many there were"
   CHECK(items[2].formId == 1); // the closest junk fills the rest
 }
 
-TEST("objects: fewer than the cap keeps everything and says nothing") {
+TEST("objects: fewer than the cap keeps everything") {
   std::vector<Candidate> items = {At(1, Category::Door, 10)};
   CHECK(Rank(items, 20) == 1);
-  CHECK(TruncationNote(1, 1).empty());
-  CHECK(TruncationNote(20, 20).empty());
-}
-
-TEST("objects: the truncation note names both numbers") {
-  const std::string note = TruncationNote(20, 57);
-  CHECK(note.find("20 of 57") != std::string::npos);
-  CHECK(note.find("most important first") != std::string::npos);
+  CHECK(items.size() == 1);
 }

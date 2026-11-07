@@ -62,6 +62,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
 | 35 | [Quest routing and object classification fixes](to_verify/35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
 | 38 | [Engine-free extraction and missing host tests](to_verify/38-engine-free-extraction-and-tests.md) | Tests |
+| 46 | [query_nearby: pages past the first 20, and search by name](to_verify/46-query-nearby-paging-and-search.md) | Gameplay actions |
 
 ## Archive
 

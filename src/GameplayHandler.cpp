@@ -14,6 +14,7 @@
 #include "Context/Distance.hpp"
 #include "Context/Greeting.hpp"
 #include "Context/Location.hpp"
+#include "Context/NearbyListing.hpp"
 #include "Context/ObjectPriority.hpp"
 #include "Context/SeePush.hpp"
 #include "GameData.h"
@@ -48,7 +49,6 @@ using WorldUtils::LookupReference;
 constexpr float kNearbyRadius = 2500.0f;
 constexpr float kExploreRadius = 5000.0f;
 constexpr float kExploreMinimumDistance = 300.0f;
-constexpr size_t kNearbyLimit = 20;
 constexpr size_t kRecentExplorationLimit = 8;
 constexpr float kQuestResolveTimeout = 10.0f;
 constexpr auto kQuestObservationInterval = std::chrono::milliseconds(500);
@@ -958,15 +958,16 @@ void DoCurrentQuest(const QuestSelection &selection) {
   }
 }
 
-void QueryNearby() {
+void QueryNearby(int page, const std::string &search) {
   auto scanned = ScanObjects(kNearbyRadius, CollectQuestTargetIds());
   std::vector<Objects::Candidate> candidates;
   candidates.reserve(scanned.size());
   for (const auto &entry : scanned)
     candidates.push_back({entry.referenceFormId, entry.category, entry.distance, entry.questTarget});
-  const size_t total = Objects::Rank(candidates, kNearbyLimit);
+  Objects::Rank(candidates, candidates.size());
 
-  // Ids follow the ranking, so the same surroundings always give the same ids.
+  // Every ranked object keeps an id, not only the page shown: ids follow the ranking, so the same surroundings give
+  // the same ids on every page and in every search, and an id from page 2 or a search result stays usable.
   g_objects.clear();
   for (const auto &candidate : candidates) {
     auto found = std::find_if(scanned.begin(), scanned.end(),
@@ -975,16 +976,28 @@ void QueryNearby() {
     g_objects.back().id = static_cast<int>(g_objects.size());
   }
 
+  std::vector<Nearby::Entry> entries;
+  entries.reserve(g_objects.size());
+  for (const auto &entry : g_objects)
+    entries.push_back({entry.name, Objects::CategoryName(entry.category)});
+  const auto selected = Nearby::Select(entries, search);
+  const auto shown = Nearby::PageSlice(selected, page);
+
   std::ostringstream context;
   context << "## Nearby objects";
   if (g_objects.empty()) {
     context << "\n- None found in the loaded area.";
+  } else if (selected.empty()) {
+    context << "\n- " << Nearby::NoMatchNote(search);
+  } else if (shown.empty()) {
+    context << "\n- " << Nearby::MissingPageNote(page, selected.size(), search);
   } else {
-    for (const auto &entry : g_objects) {
+    for (const size_t index : shown) {
+      const auto &entry = g_objects[index];
       context << "\n- `" << entry.id << "` - **" << Objects::CategoryName(entry.category) << "** - " << entry.name
               << " - " << Units::FormatDistance(entry.distance) << (entry.questTarget ? " - quest target" : "");
     }
-    const std::string note = Objects::TruncationNote(g_objects.size(), total);
+    const std::string note = Nearby::ListingNote(page, selected.size(), search);
     if (!note.empty())
       context << "\n\n" << note;
   }

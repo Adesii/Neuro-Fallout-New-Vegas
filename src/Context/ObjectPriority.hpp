@@ -55,7 +55,4 @@ bool MoreImportant(const Candidate &left, const Candidate &right);
 // Sorts `candidates` by MoreImportant and keeps at most `limit`. Returns how many there were before the cut.
 size_t Rank(std::vector<Candidate> &candidates, size_t limit);
 
-// "Showing 20 of 57, most important first. Move or query again for the rest." Empty when nothing was cut.
-std::string TruncationNote(size_t shown, size_t total);
-
 } // namespace Objects

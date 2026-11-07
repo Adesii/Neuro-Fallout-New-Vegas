@@ -40,3 +40,6 @@ In-game checklist: see the Result of todo 35.
 ## Verified in game (designer, 2026-11-07)
 - Goodsprings `query_nearby`: at most 20 entries, people and containers first, junk last, "Showing 20 of N", quest targets
   tagged, distances in meters. The tier values stay as proposed (no change asked for).
+
+Follow-up (2026-11-07): the note promised more results that could not be reached; paging and search were added in
+`to_verify/46-query-nearby-paging-and-search.md`.

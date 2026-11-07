@@ -32,6 +32,8 @@ add_executable(neuro_fnv_tests
     ObjectPriorityTests.cpp
     SeePushTests.cpp
     IdListTests.cpp
+    NameSearchTests.cpp
+    NearbyListingTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
     "${REPO}/src/Actions/ActionRegistry.cpp"
@@ -45,6 +47,8 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Context/IdlePoker.cpp"
     "${REPO}/src/Context/Greeting.cpp"
     "${REPO}/src/Context/Location.cpp"
+    "${REPO}/src/Context/NameSearch.cpp"
+    "${REPO}/src/Context/NearbyListing.cpp"
     "${REPO}/src/Context/ObjectPriority.cpp"
     "${REPO}/src/Context/SeePush.cpp"
     "${REPO}/src/Inventory/ItemQuery.cpp"
