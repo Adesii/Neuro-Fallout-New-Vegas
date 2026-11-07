@@ -46,7 +46,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 23 | [Keep the game running and unpaused when the window is unfocused](to_verify/23-background-focus.md) (patches the window procedure's pause on focus loss; needs `bAlwaysActive=1`) | Plugin |
+| 23 | [Keep the game running and unpaused when the window is unfocused](to_verify/23-background-focus.md) (forces `bAlwaysActive` on and patches the window procedure's pause on focus loss; INI no longer matters) | Plugin |
 | 24 | [Idle poke, post-action wake-up and greeting](to_verify/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](to_verify/26-walker-interaction-and-feedback.md) | Walker / Context |
