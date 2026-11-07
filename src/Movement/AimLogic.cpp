@@ -58,6 +58,18 @@ float EyeHeight(float scale, bool crouching) {
   return kStandingEyeHeight * ClampScale(scale) * (crouching ? kCrouchEyeRatio : 1.0f);
 }
 
+bool PlausibleCameraOffset(float dx, float dy, float dz) {
+  if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz))
+    return false;
+  return std::sqrt(dx * dx + dy * dy + dz * dz) <= kMaxCameraOffset;
+}
+
+bool UsableObjectBound(float radius, float centreToOrigin) {
+  if (!std::isfinite(radius) || !std::isfinite(centreToOrigin))
+    return false;
+  return radius > 0.0f && radius <= kMaxObjectBoundRadius && centreToOrigin <= radius + kBoundSlack;
+}
+
 float PitchTo(float dx, float dy, float dz) { return -std::atan2(dz, std::sqrt(dx * dx + dy * dy)); }
 
 } // namespace AimLogic

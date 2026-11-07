@@ -70,3 +70,21 @@ TEST("aim: PitchTo is negative for a target above the eye and positive below") {
   CHECK(std::abs(PitchTo(0.0f, 100.0f, 100.0f) - PitchTo(100.0f, 0.0f, 100.0f)) < 1e-6f);
   CHECK(std::abs(PitchTo(100.0f, 0.0f, 100.0f) + kPi / 4.0f) < 1e-5f);
 }
+
+TEST("aim: the engine camera is used only when it sits near the player") {
+  CHECK(AimLogic::PlausibleCameraOffset(0.0f, 0.0f, 120.0f));     // first person, head height
+  CHECK(AimLogic::PlausibleCameraOffset(-250.0f, 40.0f, 150.0f)); // third person, behind and above
+  CHECK(!AimLogic::PlausibleCameraOffset(0.0f, 0.0f, 5000.0f));   // stale (another cell, a menu camera)
+  CHECK(!AimLogic::PlausibleCameraOffset(std::numeric_limits<float>::quiet_NaN(), 0.0f, 100.0f));
+  CHECK(!AimLogic::PlausibleCameraOffset(0.0f, std::numeric_limits<float>::infinity(), 100.0f));
+}
+
+TEST("aim: an object's bound is used only when it belongs to the object") {
+  CHECK(AimLogic::UsableObjectBound(12.0f, 10.0f));  // a bottle: centre a little above its base
+  CHECK(AimLogic::UsableObjectBound(12.0f, 40.0f));  // within radius plus slack
+  CHECK(!AimLogic::UsableObjectBound(12.0f, 80.0f)); // the centre of something else
+  CHECK(!AimLogic::UsableObjectBound(0.0f, 0.0f));
+  CHECK(!AimLogic::UsableObjectBound(-3.0f, 0.0f));
+  CHECK(!AimLogic::UsableObjectBound(5000.0f, 0.0f)); // a whole-cell or parent bound
+  CHECK(!AimLogic::UsableObjectBound(std::numeric_limits<float>::quiet_NaN(), 0.0f));
+}

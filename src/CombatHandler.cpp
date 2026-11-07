@@ -395,16 +395,24 @@ void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &
     return;
   g_aimLogTimer = kAimLogInterval;
   const NiPoint3 eye = AimUtils::EyePosition(player);
+  const NiPoint3 modelled = AimUtils::ModelledEyePosition(player);
+  NiPoint3 camera;
+  const bool hasCamera = AimUtils::CameraPosition(player, camera);
+  NiPoint3 boundCentre;
+  float boundRadius = 0.0f;
+  const bool hasBound = AimUtils::ObjectBoundCentre(target, boundCentre, boundRadius);
   const NiPoint3 origin = target->GetPos();
   // InterfaceManager::crosshairRef (0xFC in both JG and JIP-LN-NVSE): what the crosshair rests on, for any reference.
   auto *manager = InterfaceManager::GetSingleton();
   TESObjectREFR *crosshair = manager ? manager->crosshairRef : nullptr;
-  _MESSAGE("Aim %s: eye (%.1f %.1f %.1f) crouching %d scale %.2f; target origin (%.1f %.1f %.1f) scale %.2f; aim point "
-           "z+%.1f; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; crosshair %08X "
-           "(target %08X), "
-           "reticle actor on target %d",
-           g_target.name.c_str(), eye.x, eye.y, eye.z, AimUtils::IsCrouching(player) ? 1 : 0, player->GetScale(),
-           origin.x, origin.y, origin.z, target->GetScale(), point.z - origin.z, Distance3D(eye, point),
+  _MESSAGE("Aim %s: eye (%.1f %.1f %.1f) from %s, modelled eye z %.1f, raw camera (%.1f %.1f %.1f); crouching %d scale "
+           "%.2f; target origin (%.1f %.1f %.1f) scale %.2f; bound %s centre z+%.1f radius %.1f; aim point z+%.1f; "
+           "distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; crosshair %08X (target "
+           "%08X), reticle actor on target %d",
+           g_target.name.c_str(), eye.x, eye.y, eye.z, hasCamera ? "camera" : "model", modelled.z, player->cameraPos.x,
+           player->cameraPos.y, player->cameraPos.z, AimUtils::IsCrouching(player) ? 1 : 0, player->GetScale(),
+           origin.x, origin.y, origin.z, target->GetScale(), hasBound ? "used" : "none",
+           hasBound ? boundCentre.z - origin.z : 0.0f, boundRadius, point.z - origin.z, Distance3D(eye, point),
            AimUtils::EffectiveYaw(player), error.heading, AimUtils::CameraPitch(), error.pitch,
            crosshair ? crosshair->GetFormID() : 0, target->GetFormID(),
            player->reticleActor && player->reticleActor == target ? 1 : 0);

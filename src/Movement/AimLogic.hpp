@@ -35,6 +35,19 @@ inline constexpr float kStandingEyeHeight = 100.0f;
 inline constexpr float kCrouchEyeRatio = 1.0f;
 float EyeHeight(float scale, bool crouching);
 
+// The engine's own camera position (PlayerCharacter::cameraPos) replaces the modelled eye when it is finite and within
+// kMaxCameraOffset of the player's feet; third-person cameras sit a few hundred units away at most. A value outside
+// that is stale or garbage, and the modelled eye is used instead.
+inline constexpr float kMaxCameraOffset = 600.0f;
+bool PlausibleCameraOffset(float dx, float dy, float dz);
+
+// A small object's mesh bound (its world-space centre and radius) replaces the Shoot height table when it is finite,
+// the radius is positive and under kMaxObjectBoundRadius, and the centre lies within radius + kBoundSlack of the
+// object's origin. A bound that fails this belongs to something else (a stale or parent node) and is ignored.
+inline constexpr float kMaxObjectBoundRadius = 300.0f;
+inline constexpr float kBoundSlack = 30.0f;
+bool UsableObjectBound(float radius, float centreToOrigin);
+
 // View pitch that looks from the eye at an offset (dx, dy, dz) away; negative looks up, matching SetPitch.
 float PitchTo(float dx, float dy, float dz);
 

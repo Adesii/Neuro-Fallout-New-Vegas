@@ -76,15 +76,64 @@ bool IsCrouching(PlayerCharacter *player) {
 
 float EyeHeight(PlayerCharacter *player) { return AimLogic::EyeHeight(player->GetScale(), IsCrouching(player)); }
 
-NiPoint3 EyePosition(PlayerCharacter *player) {
+NiPoint3 ModelledEyePosition(PlayerCharacter *player) {
   NiPoint3 eye = player->GetPos();
   eye.z += EyeHeight(player);
   return eye;
 }
 
+// PlayerCharacter::cameraPos at 0xDE0: JG `nvse/GameObjects.h` and JIP-LN-NVSE `nvse/GameObjects.h` agree, and JIP
+// casts its crosshair ray from it (`functions_jip/jip_fn_miscellaneous.h`, GetRayCastObject(g_thePlayer->cameraPos,
+// ...)). The modelled eye (feet + 100) is a guess; the 2026-11-07 bottle log showed the aim converging on the modelled
+// point while the shots missed. Not yet confirmed at runtime: the Aim log line prints both for comparison.
+bool CameraPosition(PlayerCharacter *player, NiPoint3 &camera) {
+  if (!player)
+    return false;
+  const NiPoint3 feet = player->GetPos();
+  const NiPoint3 candidate = {player->cameraPos.x, player->cameraPos.y, player->cameraPos.z};
+  if (!AimLogic::PlausibleCameraOffset(candidate.x - feet.x, candidate.y - feet.y, candidate.z - feet.z))
+    return false;
+  camera = candidate;
+  return true;
+}
+
+NiPoint3 EyePosition(PlayerCharacter *player) {
+  NiPoint3 camera;
+  if (CameraPosition(player, camera))
+    return camera;
+  return ModelledEyePosition(player);
+}
+
+// The loaded root node's world bound (TESObjectREFR::Get3DSimple -> renderState->rootNode, NiAVObject::GetWorldBound
+// with NiBound{kCenter, fRadius}: JG `nvse/GameObjects.h`, `internal/netimmerse.h`, `nvse/NiTypes.h`; JohnnyGuitarNVSE
+// reads bounds the same way in `JG/functions/fn_gamebryo.cpp`).
+bool ObjectBoundCentre(TESObjectREFR *ref, NiPoint3 &centre, float &radius) {
+  auto *node = ref ? ref->Get3DSimple() : nullptr;
+  if (!node || !node->m_pWorldBound)
+    return false;
+  const NiBound &bound = node->GetWorldBound();
+  const NiPoint3 origin = ref->GetPos();
+  const NiPoint3 candidate = {bound.kCenter.x, bound.kCenter.y, bound.kCenter.z};
+  const float dx = candidate.x - origin.x;
+  const float dy = candidate.y - origin.y;
+  const float dz = candidate.z - origin.z;
+  if (!AimLogic::UsableObjectBound(bound.fRadius, std::sqrt(dx * dx + dy * dy + dz * dz)))
+    return false;
+  centre = candidate;
+  radius = bound.fRadius;
+  return true;
+}
+
 NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose) {
+  const AimLogic::TargetKind kind = ClassifyTarget(ref);
+  if (purpose == Purpose::Shoot && kind == AimLogic::TargetKind::Object) {
+    NiPoint3 centre;
+    float radius = 0.0f;
+    if (ObjectBoundCentre(ref, centre, radius))
+      return centre;
+  }
   NiPoint3 point = ref->GetPos();
-  point.z += AimLogic::ScaledTargetHeight(ClassifyTarget(ref), purpose, ref->GetScale());
+  point.z += AimLogic::ScaledTargetHeight(kind, purpose, ref->GetScale());
   return point;
 }
 

@@ -19,7 +19,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) (measurement log added, waiting for numbers) | Combat |
+| 03 | [Attacking objects misses (bottles on the fence)](03-attack-object-aim.md) (aim now from the engine camera at the bound centre; needs a retest) | Combat |
 | 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
 | 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
 | 09 | [Hacking menu (terminal lock minigame)](09-hacking-menu.md) | Menus |

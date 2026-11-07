@@ -110,7 +110,9 @@ bool RayBlocked(const NiPoint3 &from, const NiPoint3 &to) {
 bool HasLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &targetPoint, LineOfSightTrim trim) {
   if (player->reticleActor && player->reticleActor == target)
     return true;
-  const NiPoint3 eye = AimUtils::EyePosition(player);
+  // The modelled eye, not the camera: the camera can sit behind geometry in third person, and the walker's interaction
+  // checks were tuned (and verified in game) against this origin.
+  const NiPoint3 eye = AimUtils::ModelledEyePosition(player);
   const float dx = targetPoint.x - eye.x;
   const float dy = targetPoint.y - eye.y;
   const float dz = targetPoint.z - eye.z;

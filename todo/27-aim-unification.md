@@ -72,3 +72,10 @@ Built and host-tested; nothing here has run in the game.
    shots land (high or low, roughly how far); the `crosshair` field says whether the crosshair itself is on the bottle. From them: set `kCrouchEyeRatio`, decide whether
    the 20-unit object height and the 0.07 pitch tolerance need to change, and record the numbers here.
 2. Then steps 1 and 7 can be closed and the task moved to `to_verify/`.
+
+## Follow-up (2026-11-07, todo 03)
+The first bottle log showed the aim converging exactly on the modelled point while the shots missed. `EyePosition` now
+returns the engine camera (`PlayerCharacter::cameraPos`, JG and JIP agree on 0xDE0) when it is plausible, with the
+modelled eye as fallback (`ModelledEyePosition`). Non-actor shoot points use the mesh bound centre. That may make
+`kCrouchEyeRatio` unnecessary for aiming; it now only matters for the fallback and for line of sight, which stays on
+the modelled eye. Details and checks are in todo 03.
