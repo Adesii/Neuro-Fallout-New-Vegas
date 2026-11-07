@@ -88,7 +88,10 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
    ammo. A real reload takes about 2-3 s, so 6 s should not misfire; verify with a slow reload weapon.
 10. The first shot goes out on the first frame the weapon is ready (the pulse timer starts "ready" and is reset to ready
     whenever the weapon cannot fire). Whether a game-side fire-rate limit or draw animation makes that first press
-    ineffective is unknown.
+    ineffective is unknown. "Lined up" for a ranged weapon is `Combat::AimGate` (2026-11-08): the remaining error within
+    the tolerance (for a non-actor with a mesh bound, its angular radius) and the view settled (error changing less than
+    0.05 rad/s for 0.15 s), or the engine's crosshair on the target actor. Before, shots went out while the view was
+    still turning.
 
 ## Manual in-game checklist
 
@@ -113,7 +116,8 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
    Walker and combat resume. `vats_cancel` leaves. If target or body-part cycling fails, note which inputs worked and
    send them back so the bindings in `VatsHandler.cpp` can be corrected.
 10. First-shot latency: `attack` with a pistol drawn and the target in view: the shot fires as soon as the aim lines up, not
-    after an extra beat; same for a thrown grenade and a melee swing once in reach.
+    after an extra beat; same for a thrown grenade and a melee swing once in reach. The first shot must not leave while
+    the view is still turning (bottles: the first shot of the burst hits).
 11. Long melee approach: `attack` an enemy 100+ m away with a melee weapon: she runs up without the engagement ending
     as "could not make progress" after 20 s; block the way (stand behind a closed gate): it ends as stalled after ~20 s.
 12. Failure symptoms to report: stuck mouse button, permanent Walker lockout after VATS (check the 90 s watchdog log

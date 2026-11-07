@@ -107,6 +107,7 @@ bool g_gameplayBlocked = true;
 std::vector<EnemyEntry> g_enemies;
 
 Combat::Engagement g_engagement;
+Combat::AimGate g_aimGate; // the ranged firing gate (ShotLinedUp)
 bool g_wasEngaged = false;
 TargetSelection g_target;
 uint32_t g_startSpace = 0;
@@ -430,6 +431,32 @@ bool AimIsOnTarget(PlayerCharacter *player, TESObjectREFR *target, const AimUtil
   return melee || std::abs(error.pitch) <= kRangedPitchTolerance;
 }
 
+// The engagement's firing gate. The engine's crosshair resting on the target actor is enough at once. Melee keeps the
+// wide heading check. A ranged shot waits for Combat::AimGate: within the tolerance and the view settled. For a
+// non-actor with a usable mesh bound the tolerance is the bound's own angular radius (a bottle at 10 m is about 0.017
+// rad, a third of the old 0.05).
+bool ShotLinedUp(PlayerCharacter *player, TESObjectREFR *target, const AimUtils::Error &error, Combat::WeaponKind kind,
+                 float deltaTime) {
+  if (player->reticleActor && player->reticleActor == target) {
+    g_aimGate.Reset();
+    return true;
+  }
+  if (Combat::NeedsReach(kind))
+    return AimIsOnTarget(player, target, error, kind);
+  float headingTolerance = kRangedHeadingTolerance;
+  float pitchTolerance = kRangedPitchTolerance;
+  NiPoint3 centre;
+  float radius = 0.0f;
+  NiPoint3 camera;
+  if (!target->IsActor() && AimUtils::ObjectBoundCentre(target, centre, radius) &&
+      AimUtils::CameraPosition(player, camera)) {
+    const float distance = Distance3D(camera, centre);
+    headingTolerance = Combat::AngularRadius(radius, distance, kRangedHeadingTolerance);
+    pitchTolerance = Combat::AngularRadius(radius, distance, kRangedPitchTolerance);
+  }
+  return g_aimGate.Update(deltaTime, error.heading, error.pitch, headingTolerance, pitchTolerance);
+}
+
 void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBlocked) {
   g_pulses.Advance(deltaTime);
   if (!g_engagement.IsActive()) {
@@ -462,6 +489,7 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
   input.targetPresent = target && SpaceOf(target) == g_startSpace;
   input.targetAlive = !(input.targetPresent && target->IsActor() && static_cast<Actor *>(target)->GetDead());
   if (!input.targetPresent || !input.targetAlive || paused) {
+    g_aimGate.Reset(); // the view may move while paused; settle again afterwards
     const auto output = g_engagement.Update(input);
     SetAttackHeld(false);
     if (output.stop)
@@ -506,7 +534,7 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
   input.usesAmmo = weapon.usesAmmo;
   input.clip = weapon.clip;
   input.reserve = weapon.reserve;
-  input.aimed = AimIsOnTarget(player, target, error, weapon.kind);
+  input.aimed = ShotLinedUp(player, target, error, weapon.kind, deltaTime);
   input.externalMovement = Walker::IsActive() && Walker::GetOwner() != Walker::Owner::Combat;
 
   const auto output = g_engagement.Update(input);
@@ -1008,6 +1036,7 @@ void StartAttack(const TargetSelection &selection) {
   g_lineOfSight = true;
   g_engagedWeaponKind = ReadWeapon(player).kind;
   g_engagement.Begin(selection.isActor);
+  g_aimGate.Reset();
   _MESSAGE("Combat engagement started against %s (%08X)%s", selection.name.c_str(), selection.referenceFormId,
            retarget ? " [retarget]" : "");
 

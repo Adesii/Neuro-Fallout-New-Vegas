@@ -172,6 +172,29 @@ private:
   bool m_outOfAmmoReported = false;
 };
 
+// Whether a ranged shot is lined up. Designer, 2026-11-08: the first shots of a burst went out while the view was still
+// turning onto the target and missed. Lined up means the remaining view error is within the tolerance *and* the view
+// has stopped closing in: the combined error (heading plus pitch) changed by less than kSettleRate per second for
+// kSettleSeconds. The aim controllers approach the target exponentially, so "stopped closing in" only happens once the
+// error is a few thousandths of a radian; a target the view follows at a steady lag (a walking actor) also settles.
+class AimGate {
+public:
+  static constexpr float kSettleSeconds = 0.15f;
+  static constexpr float kSettleRate = 0.05f; // radians per second, the same settle rate the Walker interaction uses
+
+  void Reset();
+  bool Update(float dt, float headingError, float pitchError, float headingTolerance, float pitchTolerance);
+
+private:
+  float m_lastError = 0.0f;
+  float m_still = 0.0f;
+  bool m_hasError = false;
+};
+
+// The angle from a target's centre to its edge, seen from `distance` away, for a target of `radius` (its mesh bound),
+// capped at `fallback`. `fallback` itself when either input is unusable.
+float AngularRadius(float radius, float distance, float fallback);
+
 // Health bands: the number of thresholds in the table (75/50/25/10 %) the health fraction is below, 0 to kBandCritical.
 inline constexpr int kBandDropping = 1;
 inline constexpr int kBandLow = 2;

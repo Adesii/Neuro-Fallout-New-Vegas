@@ -1,5 +1,8 @@
 #include "Combat/CombatLogic.hpp"
 #include "TestFramework.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
 
 using namespace Combat;
 
@@ -610,4 +613,76 @@ TEST("combat: weapon type constants and health band names line up with their tab
   CHECK(HealthBand(40.0f, 100.0f) == kBandLow);
   CHECK(HealthBand(70.0f, 100.0f) == kBandDropping);
   CHECK(HealthBand(100.0f, 100.0f) == 0);
+}
+
+namespace {
+
+// Turns the view the way AimUtils::AimAt does (heading: 10/s response capped at 7 rad/s; pitch: exponential at 12/s)
+// and returns the time the gate first said lined up, or -1. `firstInsideOld` gets the time the error first fell
+// within the old fixed tolerances (0.05 / 0.07), when shots used to start.
+float LineUp(float heading, float pitch, float headingTolerance, float pitchTolerance, float fps,
+             float &firstInsideOld) {
+  Combat::AimGate gate;
+  const float dt = 1.0f / fps;
+  firstInsideOld = -1.0f;
+  for (float t = 0.0f; t < 5.0f; t += dt) {
+    float turn = std::clamp(heading * 10.0f, -7.0f, 7.0f) * dt;
+    if (std::abs(turn) > std::abs(heading))
+      turn = heading;
+    heading -= turn;
+    pitch -= pitch * (1.0f - std::exp(-12.0f * dt));
+    if (firstInsideOld < 0.0f && std::abs(heading) <= 0.05f && std::abs(pitch) <= 0.07f)
+      firstInsideOld = t;
+    if (gate.Update(dt, heading, pitch, headingTolerance, pitchTolerance))
+      return t;
+  }
+  return -1.0f;
+}
+
+} // namespace
+
+TEST("combat aim gate: no shot while the view is still turning onto the target, at any frame rate") {
+  for (float fps : {30.0f, 60.0f, 144.0f}) {
+    float insideOld = 0.0f;
+    const float linedUp = LineUp(2.9f, 0.3f, 0.017f, 0.017f, fps, insideOld);
+    REQUIRE(linedUp > 0.0f);
+    CHECK(insideOld > 0.0f);
+    CHECK(linedUp > insideOld + 0.1f); // the old gate fired well before the view arrived
+    CHECK(linedUp < 1.5f);             // but it does not wait forever
+  }
+}
+
+TEST("combat aim gate: a view resting just off a small target never fires") {
+  Combat::AimGate gate;
+  for (int frame = 0; frame < 300; ++frame)
+    CHECK(!gate.Update(1.0f / 60.0f, 0.03f, 0.0f, 0.017f, 0.017f)); // still, but beside the bottle
+}
+
+TEST("combat aim gate: following a moving target at a steady small lag fires after the settle time") {
+  Combat::AimGate gate;
+  bool fired = false;
+  float t = 0.0f;
+  for (; t < 1.0f && !fired; t += 1.0f / 60.0f)
+    fired = gate.Update(1.0f / 60.0f, 0.02f, 0.01f, 0.05f, 0.07f);
+  CHECK(fired);
+  CHECK(t >= Combat::AimGate::kSettleSeconds);
+}
+
+TEST("combat aim gate: bad input and a reset start the settle time over") {
+  Combat::AimGate gate;
+  for (int frame = 0; frame < 30; ++frame)
+    gate.Update(1.0f / 60.0f, 0.0f, 0.0f, 0.05f, 0.07f);
+  CHECK(gate.Update(1.0f / 60.0f, 0.0f, 0.0f, 0.05f, 0.07f));
+  CHECK(!gate.Update(1.0f / 60.0f, std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.05f, 0.07f));
+  CHECK(!gate.Update(1.0f / 60.0f, 0.0f, 0.0f, 0.05f, 0.07f));
+  gate.Reset();
+  CHECK(!gate.Update(1.0f / 60.0f, 0.0f, 0.0f, 0.05f, 0.07f));
+}
+
+TEST("combat aim gate: a target's angular radius comes from its bound, capped by the fallback") {
+  CHECK(std::abs(Combat::AngularRadius(12.0f, 700.0f, 0.05f) - std::atan2(12.0f, 700.0f)) < 1e-6f); // a bottle at 10 m
+  CHECK_EQ(Combat::AngularRadius(200.0f, 100.0f, 0.05f), 0.05f); // close and large: never wider than before
+  CHECK_EQ(Combat::AngularRadius(0.0f, 700.0f, 0.05f), 0.05f);
+  CHECK_EQ(Combat::AngularRadius(12.0f, 0.0f, 0.05f), 0.05f);
+  CHECK_EQ(Combat::AngularRadius(std::numeric_limits<float>::quiet_NaN(), 700.0f, 0.07f), 0.07f);
 }

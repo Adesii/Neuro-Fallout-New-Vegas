@@ -118,3 +118,22 @@ Checks:
 2. A real wall: stand behind a wall or post with a bottle on the other side. `attack` is still refused, and the line
    shows a hit near the wall.
 3. If a refusal still happens, send the `BLOCKED` line. Group 0 there means the chain could not be read.
+
+## Fourth test (designer, 2026-11-08) and change
+- Report: the bottles are hit now, but the burst starts before the view has finished turning onto the target, so the
+  first shot (and the second on a slow turn) always misses.
+- Cause: "aimed" was any error within 0.05 rad heading and 0.07 rad pitch, with no check that the view had stopped.
+  At 10 m that is 0.5-0.7 m off, while a bottle is about 0.017 rad wide.
+- Change: the engine-free `Combat::AimGate`. A ranged shot fires only when the remaining error is within the tolerance
+  and the view has settled (error changing by less than 0.05 rad/s for 0.15 s). For a non-actor with a usable mesh
+  bound, the tolerance is the bound's angular radius (`Combat::AngularRadius`), capped at the old values. Actors keep
+  0.05 / 0.07, and the engine's crosshair resting on the target actor still fires at once. Melee is unchanged. The gate
+  resets on a new target and while the engagement is paused. Host tests in `tests/CombatTests.cpp` simulate the real
+  turn controllers at 30, 60 and 144 fps.
+- Expect about 0.3-0.4 s more before the first shot than before.
+
+Checks:
+1. Bottles from a fresh `attack` (a large turn): the first shot of the burst hits.
+2. A walking NPC: shots still go out (a steady tracking lag counts as settled), with no long pause before the first.
+3. A far bottle (20 m or more): the burst still starts within about a second and a half. If it never fires, the
+   bound radius is too small to settle into.

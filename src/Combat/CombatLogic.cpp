@@ -316,6 +316,35 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
   return output;
 }
 
+void AimGate::Reset() {
+  m_lastError = 0.0f;
+  m_still = 0.0f;
+  m_hasError = false;
+}
+
+bool AimGate::Update(float dt, float headingError, float pitchError, float headingTolerance, float pitchTolerance) {
+  dt = std::isfinite(dt) ? std::max(dt, 0.0f) : 0.0f;
+  if (!std::isfinite(headingError) || !std::isfinite(pitchError)) {
+    Reset();
+    return false;
+  }
+  const float error = std::abs(headingError) + std::abs(pitchError);
+  if (dt > 0.0f) {
+    const bool still = m_hasError && std::abs(error - m_lastError) <= kSettleRate * dt;
+    m_still = still ? m_still + dt : 0.0f;
+    m_lastError = error;
+    m_hasError = true;
+  }
+  const bool within = std::abs(headingError) <= headingTolerance && std::abs(pitchError) <= pitchTolerance;
+  return within && m_still >= kSettleSeconds;
+}
+
+float AngularRadius(float radius, float distance, float fallback) {
+  if (!std::isfinite(radius) || !std::isfinite(distance) || radius <= 0.0f || distance <= 0.0f)
+    return fallback;
+  return std::min(std::atan2(radius, distance), fallback);
+}
+
 int HealthBand(float health, float maxHealth) {
   const float fraction = maxHealth > 0.0f ? std::clamp(health / maxHealth, 0.0f, 1.0f) : 1.0f;
   int band = 0;
