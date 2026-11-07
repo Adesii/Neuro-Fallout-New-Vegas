@@ -3,7 +3,7 @@
 Status: open
 Area: Combat (`src/CombatHandler.cpp`, `src/Combat/CombatLogic.*`, input injection)
 Source: designer, 2026-11-08
-Related: `03-attack-object-aim.md` (aim from the camera), `27-aim-unification.md`
+Related: `archive/03-attack-object-aim.md` (aim from the camera), `to_verify/27-aim-unification.md`
 
 ## Problem
 There is no action to aim down sights, and combat never does it, so Neuro always fires from the hip. At range that

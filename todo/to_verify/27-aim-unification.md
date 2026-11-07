@@ -1,8 +1,8 @@
 # 27 - Aim: one target point, stance-aware eye height, safe angle maths
 
-Status: in progress (steps 2-6 done; 1, 3 and 7 wait for in-game data)
+Status: to verify (all steps done or replaced; bottle aim confirmed in game through todo 03)
 Area: Aim / Walker / Combat (`src/utils/AimUtils.*`, `WalkerHandler.cpp`, `CombatHandler.cpp`)
-Source: `docs/code-review.md` A6, B5, C13, C14. Extends `todo/03-attack-object-aim.md`.
+Source: `docs/code-review.md` A6, B5, C13, C14. Extends `todo/archive/03-attack-object-aim.md`.
 
 ## Problem
 - Combat aims at feet + 70 (character) / 35 (creature) / 20 (object), scaled (`CombatHandler.cpp:48-50,161-169`).
@@ -78,3 +78,15 @@ The first bottle log showed the aim converging exactly on the modelled point whi
 sight now start at the engine camera (`PlayerCharacter::cameraPos`, JG and JIP agree on 0xDE0). The designer decided
 the guess must not be used anywhere, so step 3's modelled eye (`EyeHeight`, `kCrouchEyeRatio`) is removed with no
 fallback. Non-actor shoot points use the mesh bound centre. Details and checks are in todo 03.
+
+## Result of the open steps (2026-11-08)
+- Step 1 (measure): done through todo 03. The log showed the modelled eye was the problem.
+- Step 3 (stance-aware eye): replaced. There is no modelled eye any more; aim and line of sight start at the rendered
+  world camera, which follows crouching by itself. `kCrouchEyeRatio` and `EyeHeight` are gone.
+- Step 7 (pitch tolerance): replaced by `Combat::AimGate`. For objects the tolerance is the mesh bound's angular
+  radius, and every ranged shot waits for the view to settle. Actors keep 0.05 / 0.07 plus the settle check.
+- Line-of-sight rays carry the player's collision group, so crouching no longer blocks them with the player's own
+  arms.
+- Confirmed in game (designer, 2026-11-08, todo 03): fence bottles hit standing and crouched, the first shot included.
+  Not yet confirmed: that the Walker's look pitch and its interaction line of sight feel the same with the camera
+  origin, and actor shooting with the settle gate (it will come up in normal play).

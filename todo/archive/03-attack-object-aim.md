@@ -1,6 +1,6 @@
 # 03 - Attacking objects misses (bottles on the fence)
 
-Status: in progress (first log analysed 2026-11-07; aim now from the engine camera at the bound centre, needs a retest)
+Status: archived (verified in game, 2026-11-08)
 
 ## Problem
 In the quest "Back in the Saddle" (shooting the bottles on the fence) the automatic `attack` with `object_id` misses:
@@ -137,3 +137,8 @@ Checks:
 2. A walking NPC: shots still go out (a steady tracking lag counts as settled), with no long pause before the first.
 3. A far bottle (20 m or more): the burst still starts within about a second and a half. If it never fires, the
    bound radius is too small to settle into.
+
+## Verified in game (designer, 2026-11-08)
+- `attack` on the Goodsprings fence bottles hits, standing and crouched, and the first shot of the burst hits too.
+- Not tested on purpose (designer: they will come up in normal play and are not important now): a walking NPC with
+  the new aim gate, and a bottle 20 m or more away.
