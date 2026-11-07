@@ -39,7 +39,6 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) | Context / Menus |
 | 41 | [query_quests should say which quest is already selected](41-query-quests-selected-line.md) | Gameplay actions |
 | 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
-| 43 | [In-game Walker debug mode: show the computed path](43-walker-debug-path-overlay.md) | Walker / tooling |
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
 | 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (evaluate first) | Walker / pathing |
 | 47 | [Aim down sights automatically past 10 meters](47-auto-aim-down-sights.md) | Combat |
@@ -53,6 +52,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 29 | [Damage, death and combat-start messages](to_verify/29-player-status-and-damage-context.md) (cause/lesson texts are drafts) | Context / Combat |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
+| 43 | [In-game Walker debug mode: show the computed path](to_verify/43-walker-debug-path-overlay.md) (`NWalkerDebug` console command, D3D9 overlay) | Walker / tooling |
 
 ## Archive
 
