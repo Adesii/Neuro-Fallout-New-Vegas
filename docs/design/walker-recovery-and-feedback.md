@@ -24,11 +24,20 @@ crosshair-only interaction rule do not (the designer chose "prefer line of sight
 
 ## Design as built
 Engine-free, host-tested (`src/Movement/WalkerLogic.*`, `tests/WalkerLogicTests.cpp`):
-- `StuckDetector`: 50 units / 1.5 s window over real time, grace after a cell change, teleport-jump restarts it.
+- `StuckDetector`: 50 units / 1.5 s window over real time, grace after a load-door cell change, teleport-jump restarts it.
+- `SlideDetector` (2026-11-07): over 2 s, the distance made along the steering direction must be at least half the
+  distance covered; less means the player is sliding along something it steers into. Under 50 units covered it leaves
+  the verdict to `StuckDetector`.
 - `OscillationDetector`: the old distance-flip detector, unchanged numbers.
-- `ProgressTracker`: remaining distance must improve 25 units per 45 s or the walk fails (`NoProgress`).
-- `RecoveryPlanner`: door in front (once) -> Jump -> Sidestep -> Sidestep (other side) -> BackOff, repeating.
-  Budget 4 (10 for `Owner::Quest`). Travelling 200 units gives the budget back.
+- `ProgressTracker`: remaining distance must improve 70 units (about 1 m) per 30 s or the walk fails (`NoProgress`).
+  It keeps counting during recovery steps. (Was 25 units per 45 s, paused during recovery.)
+- `RecoveryPlanner`: door in front (once) -> Jump -> Sidestep -> Sidestep (other side) -> BackOff, repeating, the last
+  two attempts Wander. Budget 6 (8 for `Owner::Quest`). The budget comes back only when the player is 10 m closer to the
+  target than at its closest stuck point; time and distance walked never refill it.
+- Crossing into the next exterior cell on the same walk (same target, no teleport) keeps the planner and the progress
+  tracker; only a load door or a new target starts them over.
+- History: first budget 4/10 refilled by 200 units travelled, then (2026-10-25) 6/12 refilled after 10 s clean and
+  200 units from every stuck spot. Both let a corner loop forever; the designer prefers failing to looping (2026-11-07).
 - `ProgressReminder` (40 s / 20 s exploring), `PauseNotice` (one silent note after 30 s on hold), `FailureReason` and the
   text builders `DescribeFailure/Progress/Pause`.
 - Distances go through `Units::FormatDistance` (`src/Context/Distance.*`), which prints meters (todo 39).

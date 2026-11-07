@@ -151,6 +151,7 @@ struct WalkerState {
   WalkerLogic::StuckDetector stuck;
   WalkerLogic::StuckDetector detourStuck; // a Wander step that goes nowhere ends early
   WalkerLogic::OscillationDetector oscillation;
+  WalkerLogic::SlideDetector slide; // running into an obstacle at an angle
   WalkerLogic::ProgressTracker progress;
   WalkerLogic::RecoveryPlanner planner;
   Recovery recovery;
@@ -219,6 +220,7 @@ void ResetRouteState() {
   g_state.stuck.Reset();
   g_state.detourStuck.Reset();
   g_state.oscillation.Reset();
+  g_state.slide.Reset();
   g_state.progress.Reset();
   g_state.planner.Reset(RetryBudget());
   g_state.recovery = {};
@@ -494,6 +496,7 @@ void EndRecovery() {
   g_state.recovery = {};
   g_state.stuck.StartGrace(0.0f); // forget the history so the verdict needs a fresh window
   g_state.oscillation.Reset();
+  g_state.slide.Reset();
   g_state.navigationValid = false; // the next frame paths again, from wherever the step left the player
 }
 
@@ -530,7 +533,7 @@ bool PickDetour(PlayerCharacter *player, int tier, NiPoint3 &out) {
 }
 
 // Chooses and starts a recovery step. False when the walk was failed instead (the command is gone then).
-bool BeginRecovery(PlayerCharacter *player, const char *why) {
+bool BeginRecovery(PlayerCharacter *player, float remaining, const char *why) {
   const DoorAhead door = FindDoorAhead(player);
   if (door.ref && door.closed && door.locked) {
     g_state.lockedDoor = DoorLabel(door.ref);
@@ -540,8 +543,7 @@ bool BeginRecovery(PlayerCharacter *player, const char *why) {
     }
   }
   const bool doorOpenable = door.ref && door.closed && !door.locked;
-  const NiPoint3 here = player->GetPos();
-  auto choice = g_state.planner.Next(IsJumpBound(), doorOpenable, here.x, here.y);
+  auto choice = g_state.planner.Next(IsJumpBound(), doorOpenable, remaining);
   if (!choice) {
     if (g_state.lockedDoor.empty())
       FinishFailed(player, WalkerLogic::FailureReason::Stuck);
@@ -565,6 +567,7 @@ bool BeginRecovery(PlayerCharacter *player, const char *why) {
   g_state.recovery.mirrored = choice->mirrored;
   g_state.recovery.doorFormId = choice->step == WalkerLogic::RecoveryStep::Door ? door.ref->GetFormID() : 0;
   g_state.oscillation.Reset();
+  g_state.slide.Reset();
   g_state.stuck.StartGrace(0.0f);
   _MESSAGE("Walker recovery attempt %d (%s): step %d%s", g_state.planner.Attempts(), why,
            static_cast<int>(choice->step), choice->mirrored ? " mirrored" : "");
@@ -777,20 +780,36 @@ void Process() {
   auto *currentCell = player->GetParentCell();
   if (target != g_state.trackedTarget || currentCell != g_state.trackedCell) {
     const bool changedCell = g_state.trackedCell && g_state.trackedCell != currentCell;
+    // Walking into the next exterior cell on the same walk is not a new route: keep the recovery budget and the
+    // progress stall, or a walk stuck near a cell border starts over every time it crosses it (the corner loop of the
+    // 2026-11-07 playtest). A load door or any other jump is a new route.
+    const bool sameWalk = changedCell && target == g_state.trackedTarget && g_state.positionInitialized &&
+                          Math::GetDistance2D(player->GetPos(), g_state.lastPlayerPosition) <=
+                              WalkerLogic::StuckDetector::kTeleportDistance;
+    const WalkerLogic::RecoveryPlanner planner = g_state.planner;
+    const WalkerLogic::ProgressTracker progress = g_state.progress;
     ReleaseMovementKeys();
     ResetRouteState();
     g_state.trackedTarget = target;
     g_state.trackedCell = currentCell;
-    if (changedCell)
+    if (sameWalk) {
+      g_state.planner = planner;
+      g_state.progress = progress;
+    } else if (changedCell) {
       g_state.stuck.StartGrace(kCellChangeGrace); // positions jump and the world is still streaming in
+    }
   }
 
   const NiPoint3 playerPosition = player->GetPos();
   float walked = 0.0f;
+  float frameDx = 0.0f;
+  float frameDy = 0.0f;
   if (g_state.positionInitialized) {
     walked = Math::GetDistance2D(playerPosition, g_state.lastPlayerPosition);
+    frameDx = playerPosition.x - g_state.lastPlayerPosition.x;
+    frameDy = playerPosition.y - g_state.lastPlayerPosition.y;
     if (walked > WalkerLogic::StuckDetector::kTeleportDistance)
-      walked = 0.0f;
+      walked = frameDx = frameDy = 0.0f;
   }
   g_state.lastPlayerPosition = playerPosition;
   g_state.positionInitialized = true;
@@ -806,19 +825,29 @@ void Process() {
     g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, false);
     g_state.oscillation.Reset();
     g_state.progress.Update(deltaTime, distance, false);
+    g_state.slide.Reset();
     g_state.recovery = {};
+  } else if (g_state.progress.Update(deltaTime, distance, true)) {
+    // Counts through recovery steps too: a walk that only ever recovers is not getting anywhere either.
+    FinishFailed(player, WalkerLogic::FailureReason::NoProgress);
+    return;
   } else if (g_state.recovery.active) {
     plan = StepRecovery(player, deltaTime);
   } else {
-    g_state.planner.Update(deltaTime, playerPosition.x, playerPosition.y);
-    if (g_state.progress.Update(deltaTime, distance, true)) {
-      FinishFailed(player, WalkerLogic::FailureReason::NoProgress);
-      return;
-    }
+    g_state.planner.Update(distance);
     const bool stuck = g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, true);
+    bool sliding = false;
+    if (g_state.stuck.InGrace() || !IsValidPoint(navigationPoint))
+      g_state.slide.Reset();
+    else
+      sliding = g_state.slide.Update(deltaTime, frameDx, frameDy, navigationPoint.x - playerPosition.x,
+                                     navigationPoint.y - playerPosition.y, true);
     const bool oscillating = g_state.oscillation.Update(deltaTime, distance);
-    if (stuck || oscillating) {
-      if (!BeginRecovery(player, stuck ? "no player movement" : "target distance oscillation"))
+    if (stuck || sliding || oscillating) {
+      const char *why = stuck     ? "no player movement"
+                        : sliding ? "running into an obstacle"
+                                  : "target distance oscillation";
+      if (!BeginRecovery(player, distance, why))
         return;
       plan = StepRecovery(player, 0.0f);
       navigationPoint = GetNavigationPoint(player, target, 0.0f); // a Wander step steers at its own spot

@@ -169,6 +169,42 @@ bool ProgressTracker::Update(float dt, float remaining, bool counting) {
   return true;
 }
 
+void SlideDetector::Reset() {
+  m_samples.clear();
+  m_clock = 0.0f;
+  m_start = -1.0f;
+}
+
+bool SlideDetector::Update(float dt, float dx, float dy, float wantX, float wantY, bool moving) {
+  dt = std::isfinite(dt) ? std::max(dt, 0.0f) : 0.0f;
+  const float wantLength = std::hypot(wantX, wantY);
+  const float covered = std::hypot(dx, dy);
+  if (!moving || !std::isfinite(covered) || !std::isfinite(wantLength) || wantLength < 1e-3f ||
+      covered > StuckDetector::kTeleportDistance) {
+    Reset();
+    return false;
+  }
+  m_clock += dt;
+  if (m_start < 0.0f)
+    m_start = m_clock;
+  m_samples.push_back({m_clock, covered, (dx * wantX + dy * wantY) / wantLength});
+  while (!m_samples.empty() && m_samples.front().time <= m_clock - kWindowSeconds)
+    m_samples.pop_front();
+  if (m_clock - m_start < kWindowSeconds)
+    return false;
+
+  float totalCovered = 0.0f;
+  float totalAlong = 0.0f;
+  for (const Sample &sample : m_samples) {
+    totalCovered += sample.covered;
+    totalAlong += sample.along;
+  }
+  if (totalCovered < kMinCovered || totalAlong >= kMinEfficiency * totalCovered)
+    return false;
+  Reset();
+  return true;
+}
+
 // --- Interaction trigger ----------------------------------------------------------------------------------------
 
 void InteractionGate::Reset() {
@@ -234,18 +270,15 @@ void RecoveryPlanner::Reset(int budget) {
   m_attempts = 0;
   m_ladder = 0;
   m_doorTried = false;
-  m_clean = 0.0f;
-  m_spots.clear();
+  m_closestStuck = 0.0f;
 }
 
-std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool doorAvailable, float x, float y) {
+std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool doorAvailable, float targetDistance) {
   if (m_attempts >= m_budget)
     return std::nullopt;
+  if (std::isfinite(targetDistance))
+    m_closestStuck = m_attempts == 0 ? targetDistance : std::min(m_closestStuck, targetDistance);
   ++m_attempts;
-  m_clean = 0.0f;
-  m_spots.push_back({x, y});
-  if (m_spots.size() > 16)
-    m_spots.erase(m_spots.begin());
 
   const int remaining = m_budget - m_attempts;
   if (remaining < kWanderAttempts && m_budget > kWanderAttempts)
@@ -272,23 +305,13 @@ std::optional<RecoveryPlanner::Choice> RecoveryPlanner::Next(bool canJump, bool 
   }
 }
 
-void RecoveryPlanner::Update(float dt, float x, float y) {
-  if (m_attempts == 0)
-    return;
-  for (const Spot &spot : m_spots) {
-    if (std::hypot(x - spot.x, y - spot.y) < kProgressDistance) {
-      m_clean = 0.0f;
-      return;
-    }
-  }
-  m_clean += dt;
-  if (m_clean < kCleanSeconds)
+void RecoveryPlanner::Update(float remaining) {
+  if (m_attempts == 0 || !std::isfinite(remaining) || remaining > m_closestStuck - kRefillProgress)
     return;
   m_attempts = 0;
   m_ladder = 0;
   m_doorTried = false;
-  m_clean = 0.0f;
-  m_spots.clear();
+  m_closestStuck = 0.0f;
 }
 
 // --- Reminder and pause -----------------------------------------------------------------------------------------

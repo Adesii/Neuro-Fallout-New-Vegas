@@ -129,3 +129,40 @@ Partly checked (marked `[/]`): the corner case from the follow-up (attempts 1-6 
 Not run yet: closed unlocked door opened by Walker (check 2), locked door failure (check 3), menu open over 30 s mid-walk
 (check 6), unreachable target across a gap (check 7), encumbered or crippled legs (check 9), combat melee approach
 through an obstacle (check 10).
+
+## Follow-up after the 2026-11-07 playtest
+Designer's report: the corner case still looped. A sidestep freed the player for a moment, then it slid back into the
+corner with a fresh budget, over and over. In Primm many objects are not in the navmesh, so the player keeps running
+straight into them. Wanted: a much more sensitive walker that fails in more cases rather than ever getting stuck, so
+Neuro learns something is wrong and tries something else.
+
+Causes found:
+- Every exterior cell crossing ran `ResetRouteState()`. That refilled the recovery budget and restarted the progress
+  stall, so a walk near a cell border started over each time it crossed it.
+- The 10 s clean stretch more than 200 units from every stuck spot was easy to reach while sliding along a wall.
+- Sliding along an obstacle at an angle covers more than 50 units per 1.5 s, so `StuckDetector` never fired. Only the
+  45 s progress stall could end it, and that was paused during recovery steps.
+
+Changes (engine-free parts in `WalkerLogic`, host-tested):
+- Budget refill only after real progress: 10 m closer to the target than the closest point where it was stuck. Time
+  and distance walked never refill it. Quest budget 12 -> 8 (default stays 6).
+- A plain exterior cell crossing on the same walk keeps the planner and the progress tracker, and no longer starts the
+  5 s stuck grace. Load doors and new targets still reset everything.
+- New `SlideDetector`: over 2 s, the distance made along the steering direction must be at least half the distance
+  covered. Otherwise recovery starts with the log reason `running into an obstacle`.
+- Progress stall 45 s / 25 units -> 30 s / 70 units (about 1 m), counted during recovery steps too.
+
+Unverified (in game): the 0.5 slide efficiency on stairs, slopes and tight navmesh corners (false recoveries would show
+as `running into an obstacle` lines on a normal walk), and whether 30 s is too short for the hill and fence quest route
+from check 8.
+
+Checks:
+1. The corner case: attempts 1-6 (quest routes 1-8) end with two `Wander` steps and then the "got stuck" failure. It
+   never starts again at attempt 1 in the same spot.
+2. Primm: walking into an object that is not in the navmesh logs `running into an obstacle` within about 2 s, goes
+   through the recovery steps and fails with "got stuck" or "never got meaningfully closer". She never keeps running
+   into it.
+3. Normal walks in town, on stairs and up slopes: no `running into an obstacle` lines.
+4. Repeat check 8 (the long quest route around a hill or fence): it still must not end with "never got meaningfully
+   closer". If it does, the 30 s stall is too short.
+5. Check 7 (target across a gap) should now fail after about 30 s instead of 45 s.

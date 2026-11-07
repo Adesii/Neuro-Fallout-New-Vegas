@@ -8,7 +8,6 @@
 #include <deque>
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace WalkerLogic {
 
@@ -86,11 +85,13 @@ private:
 };
 
 // The remaining distance must improve by `kMinImprovement` within `kStallSeconds` or the walk is not getting anywhere,
-// whatever the stuck detector says (circling, a detour that never ends, a target on an unreachable ledge).
+// whatever the stuck detector says (circling, a detour that never ends, a target on an unreachable ledge). It keeps
+// counting through recovery steps: a walk that only ever recovers is not getting anywhere either. The designer prefers
+// a walk that fails (Neuro then tries something else) to one that keeps running into a wall on stream (2026-11-07).
 class ProgressTracker {
 public:
-  static constexpr float kStallSeconds = 45.0f;
-  static constexpr float kMinImprovement = 25.0f;
+  static constexpr float kStallSeconds = 30.0f;
+  static constexpr float kMinImprovement = 70.0f; // about a meter
 
   void Reset();
   // Time only counts while `counting`; leaving the counting state restarts the tracker. True when stalled.
@@ -100,6 +101,33 @@ private:
   float m_best = 0.0f;
   float m_idle = 0.0f;
   bool m_initialized = false;
+};
+
+// Running into an obstacle at an angle: the player slides along it, so it covers too much ground for StuckDetector but
+// hardly moves where the walker is steering. Over a full window, the distance made along the wanted direction must be
+// at least `kMinEfficiency` of the distance actually covered (pushing into a wall `a` degrees off its normal slides at
+// about sin(a) efficiency, so 0.5 catches anything steeper than 30 degrees; a normal walk with 8-way movement keys
+// stays above 0.9). Frames covering almost nothing are left to StuckDetector.
+class SlideDetector {
+public:
+  static constexpr float kWindowSeconds = 2.0f;
+  static constexpr float kMinEfficiency = 0.5f;
+  static constexpr float kMinCovered = 50.0f; // below this in a window StuckDetector decides
+
+  void Reset();
+  // One frame: (dx, dy) is what the player moved this frame, (wantX, wantY) the direction the walker steers (any
+  // length). `moving` is whether the walker wants to move. True when the window shows sliding; the history is cleared.
+  bool Update(float dt, float dx, float dy, float wantX, float wantY, bool moving);
+
+private:
+  struct Sample {
+    float time;
+    float covered;
+    float along;
+  };
+  std::deque<Sample> m_samples;
+  float m_clock = 0.0f;
+  float m_start = -1.0f;
 };
 
 // --- Interaction trigger ----------------------------------------------------------------------------------------
@@ -164,16 +192,16 @@ void DetourOffset(int tier, float random01, float &dx, float &dy);
 // `kWanderAttempts` attempts are Wander steps instead, so the walk tries a genuinely different angle right before it
 // gives up. Every step ends with a fresh route search from wherever it left the player.
 //
-// The budget only comes back after the player has been walking for `kCleanSeconds` without being judged stuck and is
-// at least `kProgressDistance` from every place it was stuck. Counting distance walked was wrong: sliding back into
-// the same corner after a sidestep kept refilling it and the recovery looped forever.
+// The budget only comes back when the player got `kRefillProgress` closer to the target than it was at its closest
+// stuck point: the obstacle is then really behind it. Time or distance walked never refills it: sliding out of a
+// corner and back in kept refilling the budget both ways and the recovery looped forever (playtests 2026-10-25 and
+// 2026-11-07).
 class RecoveryPlanner {
 public:
   static constexpr int kDefaultBudget = 6;
-  static constexpr int kQuestBudget = 12;
+  static constexpr int kQuestBudget = 8;
   static constexpr int kWanderAttempts = 2;
-  static constexpr float kProgressDistance = 200.0f;
-  static constexpr float kCleanSeconds = 10.0f;
+  static constexpr float kRefillProgress = 700.0f; // 10 meters
 
   struct Choice {
     RecoveryStep step = RecoveryStep::Sidestep;
@@ -183,23 +211,19 @@ public:
 
   void Reset(int budget);
   // Next step, or nothing when the budget is spent. `canJump` is whether a Jump control is bound; `doorAvailable`
-  // whether a closed unlocked door stands in front of the player; (x, y) is where the player is stuck.
-  std::optional<Choice> Next(bool canJump, bool doorAvailable, float x, float y);
-  // Every frame the walker is going about its business (not recovering).
-  void Update(float dt, float x, float y);
+  // whether a closed unlocked door stands in front of the player; `targetDistance` the distance to the target where it
+  // is stuck.
+  std::optional<Choice> Next(bool canJump, bool doorAvailable, float targetDistance);
+  // Every frame the walker moves toward the target, with the distance still to go.
+  void Update(float remaining);
   int Attempts() const { return m_attempts; }
 
 private:
-  struct Spot {
-    float x;
-    float y;
-  };
   int m_budget = kDefaultBudget;
   int m_attempts = 0;
   int m_ladder = 0;
   bool m_doorTried = false;
-  float m_clean = 0.0f;
-  std::vector<Spot> m_spots;
+  float m_closestStuck = 0.0f; // smallest remaining distance at which the player was judged stuck
 };
 
 // --- Progress reminder ------------------------------------------------------------------------------------------
