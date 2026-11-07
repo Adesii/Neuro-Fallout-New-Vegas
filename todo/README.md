@@ -48,20 +48,11 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 23 | [Keep the game running and unpaused when the window is unfocused](to_verify/23-background-focus.md) (forces `bAlwaysActive` on and patches the window procedure's pause on focus loss; INI no longer matters) | Plugin |
-| 24 | [Idle poke, post-action wake-up and greeting](to_verify/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
 | 25 | [Walker stuck detection, recovery, jump, doors, timeouts](to_verify/25-walker-stuck-recovery.md) (stricter recovery after the 2026-11-07 playtest) | Walker |
 | 26 | [Walker interaction line-of-sight and progress/failure feedback](to_verify/26-walker-interaction-and-feedback.md) | Walker / Context |
-| 28 | [Location notices and throttled "you see" push](to_verify/28-location-and-world-context.md) | Context |
 | 29 | [Damage, death and combat-start messages](to_verify/29-player-status-and-damage-context.md) (cause/lesson texts are drafts) | Context / Combat |
-| 30 | [Context reliability: disconnects, dedupe, subtitles](to_verify/30-sdk-context-reliability.md) | SDK / Context |
-| 31 | [Menu window lifecycle and timeout fixes (popup starvation)](to_verify/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
-| 33 | [Action registry, scripts and tooling correctness](to_verify/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
-| 35 | [Quest routing and object classification fixes](to_verify/35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
-| 38 | [Engine-free extraction and missing host tests](to_verify/38-engine-free-extraction-and-tests.md) | Tests |
-| 46 | [query_nearby: pages past the first 20, and search by name](to_verify/46-query-nearby-paging-and-search.md) | Gameplay actions |
 
 ## Archive
 
@@ -70,11 +61,20 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 01 | [crouch_toggle action](archive/01-crouch-toggle.md) | Gameplay actions |
 | 02 | [stop_move action](archive/02-stop-move.md) | Walker |
 | 03 | [Attacking objects misses (bottles on the fence)](archive/03-attack-object-aim.md) | Combat |
-| 27 | [Aim unification: camera origin, one target point, safe angle maths](archive/27-aim-unification.md) | Aim / Combat |
 | 05 | [close_container action](archive/05-close-container.md) (also the stub `close_*` actions) | Container |
 | 07 | [query_nearby top 20 with priority](archive/07-query-nearby-priority.md) | Gameplay actions |
+| 23 | [Keep the game running and unpaused when the window is unfocused](archive/23-background-focus.md) (forces `bAlwaysActive` on and patches the window procedure's pause on focus loss; INI no longer matters) | Plugin |
+| 24 | [Idle poke, post-action wake-up and greeting](archive/24-idle-poke-and-wakeup.md) (phrase list is a draft) | Context / scheduling |
+| 27 | [Aim unification: camera origin, one target point, safe angle maths](archive/27-aim-unification.md) | Aim / Combat |
+| 28 | [Location notices and throttled "you see" push](archive/28-location-and-world-context.md) | Context |
+| 30 | [Context reliability: disconnects, dedupe, subtitles](archive/30-sdk-context-reliability.md) | SDK / Context |
+| 31 | [Menu window lifecycle and timeout fixes (popup starvation)](archive/31-menu-window-lifecycle-fixes.md) | Menus (bugs) |
+| 33 | [Action registry, scripts and tooling correctness](archive/33-action-registry-and-infra-correctness.md) | Infrastructure (bugs) |
+| 35 | [Quest routing and object classification fixes](archive/35-quest-and-object-query-fixes.md) | Gameplay (bugs) |
 | 36 | [Cross-module duplication and hygiene](archive/36-shared-utilities-cleanup.md) | Cleanup |
+| 38 | [Engine-free extraction and missing host tests](archive/38-engine-free-extraction-and-tests.md) | Tests |
 | 39 | [Report all distances to Neuro in metres](archive/39-distances-in-metres.md) | Context formatting |
+| 46 | [query_nearby: pages past the first 20, and search by name](archive/46-query-nearby-paging-and-search.md) | Gameplay actions |
 
 See [archive/](archive/README.md).
 

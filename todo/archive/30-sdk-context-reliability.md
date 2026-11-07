@@ -1,6 +1,6 @@
 # 30 - Context reliability: disconnects, dedupe, subtitles
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: `NeuroSDK.cpp`, `SubtitleHandler`, `MenuHandler`
 Source: `docs/code-review.md` A7.4, A7.6, B8, B9, S2
 
@@ -97,3 +97,8 @@ Passed:
 Not run yet: the disconnect **mid-fight** (no stale "Combat update" lines from the outage; the playtest stopped the
 server mid-game, not in a fight), two NPCs close together and a radio/Pip-Boy voice (expect no name), and
 `query_quests` twice within 3 s (design-note check 6).
+
+## Archived (designer, 2026-11-08)
+Disconnect and reconnect, the subtitle speaker match and the load reset passed on 2026-11-07. The designer waived the
+rest: the mid-fight disconnect (disconnects are not supposed to happen, so an imperfect recovery is acceptable), two
+NPCs close together or a radio voice, and the 3 s duplicate-window check (an accepted trade-off).

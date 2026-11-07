@@ -1,6 +1,6 @@
 # 23 - Keep the game running when the window is unfocused
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 
 Goal: the game must not pause when it loses focus (the designer tests with another window in front, and Neuro should play unaffected).
 
@@ -81,3 +81,7 @@ Still not run: the `Acquire` change above (walking while unfocused, check 3 belo
 ## Still open
 - Audio on focus loss (itr-nvse `AltTabMute` does the opposite); not changed.
 - Do not enable `bBackgroundKeyboard`/`bBackgroundMouse`: they would also feed real keystrokes into the game while typing elsewhere.
+
+## Verified in game (designer, 2026-11-08)
+Works with the current build: no Pause menu on focus loss, and the Walker keeps moving while the window is unfocused
+(the `Acquire` fix). The `bAlwaysActive=0` check is obsolete, since the plugin now forces the setting on.

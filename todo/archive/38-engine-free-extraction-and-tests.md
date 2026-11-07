@@ -1,6 +1,6 @@
 # 38 - Engine-free extraction and missing host tests
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: `tests/`, `src/Movement/`, `src/Inventory/`
 Source: `docs/code-review.md` E1-E5
 
@@ -41,3 +41,6 @@ Host tests only; nothing here touches the engine.
 
 ## Done when
 `bash tools/test.sh` covers the listed logic and fails when a precondition of the real transport is violated in the fake.
+
+## Archived (designer, 2026-11-08)
+Host tests only; nothing in it runs in the game.

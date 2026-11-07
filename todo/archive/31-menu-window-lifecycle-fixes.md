@@ -1,6 +1,6 @@
 # 31 - Menu window lifecycle and timeout fixes
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: `src/MenuHandler.cpp`, `src/Menus/*`
 Source: `docs/code-review.md` S1, B12 (written by a subagent from a full read; S1 re-checked against the source)
 
@@ -107,3 +107,7 @@ Passed:
 
 Not run yet: a message popup over an open `select_dialog` window (check 1: popup forced and answerable, no "cannot
 register while another force is active" spam, dialog window returns).
+
+## Archived (designer, 2026-11-08)
+Checks 2-6 passed on 2026-11-07. The designer waived check 1 (a message popup over an open `select_dialog` window): it
+cannot really happen in gameplay.

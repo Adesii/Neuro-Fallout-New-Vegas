@@ -1,6 +1,6 @@
 # 28 - Location notices and throttled "you see" push
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: Context (new module, fed by engine reads)
 Source: `docs/code-review.md` A7.1, A7.5
 
@@ -77,3 +77,7 @@ Passed (design-note checklist):
 - Frame-rate dips while walking outdoors were checked (6). The intervals were not changed.
 
 Not run yet: no "You see" lines while fighting, in the Pip-Boy or in dialogue (5).
+
+## Archived (designer, 2026-11-08)
+Everything but check 5 passed on 2026-11-07. The designer waived check 5 (no "You see" lines while fighting, in the
+Pip-Boy or in dialogue) as very low priority.

@@ -1,6 +1,6 @@
 # 24 - Idle poke and post-action wake-up
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: Context / scheduling
 Source: `docs/code-review.md` A1, A7.2 (greeting)
 
@@ -81,3 +81,8 @@ Passed:
 
 Not run yet: no poke during a combat engagement or the combat update batches. The phrase list is still the draft (no
 comment on it yet).
+
+## Archived (designer, 2026-11-08)
+The 2026-11-07 playtest covered the poke cadence, the greeting, the reconnect status and the no-poke-in-menus checks.
+The designer waived the remaining "no poke during combat" check: simple logic, not worth the test time. The phrase
+list stays as drafted.

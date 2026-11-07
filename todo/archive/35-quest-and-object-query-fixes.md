@@ -1,6 +1,6 @@
 # 35 - Quest routing and object classification fixes
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: `src/GameplayHandler.cpp`, `src/WalkerHandler.cpp`
 Source: `docs/code-review.md` D (ResolveQuestTarget, PrepareCurrentQuest, CategoryFor vs IsInteractable), A7 notes.
 Related: `todo/04-quest-categories.md`, `todo/archive/07-query-nearby-priority.md`
@@ -76,3 +76,7 @@ Passed:
 Not run yet: finish a quest and check the single "Quest completed" message (`Quest completed:` / `left the objective
 list` log lines), and a two-target objective with one target behind an unknown door (`do_current_quest` walks to the
 other).
+
+## Verified in game (designer, 2026-11-08)
+A completed quest is reported once. The `query_nearby` and classifier checks passed on 2026-11-07. The two-target
+objective with one target behind an unknown door was not set up: hard to arrange, and not a big issue if it fails.

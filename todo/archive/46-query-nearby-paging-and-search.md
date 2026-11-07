@@ -1,10 +1,10 @@
 # 46 - query_nearby: see past the first 20, and search by name
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: Gameplay actions (`QueryNearbyAction`, `GameplayHandler::QueryNearby`, `src/Context/NearbyListing.*`,
 `src/Context/NameSearch.*`)
 Source: designer's play-testing, 2026-11-07
-Related: `archive/07-query-nearby-priority.md`, `to_verify/35-quest-and-object-query-fixes.md`
+Related: `archive/07-query-nearby-priority.md`, `archive/35-quest-and-object-query-fixes.md`
 
 ## Problem
 With more than 20 objects in range, `query_nearby` said "Showing 20 of 38, most important first. Move or query again
@@ -48,3 +48,6 @@ whether the typo tolerance is too loose or too strict for real object names.
 ## Done when
 Neuro can reach every object in range through pages or search, ids stay consistent between them, and the checks above
 pass in game.
+
+## Verified in game (designer, 2026-11-08)
+Search works in game. The designer archived it without running the paging edge cases separately.

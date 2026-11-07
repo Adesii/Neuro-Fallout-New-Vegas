@@ -1,6 +1,6 @@
 # 33 - Action registry, scripts and tooling correctness
 
-Status: to verify
+Status: archived (verified in game, 2026-11-08)
 Area: `src/Actions/*`, `src/CachedScripts.hpp`, `tools/`, CMake
 Source: `docs/code-review.md` B3, B4, B6, B7, B8, B11, B14, E2
 
@@ -88,3 +88,7 @@ Passed:
   unregister each time (check 2).
 
 Not run yet: load a save with an action window open, no crash, and the next menu's window registers normally (check 3).
+
+## Archived (designer, 2026-11-08)
+Checks 1-2 passed on 2026-11-07. The designer waived check 3 (loading a save while an action window is open) as not a
+real scenario.

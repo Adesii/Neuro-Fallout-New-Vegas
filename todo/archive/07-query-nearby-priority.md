@@ -42,4 +42,4 @@ In-game checklist: see the Result of todo 35.
   tagged, distances in meters. The tier values stay as proposed (no change asked for).
 
 Follow-up (2026-11-07): the note promised more results that could not be reached; paging and search were added in
-`to_verify/46-query-nearby-paging-and-search.md`.
+`archive/46-query-nearby-paging-and-search.md`.
