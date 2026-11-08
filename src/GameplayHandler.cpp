@@ -4,6 +4,7 @@
 #include "Actions/Gameplay/ExploreAction.hpp"
 #include "Actions/Gameplay/QueryNearbyAction.hpp"
 #include "Actions/Gameplay/QueryQuestsAction.hpp"
+#include "Actions/Gameplay/SearchNearbyAction.hpp"
 #include "Actions/Gameplay/SelectQuestAction.hpp"
 #include "Actions/Gameplay/StopMoveAction.hpp"
 #include "Actions/Gameplay/TargetObjectAction.hpp"
@@ -123,6 +124,7 @@ void BuildActions() {
       .Add(std::make_unique<Actions::Gameplay::SelectQuestAction>());
   g_worldActions.Add(std::make_unique<Actions::Gameplay::DoCurrentQuestAction>())
       .Add(std::make_unique<Actions::Gameplay::QueryNearbyAction>())
+      .Add(std::make_unique<Actions::Gameplay::SearchNearbyAction>())
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(false))
       .Add(std::make_unique<Actions::Gameplay::TargetObjectAction>(true))
       .Add(std::make_unique<Actions::Gameplay::ExploreAction>())

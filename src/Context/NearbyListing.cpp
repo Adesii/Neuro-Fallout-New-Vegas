@@ -5,15 +5,26 @@
 
 namespace Nearby {
 
-std::optional<Query> ParseQuery(std::string_view data, std::string &error) {
+namespace {
+
+// Shared by both actions: `searching` decides whether `search` is required (search_nearby) or refused (query_nearby).
+std::optional<Query> Parse(std::string_view data, bool searching, std::string &error) {
   Query query;
-  if (data.empty())
-    return query;
+  const char *missingSearch = "search is required: the name or kind of what you are looking for, for example door, "
+                              "container or a person's name.";
+  if (data.empty()) {
+    if (!searching)
+      return query;
+    error = missingSearch;
+    return std::nullopt;
+  }
   auto parsed = Actions::ActionData::Parse(data, error);
   if (!parsed)
     return std::nullopt;
   if (!parsed->IsObject()) {
-    error = "Expected an object with an optional page and an optional search.";
+    error = searching ? "Expected an object with a search and an optional page."
+                      : "Expected an object with an "
+                        "optional page.";
     return std::nullopt;
   }
 
@@ -23,7 +34,15 @@ std::optional<Query> ParseQuery(std::string_view data, std::string &error) {
     if (!parsed->GetPositiveInteger(kPageKey, query.page, error))
       return std::nullopt;
   }
-  if (parsed->HasProperty(kSearchKey)) {
+  if (!searching && parsed->HasProperty(kSearchKey)) {
+    error = "query_nearby takes only page. To look for something by name or kind, use search_nearby.";
+    return std::nullopt;
+  }
+  if (searching && !parsed->HasProperty(kSearchKey)) {
+    error = missingSearch;
+    return std::nullopt;
+  }
+  if (searching) {
     ++known;
     if (!parsed->GetString(kSearchKey, query.search)) {
       error = "search must be a string, for example the name of what you are looking for.";
@@ -39,20 +58,37 @@ std::optional<Query> ParseQuery(std::string_view data, std::string &error) {
     }
   }
   if (parsed->Size() != known) {
-    error = "Only page and search are allowed; unexpected or duplicate fields are not.";
+    error = searching ? "Only search and page are allowed; unexpected or duplicate fields are not."
+                      : "Only page is allowed; unexpected or duplicate fields are not.";
     return std::nullopt;
   }
   return query;
 }
 
-Actions::Json::JsonSchema BuildQuerySchema() {
-  auto schema = Actions::Json::JsonSchema::Object();
+Actions::Json::JsonSchema PageSchema() {
   auto page = Actions::Json::JsonSchema::Integer();
   page.Minimum(1);
-  schema.Property(std::string(kPageKey), std::move(page), false);
+  return page;
+}
+
+} // namespace
+
+std::optional<Query> ParseListQuery(std::string_view data, std::string &error) { return Parse(data, false, error); }
+
+std::optional<Query> ParseSearchQuery(std::string_view data, std::string &error) { return Parse(data, true, error); }
+
+Actions::Json::JsonSchema BuildListSchema() {
+  auto schema = Actions::Json::JsonSchema::Object();
+  schema.Property(std::string(kPageKey), PageSchema(), false);
+  return schema;
+}
+
+Actions::Json::JsonSchema BuildSearchSchema() {
+  auto schema = Actions::Json::JsonSchema::Object();
   auto search = Actions::Json::JsonSchema::String();
   search.MinLength(1).MaxLength(kMaxSearchLength);
-  schema.Property(std::string(kSearchKey), std::move(search), false);
+  schema.Property(std::string(kSearchKey), std::move(search), true);
+  schema.Property(std::string(kPageKey), PageSchema(), false);
   return schema;
 }
 

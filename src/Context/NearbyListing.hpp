@@ -7,9 +7,9 @@
 #include <string_view>
 #include <vector>
 
-// The engine-free half of `query_nearby`: its optional parameters (`page`, `search`), which ranked entries a page
-// shows, and the note under the listing. GameplayHandler scans and ranks the world (Objects::Rank) and feeds the result
-// in. Host-tested in tests/NearbyListingTests.cpp.
+// The engine-free half of `query_nearby` (optional `page`) and `search_nearby` (required `search`, optional `page`):
+// their parameters, which ranked entries a page shows, and the note under the listing. GameplayHandler scans and ranks
+// the world (Objects::Rank) and feeds the result in. Host-tested in tests/NearbyListingTests.cpp.
 namespace Nearby {
 
 inline constexpr size_t kPageSize = 20;
@@ -22,10 +22,15 @@ struct Query {
   std::string search; // empty: no search
 };
 
-// Null or empty data, and `{}`, mean page 1 without a search. Unknown fields, a page below 1, a non-string or blank
-// search, and a search longer than kMaxSearchLength are refused with a message naming the problem.
-std::optional<Query> ParseQuery(std::string_view data, std::string &error);
-Actions::Json::JsonSchema BuildQuerySchema();
+// query_nearby: null or empty data, and `{}`, mean page 1. Anything but `page` is refused (a `search` with a pointer to
+// search_nearby), as is a page below 1.
+std::optional<Query> ParseListQuery(std::string_view data, std::string &error);
+Actions::Json::JsonSchema BuildListSchema();
+
+// search_nearby: `search` is required. A non-string or blank search, one longer than kMaxSearchLength, a page below 1
+// and unknown fields are refused with a message naming the problem.
+std::optional<Query> ParseSearchQuery(std::string_view data, std::string &error);
+Actions::Json::JsonSchema BuildSearchSchema();
 
 struct Entry {
   std::string name;

@@ -16,46 +16,69 @@ std::vector<Entry> Entries(size_t count) {
 
 } // namespace
 
-TEST("nearby query: no data or an empty object is page 1 without a search") {
+TEST("nearby query: query_nearby takes no data, an empty object or a page") {
   std::string error;
-  auto none = ParseQuery("", error);
+  auto none = ParseListQuery("", error);
   REQUIRE(none.has_value());
   CHECK_EQ(none->page, 1);
   CHECK(none->search.empty());
-  auto empty = ParseQuery("{}", error);
+  auto empty = ParseListQuery("{}", error);
   REQUIRE(empty.has_value());
   CHECK_EQ(empty->page, 1);
+  auto paged = ParseListQuery(R"({"page": 3})", error);
+  REQUIRE(paged.has_value());
+  CHECK_EQ(paged->page, 3);
 }
 
-TEST("nearby query: page and search are read") {
+TEST("nearby query: query_nearby refuses a search and points at search_nearby") {
   std::string error;
-  auto query = ParseQuery(R"({"page": 2, "search": "mail box"})", error);
+  CHECK(!ParseListQuery(R"({"search": "door"})", error).has_value());
+  CHECK(error.find("search_nearby") != std::string::npos);
+  CHECK(!ParseListQuery(R"({"page": 0})", error).has_value());
+  CHECK(error.find("page") != std::string::npos);
+  CHECK(!ParseListQuery(R"({"page": "2"})", error).has_value());
+  CHECK(!ParseListQuery(R"({"page": 1, "radius": 5})", error).has_value());
+  CHECK(error.find("Only page") != std::string::npos);
+  CHECK(!ParseListQuery(R"({"page": 1, "page": 2})", error).has_value());
+  CHECK(!ParseListQuery("[1]", error).has_value());
+  CHECK(!ParseListQuery("not json", error).has_value());
+}
+
+TEST("nearby query: search_nearby reads the search and an optional page") {
+  std::string error;
+  auto query = ParseSearchQuery(R"({"page": 2, "search": "mail box"})", error);
   REQUIRE(query.has_value());
   CHECK_EQ(query->page, 2);
   CHECK_EQ(query->search, std::string("mail box"));
+  auto first = ParseSearchQuery(R"({"search": "door"})", error);
+  REQUIRE(first.has_value());
+  CHECK_EQ(first->page, 1);
 }
 
-TEST("nearby query: bad input is refused with a reason") {
+TEST("nearby query: search_nearby requires a usable search") {
   std::string error;
-  CHECK(!ParseQuery(R"({"page": 0})", error).has_value());
-  CHECK(error.find("page") != std::string::npos);
-  CHECK(!ParseQuery(R"({"page": "2"})", error).has_value());
-  CHECK(!ParseQuery(R"({"search": 5})", error).has_value());
+  CHECK(!ParseSearchQuery("", error).has_value());
+  CHECK(error.find("search is required") != std::string::npos);
+  CHECK(!ParseSearchQuery("{}", error).has_value());
+  CHECK(error.find("search is required") != std::string::npos);
+  CHECK(!ParseSearchQuery(R"({"page": 2})", error).has_value());
+  CHECK(!ParseSearchQuery(R"({"search": 5})", error).has_value());
   CHECK(error.find("search") != std::string::npos);
-  CHECK(!ParseQuery(R"({"search": "  !? "})", error).has_value());
-  CHECK(!ParseQuery(R"({"search": ")" + std::string(70, 'a') + R"("})", error).has_value());
-  CHECK(!ParseQuery(R"({"page": 1, "radius": 5})", error).has_value());
-  CHECK(error.find("Only page and search") != std::string::npos);
-  CHECK(!ParseQuery(R"({"page": 1, "page": 2})", error).has_value());
-  CHECK(!ParseQuery("[1]", error).has_value());
-  CHECK(!ParseQuery("not json", error).has_value());
+  CHECK(!ParseSearchQuery(R"({"search": "  !? "})", error).has_value());
+  CHECK(!ParseSearchQuery(R"({"search": ")" + std::string(70, 'a') + R"("})", error).has_value());
+  CHECK(!ParseSearchQuery(R"({"search": "door", "radius": 5})", error).has_value());
+  CHECK(error.find("Only search and page") != std::string::npos);
+  CHECK(!ParseSearchQuery(R"({"search": "door", "page": 0})", error).has_value());
 }
 
-TEST("nearby query: the schema advertises both optional fields") {
-  const std::string schema = BuildQuerySchema().Serialize();
-  CHECK(schema.find("\"page\"") != std::string::npos);
-  CHECK(schema.find("\"search\"") != std::string::npos);
-  CHECK(schema.find("\"required\"") == std::string::npos);
+TEST("nearby query: the schemas advertise page alone, and a required search with a page") {
+  const std::string list = BuildListSchema().Serialize();
+  CHECK(list.find("\"page\"") != std::string::npos);
+  CHECK(list.find("\"search\"") == std::string::npos);
+  CHECK(list.find("\"required\"") == std::string::npos);
+  const std::string search = BuildSearchSchema().Serialize();
+  CHECK(search.find("\"page\"") != std::string::npos);
+  CHECK(search.find(R"("required":["search"])") != std::string::npos);
 }
 
 TEST("nearby listing: pages split the ranked list in twenties") {

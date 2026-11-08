@@ -17,8 +17,8 @@ Definition BuildDefinition(bool interact) {
   id.Minimum(1);
   schema.Property(kId, std::move(id), true);
   return {.name = interact ? "interact_with_object" : "move_to_object",
-          .description = interact ? "Move to and interact using an id returned by query_nearby."
-                                  : "Move without interacting using an id returned by query_nearby.",
+          .description = interact ? "Move to and interact using an id returned by query_nearby or search_nearby."
+                                  : "Move without interacting using an id returned by query_nearby or search_nearby.",
           .schema = std::move(schema)};
 }
 

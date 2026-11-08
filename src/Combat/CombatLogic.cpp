@@ -437,13 +437,15 @@ bool ParseAttackRequest(std::string_view json, AttackRequest &request, std::stri
   if (!data)
     return false;
   if (!data->IsObject() || data->Size() != 1) {
-    error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby).";
+    error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby or "
+            "search_nearby).";
     return false;
   }
   const bool hasEnemy = data->HasProperty("enemy_id");
   const bool hasObject = data->HasProperty("object_id");
   if (hasEnemy == hasObject) {
-    error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby).";
+    error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby or "
+            "search_nearby).";
     return false;
   }
   int id = 0;

@@ -19,7 +19,8 @@ Definition BuildDefinition() {
           .description =
               "Attack a target with your equipped weapon until it dies, you run out of ammo, or you lose sight of it. "
               "Melee weapons close in by themselves; ranged weapons fire from where you stand. Give exactly one of "
-              "enemy_id (from query_enemies) or object_id (from query_nearby, for shooting things like bottles). "
+              "enemy_id (from query_enemies) or object_id (from query_nearby or search_nearby, for shooting things "
+              "like bottles). "
               "Call it again to change target, and keep moving or switching weapons while it runs.",
           .schema = std::move(schema)};
 }
