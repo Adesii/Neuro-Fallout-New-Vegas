@@ -22,6 +22,15 @@ struct PokeInput {
   bool neuroActed = false;
 };
 
+// What makes the game busy for the poker. A menu does, except one waiting on Neuro's decision with nothing else going
+// on (an open container, todo 40): a menu she has to act in is where a nudge is needed most.
+struct BusySignals {
+  bool menuBlocksGameplay = false;
+  bool menuAwaitsNeuro = false; // the blocking menu is one that waits for her (ContainerHandler::AwaitsDecision)
+  bool other = false;           // loading, no player, dead, Walker, combat, Pip-Boy, VATS, a force, a pending result
+};
+bool IsBusy(const BusySignals &signals);
+
 struct PokeOutput {
   bool poke = false;
   std::size_t phrase = 0; // index for IdlePoker::Phrase

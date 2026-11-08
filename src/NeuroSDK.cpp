@@ -9,6 +9,7 @@
 #include "Context/WireText.hpp"
 #include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
+#include "Menus/ContainerHandler.hpp"
 #include "Menus/PipBoyHandler.hpp"
 #include "Menus/VatsHandler.hpp"
 #include "StanceHandler.hpp"
@@ -267,10 +268,13 @@ void NeuroSDK::SendGreeting(float dt) {
 // The one owner of the idle timer: everything that makes "doing nothing" not idle is read here, after the handlers ran.
 void NeuroSDK::ProcessIdlePoke(float dt, bool menuBlocksGameplay, bool neuroActed) {
   auto *player = PlayerCharacter::GetSingleton();
-  const bool busy = menuBlocksGameplay || !GameplayHandler::IsReady() || !player || player->GetDead() ||
-                    Walker::IsActive() || CombatHandler::IsEngaged() || CombatHandler::IsInCombat() ||
-                    Menus::PipBoyHandler::IsExecuting() || Menus::VatsHandler::IsActive() ||
-                    Actions::ActionWindow::ForceOutstanding() || Actions::ActionRegistry::Get().HasPendingResults();
+  const bool other = !GameplayHandler::IsReady() || !player || player->GetDead() || Walker::IsActive() ||
+                     CombatHandler::IsEngaged() || CombatHandler::IsInCombat() || Menus::PipBoyHandler::IsExecuting() ||
+                     Menus::VatsHandler::IsActive() || Actions::ActionWindow::ForceOutstanding() ||
+                     Actions::ActionRegistry::Get().HasPendingResults();
+  const bool busy = Context::IsBusy({.menuBlocksGameplay = menuBlocksGameplay,
+                                     .menuAwaitsNeuro = Menus::ContainerHandler::AwaitsDecision(),
+                                     .other = other});
   const auto poke = idlePoker.Update({.dt = dt, .busy = busy, .neuroActed = neuroActed});
   if (!poke.poke)
     return;

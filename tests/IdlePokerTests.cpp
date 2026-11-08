@@ -230,3 +230,23 @@ TEST("greeting timer: fires once every ten minutes and restarts when a greeting 
     CHECK(!other.Update(0.1f));
   CHECK(other.Update(10.1f));
 }
+
+TEST("idle poke: a menu is busy, except one that waits on Neuro's decision (an open container)") {
+  using Context::BusySignals;
+  using Context::IsBusy;
+  CHECK(!IsBusy(BusySignals{}));
+  CHECK(IsBusy(BusySignals{.menuBlocksGameplay = true}));
+  CHECK(!IsBusy(BusySignals{.menuBlocksGameplay = true, .menuAwaitsNeuro = true}));
+  CHECK(IsBusy(BusySignals{.menuBlocksGameplay = true, .menuAwaitsNeuro = true, .other = true}));
+  CHECK(IsBusy(BusySignals{.other = true}));
+}
+
+TEST("idle poke: after Neuro's walk opens a container that waits on her, she is poked once soon after") {
+  IdlePoker poker;
+  Run(poker, 5.0f, false);
+  // She asks to interact: the walk runs (busy), then the container opens and waits on her (not busy).
+  CHECK_EQ(Run(poker, 3.0f, true, true), 0);
+  float at = 0.0f;
+  CHECK_EQ(Run(poker, 2.0f, false, false, &at), 1);
+  CHECK(at <= IdlePoker::kPostActionDelay + 2 * kFrame);
+}

@@ -36,7 +36,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) (3, 4, 6 done; 1, 2, 5 left on purpose) | Cleanup |
-| 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) | Context / Menus |
+| 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) (container done, to verify; Pip-Boy open) | Context / Menus |
 | 41 | [query_quests should say which quest is already selected](41-query-quests-selected-line.md) | Gameplay actions |
 | 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |

@@ -100,7 +100,9 @@ std::optional<std::string> ValidatePage(bool own, int page, Inventory::ItemQuery
   return Inventory::ValidateMenuPage(Items(own), page, type);
 }
 
-bool PublishItems(bool own, int page, Inventory::ItemQueryType type) {
+// Silent for query results (she asked for them); the listing sent when the container opens is not, so she is prompted
+// to act on it (todo 40: with a silent opening, Neuro sat idle in front of the open container).
+bool PublishItems(bool own, int page, Inventory::ItemQueryType type, bool silent = true) {
   const size_t count = CountItems(own, type);
   const size_t first = static_cast<size_t>(page) * Inventory::kItemsPerPage;
   auto listed = ReadPage(own, type, first);
@@ -110,7 +112,7 @@ bool PublishItems(bool own, int page, Inventory::ItemQueryType type) {
     context << ": "
             << UIUtils::GetTileString(UIUtils::GetControl(g_owner, "NOGLOW_BRANCH/CM_ContainerRect/CM_ContainerTitle"));
   context << "\n" << Inventory::FormatItemPage(type, page, count, listed);
-  if (!NeuroSDK::SendContext(context.str().c_str(), true))
+  if (!NeuroSDK::SendContext(context.str().c_str(), silent))
     return false;
   Listing(own).Replace(std::move(listed), first + 1);
   return true;
@@ -388,12 +390,14 @@ bool Process() {
     // Wait a visible frame for native inventory population before announcing an empty container.
     if (Clock::now() - g_openedAt < kStepDelay)
       return true;
-    g_announced = PublishItems(false, 0, Inventory::ItemQueryType::All);
+    g_announced = PublishItems(false, 0, Inventory::ItemQueryType::All, false);
   }
   if (g_announced)
     g_actions.Register();
   return true;
 }
+
+bool AwaitsDecision() { return IsActive() && g_announced && g_transfers.empty() && !g_close && !g_pendingQuery; }
 
 Actions::PreparedAction PrepareQuery(bool own, int page, Inventory::ItemQueryType type) {
   const uint64_t session = g_session;

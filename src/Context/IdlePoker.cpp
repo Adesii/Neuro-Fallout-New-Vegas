@@ -18,6 +18,10 @@ constexpr const char *kPhrases[] = {
 
 } // namespace
 
+bool IsBusy(const BusySignals &signals) {
+  return signals.other || (signals.menuBlocksGameplay && !signals.menuAwaitsNeuro);
+}
+
 IdlePoker::IdlePoker(uint32_t seed) : m_state(seed ? seed : 1u) { Reset(); }
 
 float IdlePoker::Uniform(float low, float high) {
