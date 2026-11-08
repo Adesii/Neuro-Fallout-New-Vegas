@@ -42,6 +42,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
 | 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (evaluate first) | Walker / pathing |
 | 47 | [Aim down sights automatically past 10 meters](47-auto-aim-down-sights.md) | Combat |
+| 48 | [Check the path ahead with raycasts and detour around blockers](48-raycast-path-detours.md) (evaluate first) | Walker / pathing |
 
 ## To verify (implemented, waiting for an in-game test)
 

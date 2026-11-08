@@ -122,15 +122,15 @@ Manual in-game checks:
    `Present hook installed` in `neuro-fnv.log`. Run it again: off, the overlay disappears.
 2. With debug on, give Neuro a move to something about 20 m away in the open. Expected: a cyan route with numbered
    yellow nodes, a green steering point a little ahead, a white pole on the target, a blue trail behind the player,
-   and `Present reached the hook` then `first frame drawn` in the log once. If nothing shows, send the
+   and nothing else in the log at the default log level. If nothing shows, run `NWalkerDebug 1 2` and send the
    `Walker debug overlay:` lines from the log: they say which step stopped it.
 3. Turn the view left and right and walk. Expected: lines stay glued to the ground. Draw and holster the weapon, zoom
-   with a scope: nothing jumps. Symptom of failure: lines drift or scale with the view. If it still slides, try the
-   other corrections (`NWalkerDebug 1 2`, and `NWalkerDebug 1 0` for the raw matrix) and send the `Walker debug
-   camera:` lines from the log.
+   with a scope: nothing jumps. Symptom of failure: lines drift or scale with the view; then send the `Walker debug
+   camera:` lines from a run with `NWalkerDebug 1 2`.
 4. The Primm spots from the 2026-11-07 playtest. Expected: the overlay shows whether the route itself leads into the
    object (cyan line through it), whether the Walker cuts the corner (green point skipping a bend), or whether it
-   fell back to a red straight line; the log has the matching `Walker debug route` and fallback lines. Note the
+   fell back to a red straight line; with `NWalkerDebug 1 1` the log has the matching `Walker debug route` lines (the
+   fallback lines are always logged, once per route). Note the
    `on navmesh` value and the four cell IDs when it goes wrong, especially near exterior cell borders.
 5. A walk that fails (blocked, or the progress stall). Expected: the route and trail stay on screen, dimmed, after
    the failure. A new command replaces them.
@@ -159,3 +159,21 @@ and angles, the aspect, `worldFOV`, `firstPersonFOV`, the scene graph's FOV and 
 
 Unverified: that the frustum sides are unit tangents and that `worldFOV` is horizontal (Gamebryo/FNV convention, not
 checked in this repo). If the frustum's horizontal angle in the log equals `firstPersonFOV`, the diagnosis holds.
+
+## Playtest 2026-11-08 (second run): scene ratio works, logging trimmed
+
+- The scene-ratio correction (`NWalkerDebug 1 2` at the time) stopped the sliding; the world-FOV rescale did not.
+  Scene ratio is now the only correction: the projection is always scaled by tan(worldFOV/2) / tan(scene graph's
+  current FOV/2). The raw-matrix and world-FOV modes and `ScaleToHorizontalFov` were removed.
+- The debug logs spammed the log, so the second number of the command is now the log level instead: `0` (default)
+  only on/off and hook installation or failure; `1` also a `Walker debug route` line per route change and the route
+  mode in the console; `2` also the `Walker debug camera:` line and the overlay's one-time drawing diagnostics. Without
+  a second number the level stays as it was. The two fallback lines (`no path to X itself`, `steering in a straight
+  line`) stay on at every level, once per route.
+- Finding in Primm (designer): the car is not part of the navmesh and the generated path runs through it, so it is not
+  a navmesh gap but an object in the way. Exploring a bit gives an alternative route. Follow-up idea: todo 48 (check
+  the path ahead with raycasts and route around what blocks it).
+
+In-game check for this change: `NWalkerDebug 1` gives a steady overlay while turning, walking up to nodes, drawing the
+weapon and scoping, with nothing but the on/off and hook lines in the log; `NWalkerDebug 1 1` adds route lines;
+`NWalkerDebug 1 2` adds camera lines; `NWalkerDebug 1 0` brings it back to quiet.
