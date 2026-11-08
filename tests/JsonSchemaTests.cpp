@@ -102,3 +102,9 @@ TEST("schema: a non-finite const or enum number never produces invalid JSON") {
   const std::string text = schema.Serialize();
   CHECK(text.find("nan") == std::string::npos && text.find("inf") == std::string::npos);
 }
+
+TEST("schema: game text is folded to ASCII, which is all the transport can carry") {
+  auto schema = Actions::Json::JsonSchema::String();
+  schema.Enum({"T\xE6les of Chivalrie"});
+  CHECK_EQ(schema.Serialize(), std::string(R"({"type":"string","enum":["Taeles of Chivalrie"]})"));
+}

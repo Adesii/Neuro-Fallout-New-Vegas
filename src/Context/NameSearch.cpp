@@ -1,4 +1,5 @@
 #include "NameSearch.hpp"
+#include "Context/WireText.hpp"
 #include <algorithm>
 #include <vector>
 
@@ -64,7 +65,9 @@ int WordScore(std::string_view queryWord, std::string_view word) {
 
 } // namespace
 
-std::string Normalize(std::string_view text) {
+// Folded to ASCII first, the way Neuro sees names (WireText), so "Taeles" finds the game's "T\xE6les".
+std::string Normalize(std::string_view original) {
+  const std::string text = WireText::ToAscii(original);
   std::string out;
   out.reserve(text.size());
   bool pendingSpace = false;

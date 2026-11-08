@@ -60,7 +60,12 @@ Important invariants:
 - Keep stable action names as state changes. Put current choices in context, force state/query, and action arguments.
 - Project action names currently enforce lowercase letters and underscores with no leading/trailing underscore.
 
-libneurosdk is intentionally a thin C transport. Do not expand it unless a wire bug cannot be worked around. The pinned
+libneurosdk is intentionally a thin C transport. Do not expand it unless a wire bug cannot be worked around.
+Two such bugs are worked around in `NeuroSDK.cpp`: its `escape_string` writes every byte outside 32..126 (except
+`\n`, `\r`, `\t`) as `\xNN`, which is not JSON, and it inserts the actions/force `query` unescaped. All outgoing
+context, descriptions, force state and results are folded to ASCII with `WireText::ToAscii` (game text is read as
+Windows-1252, valid UTF-8 as UTF-8), the query also goes through `WireText::ToJsonStringBody`, and `JsonSchema`
+folds its strings itself. Do not send text around these paths. The pinned
 submodule serializes `NeuroSDK_MessageKind_ActionResult` as `action/result`; preserve that wire command, not `action:result`.
 
 ## Official SDK Integration Practices

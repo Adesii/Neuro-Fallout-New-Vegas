@@ -1,4 +1,5 @@
 #include "JsonSchema.hpp"
+#include "Context/WireText.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -31,8 +32,10 @@ const char *TypeName(JsonSchemaType type) {
   }
 }
 
-void AppendString(std::string &output, const std::string &value) {
+// Folded to ASCII first: game names can reach a schema, and the transport cannot carry other bytes (WireText.hpp).
+void AppendString(std::string &output, const std::string &raw) {
   static constexpr char hex[] = "0123456789abcdef";
+  const std::string value = WireText::ToAscii(raw, true); // control characters are escaped below
   output.push_back('"');
   for (unsigned char character : value) {
     switch (character) {

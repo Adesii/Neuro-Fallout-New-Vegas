@@ -6,6 +6,7 @@
 #include "CachedScripts.hpp"
 #include "CombatHandler.hpp"
 #include "Context/ContextGate.hpp"
+#include "Context/WireText.hpp"
 #include "GameplayHandler.hpp"
 #include "MenuHandler.hpp"
 #include "Menus/PipBoyHandler.hpp"
@@ -278,11 +279,14 @@ void NeuroSDK::ProcessIdlePoke(float dt, bool menuBlocksGameplay, bool neuroActe
   SendContext(phrase, false);
 }
 
-bool NeuroSDK::SendContext(const char *message, bool silent) {
-  if (!message || strlen(message) == 0) {
+bool NeuroSDK::SendContext(const char *rawMessage, bool silent) {
+  if (!rawMessage || strlen(rawMessage) == 0) {
     _WARNING("Cannot send empty context message to NeuroSDK.");
     return false;
   }
+  // Every outgoing string is folded to ASCII: libneurosdk turns other bytes into invalid JSON (WireText.hpp).
+  const std::string ascii = WireText::ToAscii(rawMessage);
+  const char *message = ascii.c_str();
   auto sdk = &NeuroSDK::GetSingleton();
   if (!sdk->connectionReady) {
     // Context from before a reconnect would be stale, so it is dropped. Callers that clear state on success see false.
@@ -328,11 +332,14 @@ bool NeuroSDK::RegisterActions(const std::vector<Actions::Definition> &definitio
   std::vector<std::string> schemas;
   actions.reserve(definitions.size());
   schemas.reserve(definitions.size());
+  std::vector<std::string> descriptions;
+  descriptions.reserve(definitions.size());
   for (const auto &definition : definitions) {
     _DMESSAGE("Registering NeuroSDK action: %s", definition.name.c_str());
-    schemas.push_back(definition.schema.Serialize());
+    schemas.push_back(definition.schema.Serialize()); // JsonSchema already writes ASCII
+    descriptions.push_back(WireText::ToAscii(definition.description));
     actions.push_back({.name = const_cast<char *>(definition.name.c_str()),
-                       .description = const_cast<char *>(definition.description.c_str()),
+                       .description = const_cast<char *>(descriptions.back().c_str()),
                        .json_schema = const_cast<char *>(schemas.back().c_str())});
   }
 
@@ -360,10 +367,13 @@ bool NeuroSDK::UnregisterActions(const std::vector<std::string> &names) {
   return NeuroSDK::GetSingleton().SendSDKMessage(message);
 }
 
-bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &query, const std::string &state,
-                            ActionPriority priority, bool ephemeralContext) {
-  if (!Actions::Transport::CanForce(names, query))
+bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::string &rawQuery,
+                            const std::string &rawState, ActionPriority priority, bool ephemeralContext) {
+  if (!Actions::Transport::CanForce(names, rawQuery))
     return false;
+  // libneurosdk escapes the state but inserts the query into its JSON as it is, so the query is escaped here.
+  const std::string query = WireText::ToJsonStringBody(rawQuery);
+  const std::string state = WireText::ToAscii(rawState);
   _DMESSAGE("Forcing %zu NeuroSDK action(s): %s", names.size(), query.c_str());
 
   std::vector<char *> actionNames;
@@ -397,9 +407,10 @@ bool NeuroSDK::ForceActions(const std::vector<std::string> &names, const std::st
   return NeuroSDK::GetSingleton().SendSDKMessage(message);
 }
 
-bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::string &resultMessage) {
+bool NeuroSDK::SendActionResult(const std::string &id, bool success, const std::string &rawMessage) {
   if (!Actions::Transport::CanSendResult(id))
     return false;
+  const std::string resultMessage = WireText::ToAscii(rawMessage);
   _DMESSAGE("Sending action result (id: %s, success: %s): %s", id.c_str(), success ? "true" : "false",
             resultMessage.c_str());
 
