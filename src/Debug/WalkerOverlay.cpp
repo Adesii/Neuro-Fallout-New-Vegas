@@ -9,6 +9,7 @@
 #include "netimmerse.h"
 #include "nvse/GameAPI.h"
 #include "nvse/ParamInfos.h"
+#include <cmath>
 #include <cstring>
 #include <mutex>
 
@@ -22,7 +23,17 @@
 //   0x100: JG `internal/netimmerse.h` (static_assert sizeof(NiCamera) == 0x114) and JIP-LN-NVSE, whose
 //   NiCamera::WorldToScreen (`internal/netimmerse.cpp`) reads the matrix at +0x9C and the viewport at +0x9C+0x64.
 //   JIP reads the matrix whenever a script asks; JG copies it from a hook only while the camera's FOV is the player's
-//   world FOV, which suggests the matrix is sometimes rewritten during a frame. Read at Present here, unverified.
+//   world FOV, which suggests the matrix is sometimes rewritten during a frame. Read at Present here.
+// - Field of view (2026-11-08 playtest: with the raw matrix the overlay slid while turning and drifted when getting
+//   closer, i.e. the wrong FOV). BSSceneGraph::SetCameraFOV is 0xC52020 (JG `Bethesda/BSSceneGraph.cpp`, JIP and
+//   yUI SceneGraph) and JG's WorldToScreen hook inside it only keeps the matrix when the camera is the scene camera
+//   and the FOV is PlayerCharacter::worldFOV, so other FOVs are set on the same camera during a frame. The overlay
+//   rescales by the frustum: NiCamera::m_kViewFrustum (NiFrustum l, r, t, b, near, far) at 0xDC (JG
+//   `internal/netimmerse.h`, JIP `frustum // 0DC`), PlayerCharacter::worldFOV at 0x670 and firstPersonFOV after it
+//   (JG `nvse/GameObjects.h`, itr-nvse `internal/layout/Player.h` static_asserts 0x670 and 0x674), and
+//   BSSceneGraph::fCurrentFOV (JG `internal/netimmerse.h`, JIP `cameraFOV // BC`). That the frustum sides are unit
+//   tangents and that worldFOV is horizontal is Gamebryo/FNV convention, not verified here: the camera log line shows
+//   the numbers.
 // - IDirect3DDevice9::Present is slot 17 of the device's vtable: the declaration order in the Windows SDK d3d9.h
 //   (IUnknown's 3, then TestCooperativeLevel ... Reset at 16, Present at 17). Patched in the vtable, which every
 //   device of the process shares, so the hook only draws for the game's own device.
@@ -48,6 +59,19 @@ bool g_loggedFirstDraw = false;
 IDirect3DDevice9 *g_device = nullptr;
 PresentFn g_originalPresent = nullptr;
 DWORD g_mainThread = 0;
+Overlay::FovCorrection g_fovCorrection = Overlay::FovCorrection::WorldFov;
+
+// The last camera numbers written to the log; a new line when any of them moves.
+struct CameraLog {
+  bool logged = false;
+  int mode = -1;
+  float frustumFov = 0.0f;
+  float worldFov = 0.0f;
+  float sceneFov = 0.0f;
+};
+CameraLog g_cameraLog;
+
+bool Moved(float a, float b) { return !(std::abs(a - b) <= 0.5f); }
 
 std::mutex g_viewMutex;
 bool g_hasView = false;
@@ -72,6 +96,36 @@ bool ReadCamera(float width, float height, Overlay::Camera &out) {
   out.bottom = camera->m_kPort.b;
   out.width = width;
   out.height = height;
+  if (!Overlay::UsableCamera(out))
+    return false;
+
+  const NiFrustum &f = camera->m_kViewFrustum;
+  const Overlay::Frustum frustum = {f.m_fLeft, f.m_fRight, f.m_fTop, f.m_fBottom};
+  const PlayerCharacter *player = PlayerCharacter::GetSingleton();
+  const float worldFov = player ? player->worldFOV : 0.0f;
+  const float firstPersonFov = player ? player->firstPersonFOV : 0.0f;
+  const float sceneFov = sceneGraph->fCurrentFOV;
+  float scale = 1.0f;
+  if (g_fovCorrection == Overlay::FovCorrection::WorldFov)
+    scale = Overlay::ScaleToHorizontalFov(frustum, worldFov);
+  else if (g_fovCorrection == Overlay::FovCorrection::SceneRatio)
+    scale = Overlay::ScaleBetweenFovs(sceneFov, worldFov);
+  if (g_fovCorrection != Overlay::FovCorrection::None && scale > 0.0f)
+    Overlay::ScaleFieldOfView(out, frustum, scale);
+
+  const float frustumFov = Overlay::FrustumAngleDegrees(frustum.left, frustum.right);
+  const int mode = static_cast<int>(g_fovCorrection);
+  if (!g_cameraLog.logged || mode != g_cameraLog.mode || Moved(frustumFov, g_cameraLog.frustumFov) ||
+      Moved(worldFov, g_cameraLog.worldFov) || Moved(sceneFov, g_cameraLog.sceneFov)) {
+    g_cameraLog = {true, mode, frustumFov, worldFov, sceneFov};
+    _MESSAGE("Walker debug camera: frustum l %.4f r %.4f t %.4f b %.4f near %.1f far %.0f (horizontal %.1f deg, "
+             "vertical %.1f deg, aspect %.3f); back buffer aspect %.3f; worldFOV %.1f, firstPersonFOV %.1f, scene "
+             "FOV %.1f; correction %d %s, scale %.4f",
+             frustum.left, frustum.right, frustum.top, frustum.bottom, f.m_fNear, f.m_fFar, frustumFov,
+             Overlay::FrustumAngleDegrees(frustum.bottom, frustum.top),
+             (frustum.right - frustum.left) / (frustum.top - frustum.bottom), width / height, worldFov, firstPersonFov,
+             sceneFov, mode, Overlay::FovCorrectionName(g_fovCorrection), scale);
+  }
   return Overlay::UsableCamera(out);
 }
 
@@ -249,20 +303,29 @@ void Update() {
     InstallHook();
 }
 
-// From the console: `NWalkerDebug` toggles, `NWalkerDebug 1` / `NWalkerDebug 0` set it. Returns the new state. The
-// macro's third argument is refRequired (DEFINE_CMD_FULL in nvse/CommandTable.h), so false: no reference needed.
-DEFINE_NEURO_COMMAND_PLUGIN(WalkerDebug, "Walker debug overlay: no argument toggles, 1 on, 0 off", false,
-                            kParams_OneOptionalInt);
+// From the console: `NWalkerDebug` toggles, `NWalkerDebug 1` / `NWalkerDebug 0` set it, and an optional second number
+// picks the FOV correction (`NWalkerDebug 1 0` raw matrix, `1` world FOV, the default, `2` scene ratio). Returns the
+// new state. The macro's third argument is refRequired (DEFINE_CMD_FULL in nvse/CommandTable.h), so false: no
+// reference needed.
+DEFINE_NEURO_COMMAND_PLUGIN(WalkerDebug, "Walker debug overlay: [on 1/off 0, none toggles] [FOV correction 0-2]", false,
+                            kParams_TwoOptionalInts);
 
 bool Cmd_NWalkerDebug_Execute(COMMAND_ARGS) {
   int value = -1;
-  if (!ExtractArgsEx(EXTRACT_ARGS_EX, &value))
+  int correction = -1;
+  if (!ExtractArgsEx(EXTRACT_ARGS_EX, &value, &correction))
     return true;
+  if (correction >= 0 && correction < Overlay::kFovCorrectionCount) {
+    g_fovCorrection = static_cast<Overlay::FovCorrection>(correction);
+    _MESSAGE("Walker debug overlay: FOV correction %d, %s.", correction, Overlay::FovCorrectionName(g_fovCorrection));
+  }
   SetEnabled(value < 0 ? !g_enabled : value != 0);
   *result = g_enabled ? 1.0 : 0.0;
-  Console_Print("Walker debug %s. Cyan: navmesh path, orange: path to the navmesh point next to the target, red: "
-                "straight line (no path), green: point steered at, magenta: Wander spot, blue: walked trail.",
-                g_enabled ? "on" : "off");
+  Console_Print("Walker debug %s, FOV correction %d: %s.", g_enabled ? "on" : "off", static_cast<int>(g_fovCorrection),
+                Overlay::FovCorrectionName(g_fovCorrection));
+  if (g_enabled)
+    Console_Print("Cyan: navmesh path, orange: path to the navmesh point next to the target, red: straight line (no "
+                  "path), green: point steered at, magenta: Wander spot, blue: walked trail.");
   return true;
 }
 

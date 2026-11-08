@@ -59,6 +59,44 @@ bool Project(const Camera &camera, const Point3 &world, ScreenPoint &out);
 bool ProjectSegment(const Camera &camera, const Point3 &a, const Point3 &b, ScreenPoint &outA, ScreenPoint &outB,
                     float margin = 64.0f);
 
+// --- Field of view correction -----------------------------------------------------------------------------------
+
+// A Gamebryo NiFrustum's sides: tangents of the half angles, on the plane one unit in front of the camera.
+struct Frustum {
+  float left = 0.0f;
+  float right = 0.0f;
+  float top = 0.0f;
+  float bottom = 0.0f;
+};
+
+// Which field of view the overlay projects with. The world camera still holds the last FOV the game set on it when
+// the frame is shown, which in play was not the world's (the overlay slid while turning, 2026-11-08 playtest; the
+// first-person pass sets its own FOV on the same camera, as JG's WorldToScreen hook guards against). The default
+// rescales the camera's frustum to the player's world FOV.
+enum class FovCorrection {
+  None = 0,       // the camera's matrix as it is at Present
+  WorldFov = 1,   // frustum width rescaled so the horizontal FOV is the player's worldFOV
+  SceneRatio = 2, // scaled by tan(worldFOV / 2) / tan(scene graph's current FOV / 2)
+};
+inline constexpr int kFovCorrectionCount = 3;
+const char *FovCorrectionName(FovCorrection mode);
+
+// Full angle in degrees spanned by two frustum sides (left/right or bottom/top). NaN when not a usable frustum.
+float FrustumAngleDegrees(float low, float high);
+
+// The factor that widens `frustum` to a horizontal field of view of `fovDegrees`. 0 when either is unusable.
+float ScaleToHorizontalFov(const Frustum &frustum, float fovDegrees);
+
+// tan(to / 2) / tan(from / 2): the factor that turns a frustum built for `fromDegrees` into one for `toDegrees`.
+// 0 when either is outside (0, 180).
+float ScaleBetweenFovs(float fromDegrees, float toDegrees);
+
+// Rewrites the camera's x and y clip rows as if its frustum, `frustum`, had every side multiplied by `scale` (scale >
+// 1 widens the view). Uses clip x = (2 * x_cam - (r + l) * w) / (r - l), the perspective form the matrix is read in;
+// for a symmetric frustum this is the x and y rows divided by `scale`. Does nothing for a non-positive or non-finite
+// scale or an unusable frustum.
+void ScaleFieldOfView(Camera &camera, const Frustum &frustum, float scale);
+
 // ARGB colour with the alpha scaled by `alpha` in [0, 1].
 uint32_t Fade(uint32_t color, float alpha);
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace Overlay {
 namespace {
@@ -64,6 +65,8 @@ bool ClipToRect(ScreenPoint &a, ScreenPoint &b, float minX, float minY, float ma
 
 bool Finite(float value) { return std::isfinite(value); }
 
+constexpr float kDegreesPerRadian = 57.29577951308232f;
+
 } // namespace
 
 bool UsableCamera(const Camera &camera) {
@@ -100,6 +103,54 @@ bool ProjectSegment(const Camera &camera, const Point3 &a, const Point3 &b, Scre
   if (!Finite(outA.x) || !Finite(outA.y) || !Finite(outB.x) || !Finite(outB.y))
     return false;
   return ClipToRect(outA, outB, -margin, -margin, camera.width + margin, camera.height + margin);
+}
+
+const char *FovCorrectionName(FovCorrection mode) {
+  switch (mode) {
+  case FovCorrection::None:
+    return "none (camera matrix as it is)";
+  case FovCorrection::WorldFov:
+    return "world FOV (frustum width from worldFOV)";
+  case FovCorrection::SceneRatio:
+    return "scene ratio (worldFOV against the scene graph's current FOV)";
+  }
+  return "?";
+}
+
+float FrustumAngleDegrees(float low, float high) {
+  const float half = (high - low) * 0.5f;
+  if (!Finite(half) || !(half > 0.0f))
+    return std::numeric_limits<float>::quiet_NaN();
+  return 2.0f * std::atan(half) * kDegreesPerRadian;
+}
+
+float ScaleBetweenFovs(float fromDegrees, float toDegrees) {
+  auto usable = [](float degrees) { return Finite(degrees) && degrees > 0.0f && degrees < 180.0f; };
+  if (!usable(fromDegrees) || !usable(toDegrees))
+    return 0.0f;
+  return std::tan(toDegrees * 0.5f / kDegreesPerRadian) / std::tan(fromDegrees * 0.5f / kDegreesPerRadian);
+}
+
+float ScaleToHorizontalFov(const Frustum &frustum, float fovDegrees) {
+  const float current = FrustumAngleDegrees(frustum.left, frustum.right);
+  return Finite(current) ? ScaleBetweenFovs(current, fovDegrees) : 0.0f;
+}
+
+void ScaleFieldOfView(Camera &camera, const Frustum &frustum, float scale) {
+  if (!Finite(scale) || !(scale > 0.0f))
+    return;
+  // Row r (x with left/right, y with bottom/top): row = (2 * axis - (hi + lo) * row3) / (hi - lo). With every side
+  // multiplied by s: row' = row / s + (hi + lo) * (1 - s) / (s * (hi - lo)) * row3.
+  auto rescale = [&](int row, float lo, float hi) {
+    const float span = hi - lo;
+    if (!Finite(span) || span == 0.0f)
+      return;
+    const float shift = (hi + lo) * (1.0f - scale) / (scale * span);
+    for (int column = 0; column < 4; ++column)
+      camera.worldToClip[row][column] = camera.worldToClip[row][column] / scale + shift * camera.worldToClip[3][column];
+  };
+  rescale(0, frustum.left, frustum.right);
+  rescale(1, frustum.bottom, frustum.top);
 }
 
 uint32_t Fade(uint32_t color, float alpha) {

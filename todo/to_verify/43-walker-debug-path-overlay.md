@@ -125,7 +125,9 @@ Manual in-game checks:
    and `Present reached the hook` then `first frame drawn` in the log once. If nothing shows, send the
    `Walker debug overlay:` lines from the log: they say which step stopped it.
 3. Turn the view left and right and walk. Expected: lines stay glued to the ground. Draw and holster the weapon, zoom
-   with a scope: nothing jumps. Symptom of failure: lines drift or scale with the view.
+   with a scope: nothing jumps. Symptom of failure: lines drift or scale with the view. If it still slides, try the
+   other corrections (`NWalkerDebug 1 2`, and `NWalkerDebug 1 0` for the raw matrix) and send the `Walker debug
+   camera:` lines from the log.
 4. The Primm spots from the 2026-11-07 playtest. Expected: the overlay shows whether the route itself leads into the
    object (cyan line through it), whether the Walker cuts the corner (green point skipping a bend), or whether it
    fell back to a red straight line; the log has the matching `Walker debug route` and fallback lines. Note the
@@ -139,3 +141,21 @@ Manual in-game checks:
 9. `tfc` with debug on: the overlay should follow the free camera (useful for todo 44).
 10. With debug off for the whole session (never switched on): no `Present hook` line in the log, Walker behaves as
     before.
+
+## Playtest 2026-11-08 and FOV correction
+
+The designer confirmed the overlay draws. But with the camera matrix used as it is, the overlay slid along the ground
+while turning and drifted as the player got closer. That is a field-of-view mismatch: when the frame is shown, the
+world camera still holds the last FOV the game set on it. `BSSceneGraph::SetCameraFOV` (0xC52020) also sets other FOVs
+on the same camera, and JG's WorldToScreen only keeps the matrix while the FOV is `worldFOV`; the first-person
+viewmodel pass is the likely culprit.
+
+Fix: the overlay now rescales the camera's x and y clip rows to the player's `worldFOV`, using the camera's own frustum
+(`NiCamera::m_kViewFrustum` at 0xDC). The rescale maths is engine-free and host-tested (`ScaleFieldOfView` in
+`src/Debug/OverlayMath.*`). A second argument to the command picks the correction: `NWalkerDebug 1 1` world FOV (the
+default), `NWalkerDebug 1 2` scene ratio (tan(worldFOV/2) / tan(scene graph's current FOV/2)), `NWalkerDebug 1 0` the
+raw matrix as before. A `Walker debug camera:` log line, written whenever the numbers change, records the frustum sides
+and angles, the aspect, `worldFOV`, `firstPersonFOV`, the scene graph's FOV and the scale applied.
+
+Unverified: that the frustum sides are unit tangents and that `worldFOV` is horizontal (Gamebryo/FNV convention, not
+checked in this repo). If the frustum's horizontal angle in the log equals `firstPersonFOV`, the diagnosis holds.
