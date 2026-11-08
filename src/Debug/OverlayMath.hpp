@@ -69,23 +69,12 @@ struct Frustum {
   float bottom = 0.0f;
 };
 
-// Which field of view the overlay projects with. The world camera still holds the last FOV the game set on it when
-// the frame is shown, which in play was not the world's (the overlay slid while turning, 2026-11-08 playtest; the
-// first-person pass sets its own FOV on the same camera, as JG's WorldToScreen hook guards against). The default
-// rescales the camera's frustum to the player's world FOV.
-enum class FovCorrection {
-  None = 0,       // the camera's matrix as it is at Present
-  WorldFov = 1,   // frustum width rescaled so the horizontal FOV is the player's worldFOV
-  SceneRatio = 2, // scaled by tan(worldFOV / 2) / tan(scene graph's current FOV / 2)
-};
-inline constexpr int kFovCorrectionCount = 3;
-const char *FovCorrectionName(FovCorrection mode);
+// When the frame is shown the world camera still holds the last FOV the game set on it, not the world's (the overlay
+// slid while turning, 2026-11-08 playtest). WalkerOverlay scales the frustum by ScaleBetweenFovs(scene graph's
+// current FOV, worldFOV), the correction that held in game.
 
 // Full angle in degrees spanned by two frustum sides (left/right or bottom/top). NaN when not a usable frustum.
 float FrustumAngleDegrees(float low, float high);
-
-// The factor that widens `frustum` to a horizontal field of view of `fovDegrees`. 0 when either is unusable.
-float ScaleToHorizontalFov(const Frustum &frustum, float fovDegrees);
 
 // tan(to / 2) / tan(from / 2): the factor that turns a frustum built for `fromDegrees` into one for `toDegrees`.
 // 0 when either is outside (0, 180).

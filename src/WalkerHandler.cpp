@@ -426,7 +426,8 @@ void RecordRoute(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 
   if (route.mode != RouteDebug::Mode::Close && searchCell)
     route.playerOnNavmesh = Pathing::PointOnNavmesh({here.x, here.y, here.z}, searchCell, searchCell->worldSpace);
 
-  if (!g_debug.hasLogged || !RouteDebug::SameRoute(g_debug.logged, route)) {
+  if (WalkerOverlay::Logs(WalkerOverlay::LogLevel::Routes) &&
+      (!g_debug.hasLogged || !RouteDebug::SameRoute(g_debug.logged, route))) {
     _MESSAGE("Walker debug route to %s: %s", g_state.command.description.c_str(),
              RouteDebug::Describe(route, route.start).c_str());
     if (!g_debug.hasLogged || route.mode != g_debug.loggedMode)

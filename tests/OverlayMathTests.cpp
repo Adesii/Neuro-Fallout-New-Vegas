@@ -176,14 +176,12 @@ TEST("overlay: the FOV scale is the tangent ratio and refuses unusable angles") 
   CHECK_EQ(ScaleBetweenFovs(0.0f, 75.0f), 0.0f);
   CHECK_EQ(ScaleBetweenFovs(55.0f, 180.0f), 0.0f);
   CHECK_EQ(ScaleBetweenFovs(55.0f, std::numeric_limits<float>::quiet_NaN()), 0.0f);
-  CHECK(Near(ScaleToHorizontalFov(SymmetricFrustum(55.0f, 1.5f), 75.0f), ScaleBetweenFovs(55.0f, 75.0f), 1e-4f));
-  CHECK_EQ(ScaleToHorizontalFov(Frustum{}, 75.0f), 0.0f);
 }
 
 TEST("overlay: a camera left at the first-person FOV, rescaled, puts the world FOV's edge on the screen's edge") {
   const Frustum narrow = SymmetricFrustum(55.0f, 2.0f);
   Camera camera = FrustumCamera(narrow);
-  ScaleFieldOfView(camera, narrow, ScaleToHorizontalFov(narrow, 75.0f));
+  ScaleFieldOfView(camera, narrow, ScaleBetweenFovs(55.0f, 75.0f)); // the scene FOV against worldFOV
   ScreenPoint s;
   const float edge = std::tan(37.5f * kRadiansPerDegree);
   CHECK(Project(camera, {edge * 100.0f, 100.0f, 0.0f}, s));

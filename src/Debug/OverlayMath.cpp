@@ -105,18 +105,6 @@ bool ProjectSegment(const Camera &camera, const Point3 &a, const Point3 &b, Scre
   return ClipToRect(outA, outB, -margin, -margin, camera.width + margin, camera.height + margin);
 }
 
-const char *FovCorrectionName(FovCorrection mode) {
-  switch (mode) {
-  case FovCorrection::None:
-    return "none (camera matrix as it is)";
-  case FovCorrection::WorldFov:
-    return "world FOV (frustum width from worldFOV)";
-  case FovCorrection::SceneRatio:
-    return "scene ratio (worldFOV against the scene graph's current FOV)";
-  }
-  return "?";
-}
-
 float FrustumAngleDegrees(float low, float high) {
   const float half = (high - low) * 0.5f;
   if (!Finite(half) || !(half > 0.0f))
@@ -129,11 +117,6 @@ float ScaleBetweenFovs(float fromDegrees, float toDegrees) {
   if (!usable(fromDegrees) || !usable(toDegrees))
     return 0.0f;
   return std::tan(toDegrees * 0.5f / kDegreesPerRadian) / std::tan(fromDegrees * 0.5f / kDegreesPerRadian);
-}
-
-float ScaleToHorizontalFov(const Frustum &frustum, float fovDegrees) {
-  const float current = FrustumAngleDegrees(frustum.left, frustum.right);
-  return Finite(current) ? ScaleBetweenFovs(current, fovDegrees) : 0.0f;
 }
 
 void ScaleFieldOfView(Camera &camera, const Frustum &frustum, float scale) {
