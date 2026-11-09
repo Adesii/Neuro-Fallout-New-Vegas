@@ -9,7 +9,9 @@ namespace {
 
 const Definition kDefinition = {
     .name = "query_quests",
-    .description = "List current incomplete quest objectives and ids that can be passed to select_quest.",
+    .description =
+        "List current incomplete quest objectives and ids that can be passed to select_quest. States which quest is "
+        "already selected.",
     .schema = {}};
 
 } // namespace

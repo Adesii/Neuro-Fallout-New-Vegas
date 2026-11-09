@@ -17,6 +17,7 @@
 #include "Context/Location.hpp"
 #include "Context/NearbyListing.hpp"
 #include "Context/ObjectPriority.hpp"
+#include "Context/QuestListing.hpp"
 #include "Context/SeePush.hpp"
 #include "GameData.h"
 #include "GameExtraData.h"
@@ -824,17 +825,31 @@ std::string BuildFreshStatus() {
 
 void QueryQuests() {
   BuildQuestCatalog();
-  std::ostringstream context;
-  context << "## Current quest objectives";
-  if (g_quests.empty()) {
-    context << "\n- None.";
-  } else {
-    for (const auto &entry : g_quests) {
-      context << "\n- `" << entry.id << "` - " << entry.description;
-      context << " - " << DescribeQuestLocation(entry);
-    }
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *activeQuest = player ? player->activeQuest : nullptr;
+  if (activeQuest && (activeQuest->flags & kQuestFlagFinished))
+    activeQuest = nullptr;
+  const uint32_t activeId = activeQuest ? activeQuest->GetFormID() : 0;
+
+  std::vector<QuestListing::Candidate> candidates;
+  for (const auto &entry : g_quests)
+    candidates.push_back({entry.questFormId, entry.objectiveId, entry.targetFormId});
+  std::optional<QuestListing::Chosen> chosen;
+  if (g_selectedObjective)
+    chosen = QuestListing::Chosen{g_selectedObjective->questFormId, g_selectedObjective->objectiveId,
+                                  g_selectedObjective->targetFormId};
+  const auto selected = QuestListing::MarkSelected(candidates, activeId, chosen);
+
+  std::vector<QuestListing::Entry> entries;
+  for (size_t index = 0; index < g_quests.size(); ++index) {
+    const auto &entry = g_quests[index];
+    entries.push_back({entry.id, entry.description, DescribeQuestLocation(entry), selected[index]});
   }
-  NeuroSDK::SendContext(context.str().c_str(), true);
+  std::optional<QuestListing::ActiveQuest> active;
+  if (activeQuest)
+    active = QuestListing::ActiveQuest{QuestName(activeQuest),
+                                       g_currentQuestRoute && g_currentQuestRoute->questFormId == activeId};
+  NeuroSDK::SendContext(QuestListing::Format(entries, active).c_str(), true);
 }
 
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error) {
