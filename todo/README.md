@@ -44,6 +44,9 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 48 | [Check the path ahead with raycasts and detour around blockers](48-raycast-path-detours.md) (evaluate first) | Walker / pathing |
 | 49 | [Fix JSON string escaping upstream in libneurosdk](49-libneurosdk-json-escaping.md) (later; worked around in the plugin) | SDK / transport |
 | 50 | [move_to / interact_with interrupt the do_current_quest route](50-quest-route-interrupt-by-move-interact.md) | Walker / Gameplay actions |
+| 51 | [Ask for confirmation before changing the followed quest](51-confirm-quest-course-change.md) (idea from Skyrim) | Gameplay actions |
+| 52 | [Send a quest's description the first time she follows it](52-quest-description-on-first-follow.md) (idea from Skyrim) | Context |
+| 53 | [Custom (plugin-defined) quests](53-custom-quests.md) | Quests |
 
 ## To verify (implemented, waiting for an in-game test)
 
