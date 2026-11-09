@@ -36,7 +36,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 21 | [Tutorial, book and SPECIAL book menus](21-tutorial-and-books.md) | Menus |
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) (3, 4, 6 done; 1, 2, 5 left on purpose) | Cleanup |
-| 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) (container done, to verify; Pip-Boy open) | Context / Menus |
+| 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) (container done, to verify; 2026-11-09 follow-up: slim opening text, no container-specific poke; Pip-Boy open) | Context / Menus |
 | 41 | [query_quests should say which quest is already selected](41-query-quests-selected-line.md) | Gameplay actions |
 | 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
@@ -44,6 +44,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 47 | [Aim down sights automatically past 10 meters](47-auto-aim-down-sights.md) | Combat |
 | 48 | [Check the path ahead with raycasts and detour around blockers](48-raycast-path-detours.md) (evaluate first) | Walker / pathing |
 | 49 | [Fix JSON string escaping upstream in libneurosdk](49-libneurosdk-json-escaping.md) (later; worked around in the plugin) | SDK / transport |
+| 50 | [move_to / interact_with interrupt the do_current_quest route](50-quest-route-interrupt-by-move-interact.md) | Walker / Gameplay actions |
 
 ## To verify (implemented, waiting for an in-game test)
 

@@ -1,6 +1,6 @@
 # 40 - Opening a container leaves Neuro idle
 
-Status: in progress (container part implemented, to verify in game; Pip-Boy inventory still open)
+Status: in progress (container part implemented, to verify in game; 2026-11-09 follow-up open; Pip-Boy inventory still open)
 Area: Context / Menus (`src/Menus/ContainerHandler.cpp`), related to todo 24
 Source: designer's play-testing, 2026-10-25
 
@@ -55,3 +55,45 @@ Manual in-game checks:
    while a transfer or Take All runs, or while the quantity prompt is open.
 3. Close the container. Expected: no poke spam during the close; normal gameplay pokes afterwards.
 4. Open a container by hand while she is idle. Expected: the same non-silent listing.
+
+## Follow-up (designer's play-testing, 2026-11-09): she does not realise a container is open
+
+The non-silent opening and the menu-aware poke are in, but a new playtest showed the model still believed it was in
+normal gameplay while the container menu was open. Two causes:
+
+1. **The opening context is too slim.** It starts with `## Container contents: <title>` and the item page. It never
+   says that a container has been opened or that she is now inside a menu. When she used `interact_with`/`move_to`
+   toward the container, the Walker's "Reached X" / interaction messages arrive several seconds before the menu
+   actually opens (she has to walk there first), so the two messages are far enough apart that nothing links them.
+2. **No poke inside the container screen.** While the container waits on her the idle poker is allowed to fire
+   (`AwaitsDecision`), but the generic wasteland phrases ("The wasteland waits...") say nothing about being in a menu.
+   Either the poke did not fire at all or it fired and read like a gameplay nudge; the playtest cannot tell which.
+
+### Work
+1. Rewrite the opening context so it states the state change first, before the listing. Draft (designer to adjust):
+   "## Container opened\nYou opened <title> and are now inside its menu, not in gameplay. Movement and world
+   actions are unavailable until you close it." followed by the existing listing. Keep it state only, no action
+   how-to text (see the 2026-11-07 removal in the Problem section). Say which container, and for a container that is
+   empty or locked say so in the same message.
+2. Give the container screen its own poke text. A poke that fires while `ContainerHandler::AwaitsDecision()` is true
+   must name the situation ("You are still inside <title>. Take what you want or close it."), not the generic
+   gameplay phrase. Prefer an engine-free hook in `src/Context/` (poke text chosen by a "waiting screen" input to
+   the poker, host-tested in `tests/IdlePokerTests.cpp`); `ContainerHandler` supplies the screen name only.
+   Draft the phrases and show them to the designer before coding (same rule as todo 24).
+3. Find out why no poke was seen: read the poker's busy inputs against `AwaitsDecision()` (announce delay
+   `kStepDelay`, `g_announced`, the post-action poke that was started by the walk to the container, the 6-10 s first
+   interval) and log when the poker is suppressed by the open menu. Fix the cause, do not just add text.
+4. Apply the same state-first opening to the other decision menus that already announce themselves (Pip-Boy
+   inventory, stub menus, dialogue) as far as they lack a "you are now in X" line; check each message that opens a
+   menu.
+5. Remember the Pip-Boy part (item 3 of the original Work list) is still open; solve it together with this.
+
+### Done when
+Opening a container (also after a long walk to it) tells Neuro first that she is inside a container menu, and while
+she idles in it she gets a poke that names the container screen, not a gameplay phrase.
+
+### Manual in-game checks
+1. `interact_with` a container several metres away and wait. Expected: "Reached/interacting" message, then later a
+   clearly worded "container opened, you are inside its menu" message; she does not call gameplay actions.
+2. Idle inside the container. Expected: a container-specific poke after about 6-10 s, spaced out afterwards.
+3. Same for an empty container and for a container opened by hand.
