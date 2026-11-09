@@ -19,3 +19,15 @@ not know a quest is already selected and may select it again or wonder why `do_c
 
 ## Done when
 `query_quests` starts with the selected-quest line when one exists, and the list below it is unchanged.
+
+## Update (designer, 2026-11-09)
+Seen again in play: `query_quests` gives no hint at all which quest is selected and currently active. Confirmed in
+`GameplayHandler::QueryQuests`: it prints only "## Current quest objectives" and one line per catalog entry; neither
+`player->activeQuest` nor `g_selectedObjective` is read. Extend the work:
+- Besides the top line, **mark the selected objective inside the list** (e.g. append " (selected)" to its entry), since
+  the active quest can have several objectives and the top line alone does not say which one `do_current_quest` follows
+  (`g_selectedObjective`, falling back to the first objective, see `DoCurrentQuest` preparation).
+- Say whether the route is **running or not** ("do_current_quest is following it" / "not following it; call
+  do_current_quest"). This matters once todo 50 lands: `move_to_object`/`interact_with` turn the route off while the
+  quest stays selected.
+- The active quest may have no entry in the list (objective hidden or finished): the top line should still name it.
