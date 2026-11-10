@@ -201,6 +201,7 @@ struct WalkerState {
   PathProbe::Point3 detourRejoin;
   std::string detourBlocker;   // what blocked the path, for the log
   bool loggedNoDetour = false; // "no way round" is logged once per route
+  bool loggedNoShape = false;  // so is an unreadable collision shape
   ProbeCost probeCost;
   std::string lockedDoor; // a locked closed door seen in front of the player while stuck
   // Per command, not per route: they carry on across a cell change.
@@ -294,6 +295,7 @@ void ResetRouteState() {
   g_state.detourPlanner.Reset();
   g_state.detourBlocker.clear();
   g_state.loggedNoDetour = false;
+  g_state.loggedNoShape = false;
 }
 
 // RouteDebug::Point3 and PathProbe::Point3 are the same type (Overlay::Point3).
@@ -767,7 +769,18 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
   }
 
   const PathProbe::Point3 here = ToDebugPoint(playerPosition);
-  const PathProbe::Settings settings;
+  // The side rays stand the player's own collision radius apart. Without it there is no check: a made-up width would
+  // decide which gaps she fits through.
+  PathProbe::Settings settings;
+  float bodyHeight = 0.0f;
+  if (!WorldUtils::PlayerCollisionShape(player, settings.halfWidth, bodyHeight)) {
+    if (!g_state.loggedNoShape) {
+      g_state.loggedNoShape = true;
+      _WARNING("Walker path check: the player's collision shape cannot be read; no check on this walk");
+    }
+    EndDetour(DetourTracker::End::Abandoned);
+    return;
+  }
   const bool debug = WalkerOverlay::Enabled();
   WalkerProbe::EngineWorld world(player, target);
   const double started = WalkerProbe::NowMicroseconds();
@@ -828,9 +841,13 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
     account();
     return;
   }
-  char buffer[96];
-  std::snprintf(buffer, sizeof(buffer), "%s %.1f m ahead: ", PathProbe::BlockerName(ahead.blocker),
-                Units::ToMeters(ahead.clearDistance));
+  char buffer[128];
+  if (ahead.blocker == Blocker::Rise)
+    std::snprintf(buffer, sizeof(buffer), "a rise of %.0f units %.1f m ahead: ", ahead.step,
+                  Units::ToMeters(ahead.clearDistance));
+  else
+    std::snprintf(buffer, sizeof(buffer), "%s %.1f m ahead: ", PathProbe::BlockerName(ahead.blocker),
+                  Units::ToMeters(ahead.clearDistance));
   g_state.detourBlocker = buffer + WalkerProbe::DescribeHit(ahead.hit);
   planner.Start(std::move(path), ahead, tracker.PreferredSide());
   planner.Step(world, here, settings, kProbeRayBudget);

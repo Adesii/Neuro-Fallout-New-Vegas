@@ -53,6 +53,10 @@ const char *LayerName(uint8_t layer);
 // body. 0 when it cannot be read; a ray with group 0 ignores nothing.
 uint16_t PlayerCollisionGroup(PlayerCharacter *player);
 
+// The player's collision capsule in game units: its radius and its full height. False when the character controller
+// is missing or holds values that cannot be a body (then nothing may be assumed in their place).
+bool PlayerCollisionShape(PlayerCharacter *player, float &radius, float &height);
+
 // One ray with everything the engine says about what it hit. Sources for each field are at CastRay in the .cpp.
 struct RayDetail {
   bool performed = false; // false: no cast could be made

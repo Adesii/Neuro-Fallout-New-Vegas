@@ -114,9 +114,10 @@ void LogRay(const char *what, uint8_t layer, const NiPoint3 &from, const NiPoint
            detail.budgetSpent ? " (budget byte set)" : "");
 }
 
-// The player's character controller shape. The offsets are named by JIP-LN-NVSE only (`internal/havok.h`,
+// The player's character controller shape, raw. The offsets are named by JIP-LN-NVSE only (`internal/havok.h`,
 // bhkCharacterController: scale 0x55C, actorHeight 0x564, shapeDefaultRadius 0x5F0, shapeHeight 0x5F4, shapeRadius
-// 0x5F8); the vendored JG definition has unnamed words there. They are logged for the evaluation and steer nothing.
+// 0x5F8); the vendored JG definition has unnamed words there. The radius and height the Walker uses come from
+// WorldUtils::PlayerCollisionShape; this line shows the neighbouring fields too.
 void LogControllerShape(PlayerCharacter *player) {
   auto *process = player->baseProcess;
   auto *controller =
@@ -132,10 +133,13 @@ void LogControllerShape(PlayerCharacter *player) {
   };
   const float radius = read(0x5F8);
   const float height = read(0x5F4);
-  _MESSAGE("Walker probe: character controller (JIP-LN offsets, one source, unverified): shape radius %.4f, shape "
-           "height %.4f, default radius %.4f, actor height %.4f, scale %.3f. If these are Havok units, the radius is "
-           "%.1f game units and the height %.1f.",
-           radius, height, read(0x5F0), read(0x564), read(0x55C), radius * 7.0f, height * 7.0f);
+  float usedRadius = 0.0f;
+  float usedHeight = 0.0f;
+  const bool usable = WorldUtils::PlayerCollisionShape(player, usedRadius, usedHeight);
+  _MESSAGE("Walker probe: character controller (JIP-LN offsets, Havok units): shape radius %.4f, shape height %.4f, "
+           "default radius %.4f, actor height %.4f, scale %.3f. In game units: radius %.1f, height %.1f (%s).",
+           radius, height, read(0x5F0), read(0x564), read(0x55C), usedRadius, usedHeight,
+           usable ? "used as the half width of the side rays" : "NOT usable: the Walker's path check stays off");
 }
 
 } // namespace
@@ -256,7 +260,9 @@ bool Cmd_NWalkerProbe_Execute(COMMAND_ARGS) {
   const float yaw = AimUtils::EffectiveYaw(player);
   const float forwardX = std::sin(yaw);
   const float forwardY = std::cos(yaw);
-  const PathProbe::Settings settings;
+  PathProbe::Settings settings;
+  float bodyHeight = 0.0f;
+  const bool hasShape = WorldUtils::PlayerCollisionShape(player, settings.halfWidth, bodyHeight);
 
   _MESSAGE("Walker probe: player at (%.0f, %.0f, %.0f) in cell %08X, facing (%.2f, %.2f), collision group %u.", feet.x,
            feet.y, feet.z, static_cast<unsigned>(player->GetParentCell()->GetFormID()), forwardX, forwardY,
@@ -328,20 +334,30 @@ bool Cmd_NWalkerProbe_Execute(COMMAND_ARGS) {
   const PathProbe::SweepResult centre = PathProbe::Sweep(world, start, end, kAhead, settings, 0.0f, &trace);
   const double centreTime = NowMicroseconds() - clock;
   clock = NowMicroseconds();
-  const PathProbe::SweepResult wide = PathProbe::Sweep(world, start, end, kAhead, settings, settings.halfWidth, &trace);
+  // Without the collision radius there is no width to sweep at; the second sweep is then left out.
+  const PathProbe::SweepResult wide =
+      hasShape ? PathProbe::Sweep(world, start, end, kAhead, settings, settings.halfWidth, &trace)
+               : PathProbe::SweepResult{};
   const double wideTime = NowMicroseconds() - clock;
   auto logSweep = [&](const char *what, const PathProbe::SweepResult &sweep, double microseconds) {
     if (sweep.Clear())
       _MESSAGE("Walker probe: sweep %s: clear for %.0f units, floor ends %.0f above the start; %d rays, %.0f "
                "microseconds",
                what, sweep.clearDistance, sweep.end.z - feet.z, sweep.rays, microseconds);
+    else if (sweep.blocker == PathProbe::Blocker::Rise || sweep.blocker == PathProbe::Blocker::Drop)
+      _MESSAGE("Walker probe: sweep %s: blocked after %.0f units (%.2f m) by %s (the floor changes by %.0f units "
+               "within %.0f; limits +%.0f / -%.0f): %s; %d rays, %.0f microseconds",
+               what, sweep.clearDistance, Units::ToMeters(sweep.clearDistance), PathProbe::BlockerName(sweep.blocker),
+               sweep.step, settings.groundStep, settings.maxRise, settings.maxDrop, DescribeHit(sweep.hit).c_str(),
+               sweep.rays, microseconds);
     else
       _MESSAGE("Walker probe: sweep %s: blocked after %.0f units (%.2f m) by %s: %s; %d rays, %.0f microseconds", what,
                sweep.clearDistance, Units::ToMeters(sweep.clearDistance), PathProbe::BlockerName(sweep.blocker),
                DescribeHit(sweep.hit).c_str(), sweep.rays, microseconds);
   };
   logSweep("on the centre line", centre, centreTime);
-  logSweep("at the player's width", wide, wideTime);
+  if (hasShape)
+    logSweep("at the player's width", wide, wideTime);
   const bool onNavmesh = world.Walkable(start);
   _MESSAGE("Walker probe: the player's position is %s.",
            !g_requireNavmesh ? "not checked against the navmesh (the requirement is off)"

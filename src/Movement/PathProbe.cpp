@@ -109,6 +109,7 @@ SweepResult Sweep(World &world, const Point3 &from, const Point3 &to, float maxD
     if (blocker != Blocker::None) {
       result.blocker = blocker;
       result.hit = down;
+      result.step = down.hit ? z - floor.z : 0.0f;
       result.blockPoint = {above.x, above.y, floor.z};
       result.clearDistance = distance;
       result.end = floor;
@@ -204,6 +205,7 @@ SweepResult SweepPath(World &world, const std::vector<Point3> &points, float max
       total.blocker = leg.blocker;
       total.reachedTarget = leg.reachedTarget;
       total.hit = leg.hit;
+      total.step = leg.step;
       total.blockPoint = leg.blockPoint;
       total.blockedSide = leg.blockedSide;
       break;

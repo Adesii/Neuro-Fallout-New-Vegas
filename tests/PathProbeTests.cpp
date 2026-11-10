@@ -77,7 +77,12 @@ void AddCar(BoxWorld &world, float face, float right, float left) {
   world.Add({face, right, 0.0f}, {face + 140.0f, left, 100.0f}, HitKind::World, 0xCA5);
 }
 
-const Settings kSettings;
+// The half width is the player's collision radius as read in game; the engine side supplies it, so the tests do too.
+const Settings kSettings = [] {
+  Settings settings;
+  settings.halfWidth = 20.3f;
+  return settings;
+}();
 const Point3 kOrigin = {0.0f, 0.0f, 0.0f};
 
 bool Near(float a, float b, float tolerance) { return std::abs(a - b) <= tolerance; }
@@ -131,6 +136,8 @@ TEST("path probe: a crate too high to step onto blocks, whichever ray finds it")
   const SweepResult sweep = Sweep(world, kOrigin, {500.0f, 0.0f, 0.0f}, 400.0f, kSettings, 0.0f);
   CHECK(!sweep.Clear());
   CHECK(sweep.blocker == Blocker::Rise || sweep.blocker == Blocker::Obstacle);
+  if (sweep.blocker == Blocker::Rise)
+    CHECK(Near(sweep.step, 50.0f, 0.5f)); // how high the step was, for the log
   CHECK(sweep.clearDistance <= 200.5f);
   CHECK(sweep.clearDistance >= 150.0f);
 }
@@ -172,6 +179,7 @@ TEST("path probe: stairs down are followed too, a ledge is a drop") {
   const SweepResult edge = Sweep(ledge, kOrigin, {600.0f, 0.0f, 0.0f}, 500.0f, kSettings, 0.0f);
   CHECK(edge.blocker == Blocker::Drop);
   CHECK(Near(edge.clearDistance, 200.0f, 0.5f));
+  CHECK(Near(edge.step, -100.0f, 0.5f));
 }
 
 TEST("path probe: no floor at all is a drop") {

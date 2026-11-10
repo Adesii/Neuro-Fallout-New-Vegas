@@ -50,9 +50,11 @@ struct Settings {
   float kneeHeight = 40.0f;
   float chestHeight = 90.0f;
   // Sideways offset of the rays to either side of the centre line on a leg the planner invents, so a gap narrower
-  // than the player counts as blocked. The path the pathfinder gave is checked on its centre line only: it is the
-  // navmesh's own route, and a ray beside it would clip every door frame and corner it turns around.
-  float halfWidth = 22.0f;
+  // than the player counts as blocked: the radius of the player's collision capsule, which the engine side reads
+  // (WorldUtils::PlayerCollisionShape; 20.3 units in game). There is no default: without the real radius the engine
+  // side does not check at all. The path the pathfinder gave is checked on its centre line only: it is the navmesh's
+  // own route, and a ray beside it would clip every door frame and corner it turns around.
+  float halfWidth = 0.0f;
   // A rise between two floor samples above this is the top of something or a ledge, not a step or a slope; a fall
   // above `maxDrop` is an edge.
   float maxRise = 28.0f;
@@ -92,6 +94,7 @@ struct SweepResult {
   Point3 end;                 // the last floor point reached
   Point3 blockPoint;          // the ground point where it is blocked
   RayHit hit;                 // the blocking ray (Obstacle, Door) or the down ray (Rise)
+  float step = 0.0f;          // Rise, Drop: the height change between the two floor samples (0 when no floor)
   float dirX = 0.0f;          // unit direction of the leg that was blocked
   float dirY = 0.0f;
   // Which of the side rays were blocked: +1 only the left one, -1 only the right one, 0 both or the centre line.

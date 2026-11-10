@@ -164,6 +164,27 @@ uint16_t PlayerCollisionGroup(PlayerCharacter *player) {
   return group;
 }
 
+// bhkCharacterController::shapeHeight (0x5F4) and shapeRadius (0x5F8), in Havok units. JIP-LN-NVSE names them
+// (`internal/havok.h`); the vendored JG definition has unnamed words there, so they are read by offset. Read in game
+// on 2026-11-10 (NWalkerProbe, Primm): radius 2.8932 and height 18.2880, which is 20.3 and exactly 128.0 game units,
+// the standard actor height. That is what backs this second-hand offset.
+bool PlayerCollisionShape(PlayerCharacter *player, float &radius, float &height) {
+  auto *process = player ? player->baseProcess : nullptr;
+  if (!process || process->processLevel > 1)
+    return false;
+  auto *controller = static_cast<MiddleHighProcess *>(process)->charCtrl;
+  if (!controller)
+    return false;
+  float havokHeight = 0.0f;
+  float havokRadius = 0.0f;
+  std::memcpy(&havokHeight, reinterpret_cast<const uint8_t *>(controller) + 0x5F4, sizeof(havokHeight));
+  std::memcpy(&havokRadius, reinterpret_cast<const uint8_t *>(controller) + 0x5F8, sizeof(havokRadius));
+  radius = havokRadius / kHavokScale;
+  height = havokHeight / kHavokScale;
+  return std::isfinite(radius) && std::isfinite(height) && radius > 5.0f && radius < 100.0f && height > radius &&
+         height < 400.0f;
+}
+
 // What the ray payload holds after TES::Pick, each from the sources named:
 // - the hit fraction at 0x40 and the root collidable of what was hit at 0x80: itr-nvse `internal/RayCast.h` and
 //   JIP-LN-NVSE `internal/jip_core.cpp` (RayCastData: flt40, cdBody) agree;
