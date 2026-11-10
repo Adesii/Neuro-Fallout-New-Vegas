@@ -90,11 +90,57 @@ Objects::Classification ClassifyObject(TESObjectREFR *ref) {
 }
 
 namespace {
-constexpr uint8_t kLineOfSightLayer =
-    37; // LAYER_LINEOFSIGHT, the engine vision filter (see src/itr/NavmeshCommands.cpp)
+constexpr uint8_t kLineOfSightLayer = Layer::kLineOfSight; // see src/itr/NavmeshCommands.cpp
 } // namespace
 
-namespace {
+const char *LayerName(uint8_t layer) {
+  static constexpr const char *kNames[Layer::kCount] = {
+      "NONE",
+      "STATIC",
+      "ANIM_STATIC",
+      "TRANSPARENT",
+      "CLUTTER",
+      "WEAPON",
+      "PROJECTILE",
+      "SPELL",
+      "BIPED",
+      "TREES",
+      "PROPS",
+      "WATER",
+      "TRIGGER",
+      "TERRAIN",
+      "TRAP",
+      "NONCOLLIDABLE",
+      "CLOUD_TRAP",
+      "GROUND",
+      "PORTAL",
+      "DEBRIS_SMALL",
+      "DEBRIS_LARGE",
+      "ACOUSTIC_SPACE",
+      "ACTORZONE",
+      "PROJECTILEZONE",
+      "GASTRAP",
+      "SHELLCASING",
+      "TRANSPARENT_SMALL",
+      "INVISIBLE_WALL",
+      "TRANSPARENT_SMALL_ANIM",
+      "DEADBIP",
+      "CHARCONTROLLER",
+      "AVOIDBOX",
+      "COLLISIONBOX",
+      "CAMERASPHERE",
+      "DOORDETECTION",
+      "CAMERAPICK",
+      "ITEMPICK",
+      "LINEOFSIGHT",
+      "PATHPICK",
+      "CUSTOMPICK1",
+      "CUSTOMPICK2",
+      "SPELLEXPLOSION",
+      "DROPPINGPICK",
+  };
+  return layer < Layer::kCount ? kNames[layer] : "?";
+}
 
 // The Havok collision group of the player's character controller, so a ray can carry it and pass through the player's
 // own body. Without it the ray can hit the player: crouched with a weapon out, the line-of-sight ray hit something
@@ -117,6 +163,56 @@ uint16_t PlayerCollisionGroup(PlayerCharacter *player) {
   std::memcpy(&group, object->unk2E, sizeof(group));
   return group;
 }
+
+// What the ray payload holds after TES::Pick, each from the sources named:
+// - the hit fraction at 0x40 and the root collidable of what was hit at 0x80: itr-nvse `internal/RayCast.h` and
+//   JIP-LN-NVSE `internal/jip_core.cpp` (RayCastData: flt40, cdBody) agree;
+// - the surface normal at 0x30: itr-nvse only (its OnFootContactHandler.cpp reads it for footstep contacts), so it
+//   is checked for being a unit vector and dropped otherwise;
+// - the collidable's filter info at +0x1C, whose low 7 bits are the layer: itr-nvse `internal/HavokLayout.h`
+//   (HkpCollidableView, used as `filterInfo & 0x7F`) and JIP-LN-NVSE `internal/havok.h` (hkpWorldObject: cdBody at
+//   0x10, layerType at 0x2C) agree;
+// - the returned NiAVObject and the reference it belongs to: see Engine::TESPickObjectHit and FindReferenceFor3D.
+RayDetail CastRay(const NiPoint3 &from, const NiPoint3 &to, uint8_t layer, uint16_t ignoreGroup, bool findReference) {
+  RayDetail detail;
+  RayCastData ray = {};
+  ray.pos0[0] = from.x * kHavokScale;
+  ray.pos0[1] = from.y * kHavokScale;
+  ray.pos0[2] = from.z * kHavokScale;
+  ray.pos1[0] = to.x * kHavokScale;
+  ray.pos1[1] = to.y * kHavokScale;
+  ray.pos1[2] = to.z * kHavokScale;
+  ray.hitFraction = 1.0f;
+  ray.unk44[0] = 0xFFFFFFFF;
+  ray.unk44[6] = 0xFFFFFFFF;
+  ray.layerType = layer;
+  ray.group = ignoreGroup;
+  if (!GetTES())
+    return detail;
+  void *object = Engine::TESPickObjectHit(&ray, true);
+  detail.performed = true;
+  detail.budgetSpent = ray.budgetSpent != 0;
+  if (!std::isfinite(ray.hitFraction) || ray.hitFraction < 0.0f || ray.hitFraction >= 1.0f)
+    return detail;
+  detail.hit = true;
+  detail.fraction = ray.hitFraction;
+  detail.point = {from.x + (to.x - from.x) * detail.fraction, from.y + (to.y - from.y) * detail.fraction,
+                  from.z + (to.z - from.z) * detail.fraction};
+  const float length =
+      std::sqrt(ray.normal[0] * ray.normal[0] + ray.normal[1] * ray.normal[1] + ray.normal[2] * ray.normal[2]);
+  if (std::isfinite(length) && length > 0.9f && length < 1.1f)
+    detail.normal = {ray.normal[0] / length, ray.normal[1] / length, ray.normal[2] / length};
+  if (ray.cdBody) {
+    uint32_t filterInfo = 0;
+    std::memcpy(&filterInfo, static_cast<const uint8_t *>(ray.cdBody) + 0x1C, sizeof(filterInfo));
+    detail.layer = static_cast<uint8_t>(filterInfo & 0x7F);
+  }
+  if (findReference && object)
+    detail.ref = Engine::FindReferenceFor3D(object);
+  return detail;
+}
+
+namespace {
 
 // The fraction along from -> to where the ray hit something, 1 when it is clear or no cast was performed. `group` is a
 // collision group the ray ignores (PlayerCollisionGroup), 0 for none.

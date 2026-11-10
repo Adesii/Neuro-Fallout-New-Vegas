@@ -196,6 +196,21 @@ inline bool TESPickObject(void *rayCastData, bool unk) {
   return true;
 }
 
+// The same call, keeping what it returns: the NiAVObject that was hit, null for none. JohnnyGuitarNVSE declares it
+// so (JG/internal/Game/Bethesda/TES.cpp, `NiAVObject* TES::Pick(bhkPickData&, bool abHavok)`, GAME 0x458440) and
+// JIP-LN-NVSE uses the returned object (internal/jip_core.cpp, GetRayCastObject and GetRayCastMaterial).
+inline void *TESPickObjectHit(void *rayCastData, bool havok) {
+  void *tes = GetTES();
+  if (!tes)
+    return nullptr;
+  return reinterpret_cast<void *(__thiscall *)(void *, void *, bool)>(0x458440)(tes, rayCastData, havok);
+}
+
+// TESObjectREFR::FindReferenceFor3D(NiAVObject *): the reference a piece of 3D belongs to, null for none (terrain).
+// JohnnyGuitarNVSE JG/internal/Game/Bethesda/TESObjectREFR.cpp (GAME 0x56F930) and itr-nvse
+// handlers/OnContactHandler.cpp agree on the address and the cdecl signature.
+inline auto FindReferenceFor3D = (TESObjectREFR * (__cdecl *)(void *))0x56F930;
+
 // collision flags - ref-targeted Script::ToggleCollision uses these
 inline auto TESForm_GetNoCollision = (bool(__thiscall *)(TESForm *))0x50D4A0;
 inline auto TESForm_SetNoCollision = (void(__thiscall *)(TESForm *, bool))0x693EF0;

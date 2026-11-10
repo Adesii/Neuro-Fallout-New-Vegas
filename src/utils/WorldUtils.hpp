@@ -32,6 +32,43 @@ struct LineOfSightTrim {
 // or when no cast could be performed (a blockage that was not observed is never claimed).
 bool RayBlocked(const NiPoint3 &from, const NiPoint3 &to);
 
+// Havok collision layers, by the enum order in JIP-LN-NVSE `internal/havok.h` (LAYER_STATIC = 1 ...). A ray is cast
+// "as" one of them, which decides what it can hit; a hit reports the layer of the thing it hit.
+namespace Layer {
+inline constexpr uint8_t kStatic = 1;
+inline constexpr uint8_t kProjectile = 6;
+inline constexpr uint8_t kBiped = 8;
+inline constexpr uint8_t kTerrain = 13;
+inline constexpr uint8_t kGround = 17;
+inline constexpr uint8_t kCharController = 30;
+inline constexpr uint8_t kCameraPick = 35;
+inline constexpr uint8_t kLineOfSight = 37; // the engine's vision filter; what RayBlocked and line of sight use
+inline constexpr uint8_t kPathPick = 38;
+inline constexpr uint8_t kCount = 43;
+} // namespace Layer
+// The enum name without its LAYER_ prefix ("STATIC"); "?" for a number outside the enum.
+const char *LayerName(uint8_t layer);
+
+// The Havok collision group of the player's character controller, for a ray that must pass through the player's own
+// body. 0 when it cannot be read; a ray with group 0 ignores nothing.
+uint16_t PlayerCollisionGroup(PlayerCharacter *player);
+
+// One ray with everything the engine says about what it hit. Sources for each field are at CastRay in the .cpp.
+struct RayDetail {
+  bool performed = false; // false: no cast could be made
+  bool hit = false;
+  float fraction = 1.0f; // along from -> to
+  NiPoint3 point = {0.0f, 0.0f, 0.0f};
+  NiPoint3 normal = {0.0f, 0.0f, 0.0f}; // unit surface normal at the hit; zero when the engine gave none
+  uint8_t layer = 0;                    // collision layer of what was hit; 0 when unknown
+  TESObjectREFR *ref = nullptr;         // the reference that was hit; null for terrain or unknown
+  bool budgetSpent = false;             // the payload's byte at 0xAC (see itr/internal/RayCast.h)
+};
+// Casts a Havok ray as `layer`, ignoring the collision group `ignoreGroup` (0 for none). `findReference` false skips
+// the lookup of the reference behind the hit.
+RayDetail CastRay(const NiPoint3 &from, const NiPoint3 &to, uint8_t layer, uint16_t ignoreGroup = 0,
+                  bool findReference = true);
+
 // One line-of-sight check, with what it was based on, so a refusal can be logged and explained.
 struct LineOfSightTrace {
   bool clear = false;
