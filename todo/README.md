@@ -19,7 +19,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 
 | # | Task | Area |
 | - | ---- | ---- |
-| 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) | Quests |
+| 04 | [Quest categories: main / DLC / optional](04-quest-categories.md) (grouped listing done, to verify; categories open) | Quests |
 | 06 | [Periodic status reminders (busy/blocked moments)](06-periodic-status.md) | Context |
 | 09 | [Hacking menu (terminal lock minigame)](09-hacking-menu.md) | Menus |
 | 10 | [Terminal / computers menu](10-terminal-menu.md) | Menus |

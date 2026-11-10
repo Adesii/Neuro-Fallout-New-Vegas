@@ -417,14 +417,10 @@ void BuildQuestCatalog() {
     }
   }
 
+  // The same order query_quests shows them in (grouped by quest), so the ids read top to bottom.
   std::sort(g_quests.begin(), g_quests.end(), [](const QuestEntry &left, const QuestEntry &right) {
-    if (left.priority != right.priority)
-      return left.priority > right.priority;
-    if (left.questFormId != right.questFormId)
-      return left.questFormId < right.questFormId;
-    if (left.objectiveId != right.objectiveId)
-      return left.objectiveId < right.objectiveId;
-    return left.targetFormId < right.targetFormId;
+    return Quests::ListedBefore({left.priority, left.questFormId, left.objectiveId, left.targetFormId},
+                                {right.priority, right.questFormId, right.objectiveId, right.targetFormId});
   });
   for (size_t index = 0; index < g_quests.size(); ++index)
     g_quests[index].id = static_cast<int>(index + 1);
@@ -834,7 +830,7 @@ std::optional<Quests::SelectedQuest> ReadSelectedQuest() {
   if (!quest || (quest->flags & kQuestFlagFinished))
     return std::nullopt;
 
-  Quests::SelectedQuest selected{QuestName(quest), {}};
+  Quests::SelectedQuest selected{QuestName(quest), {}, quest->GetFormID()};
   BGSQuestObjective *only = nullptr;
   size_t displayed = 0;
   for (auto iter = player->questObjectiveList.Begin(); !iter.End(); ++iter) {
@@ -859,11 +855,43 @@ std::optional<Quests::SelectedQuest> ReadSelectedQuest() {
 
 void QueryQuests() {
   BuildQuestCatalog();
-  std::vector<std::string> lines;
-  lines.reserve(g_quests.size());
-  for (const auto &entry : g_quests)
-    lines.push_back("`" + std::to_string(entry.id) + "` - " + entry.description + " - " + DescribeQuestLocation(entry));
-  NeuroSDK::SendContext(Quests::BuildQuestListing(ReadSelectedQuest(), lines).c_str(), true);
+  std::vector<Quests::Row> rows;
+  rows.reserve(g_quests.size());
+  std::unordered_set<uint64_t> listedObjectives;
+  const auto objectiveKey = [](uint32_t questFormId, uint32_t objectiveId) {
+    return (static_cast<uint64_t>(questFormId) << 32) | objectiveId;
+  };
+  for (const auto &entry : g_quests) {
+    auto *quest = LookupQuest(entry.questFormId);
+    rows.push_back({{entry.priority, entry.questFormId, entry.objectiveId, entry.targetFormId},
+                    QuestName(quest),
+                    ObjectiveText(FindObjective(entry.questFormId, entry.objectiveId)),
+                    entry.id,
+                    DescribeQuestLocation(entry)});
+    listedObjectives.insert(objectiveKey(entry.questFormId, entry.objectiveId));
+  }
+
+  // Displayed objectives with no usable target (no map marker) have no catalog entry; list them without an id so
+  // Neuro still sees the whole quest.
+  if (auto *player = PlayerCharacter::GetSingleton()) {
+    for (auto iter = player->questObjectiveList.Begin(); !iter.End(); ++iter) {
+      auto *objective = iter.Get();
+      if (!objective || !objective->quest ||
+          (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed ||
+          (objective->quest->flags & kQuestFlagFinished))
+        continue;
+      const uint32_t questFormId = objective->quest->GetFormID();
+      if (!listedObjectives.insert(objectiveKey(questFormId, objective->objectiveId)).second)
+        continue;
+      rows.push_back({{objective->quest->priority, questFormId, objective->objectiveId, 0},
+                      QuestName(objective->quest),
+                      ObjectiveText(objective),
+                      0,
+                      {}});
+    }
+  }
+
+  NeuroSDK::SendContext(Quests::BuildQuestListing(ReadSelectedQuest(), std::move(rows)).c_str(), true);
 }
 
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error) {

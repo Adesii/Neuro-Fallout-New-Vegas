@@ -48,3 +48,6 @@ Manual in-game checks:
    without an objective; with a single objective it names that objective.
 4. Complete or fail the active quest, then `query_quests`: no selected line.
 5. Load a save with an active quest: the line appears on the first `query_quests`.
+
+Later change (2026-11-10, todo 04): the list below the line is now grouped by quest with `###` headings, so "the list
+below it is unchanged" no longer holds; check item 2 against the grouped format.
