@@ -1,0 +1,235 @@
+#pragma once
+
+// Engine-free part of the raycast path check (todo 48): sweeping a line over the ground with rays to see whether the
+// player can walk it, generating and testing the points beside an obstacle, and the policy for keeping, dropping and
+// rationing such detours. WalkerHandler supplies the rays through `World` and steers at the waypoint this picks; the
+// same sweep is the primitive a navigation grid (todo 45) would be built from. Evidence, assumptions and the in-game
+// checks are in docs/design/raycast-path-detours.md.
+//
+// Every number below is an estimate until it is checked in game (the note lists them). Distances are game units.
+
+#include "Debug/OverlayMath.hpp"
+#include <cstdint>
+#include <vector>
+
+namespace PathProbe {
+
+using Overlay::Point3;
+
+// What a ray ran into, as far as the detour logic cares.
+enum class HitKind {
+  World,  // terrain, a static, clutter: anything that is not one of the others
+  Actor,  // an NPC or creature: they move, so they never block a route
+  Door,   // doors are opened (Walker's recovery), not walked around
+  Target, // the thing the walk is heading for: reaching it is the point
+};
+
+struct RayHit {
+  bool hit = false;
+  float fraction = 1.0f; // along from -> to
+  HitKind kind = HitKind::World;
+  uint32_t formId = 0; // the reference that was hit; 0 for terrain or unknown
+  uint8_t layer = 0;   // its collision layer; 0 when unknown
+};
+
+// The world as the probe sees it. The engine side casts Havok rays; tests use a few boxes on a floor.
+class World {
+public:
+  virtual ~World() = default;
+  virtual RayHit Cast(const Point3 &from, const Point3 &to) = 0;
+  // Whether the player is allowed to be sent to this ground point (the engine side: on the navmesh).
+  virtual bool Walkable(const Point3 &point) { return true; }
+};
+
+struct Settings {
+  // The floor is sampled with a ray straight down every `groundStep`; the forward rays then run from one sample to
+  // the one `spanSamples` later, at knee and chest height above the floor found at each end. Following the floor this
+  // closely is what keeps a slope, a hump or a flight of stairs from reading as a wall.
+  float groundStep = 20.0f;
+  int spanSamples = 3;
+  float kneeHeight = 40.0f;
+  float chestHeight = 90.0f;
+  // Sideways offset of the rays to either side of the centre line on a leg the planner invents, so a gap narrower
+  // than the player counts as blocked. The path the pathfinder gave is checked on its centre line only: it is the
+  // navmesh's own route, and a ray beside it would clip every door frame and corner it turns around.
+  float halfWidth = 22.0f;
+  // A rise between two floor samples above this is the top of something or a ledge, not a step or a slope; a fall
+  // above `maxDrop` is an edge.
+  float maxRise = 28.0f;
+  float maxDrop = 60.0f;
+  // The down ray starts this far above the last floor and ends this far below it.
+  float floorAbove = 60.0f;
+  float floorBelow = 120.0f;
+};
+
+enum class Blocker {
+  None,
+  Obstacle, // a forward ray hit something
+  Rise,     // the floor ahead is too high to step onto
+  Drop,     // no floor ahead, or too far down
+  Door,     // a forward ray hit a door
+};
+
+const char *BlockerName(Blocker blocker);
+
+// One ray of a sweep, for the debug overlay.
+struct TraceRay {
+  Point3 from;
+  Point3 to; // the hit point when blocked
+  bool blocked = false;
+};
+
+struct Trace {
+  static constexpr size_t kMaxRays = 400;
+  std::vector<TraceRay> rays;
+  void Add(const Point3 &from, const Point3 &to, bool blocked);
+};
+
+struct SweepResult {
+  Blocker blocker = Blocker::None;
+  bool reachedTarget = false; // a ray touched the walk's target; the sweep stopped there and counts as clear
+  float clearDistance = 0.0f; // horizontal distance from the start that is known to be free
+  Point3 end;                 // the last floor point reached
+  Point3 blockPoint;          // the ground point where it is blocked
+  RayHit hit;                 // the blocking ray (Obstacle, Door) or the down ray (Rise)
+  float dirX = 0.0f;          // unit direction of the leg that was blocked
+  float dirY = 0.0f;
+  // Which of the side rays were blocked: +1 only the left one, -1 only the right one, 0 both or the centre line.
+  int blockedSide = 0;
+  int rays = 0;
+  bool Clear() const { return blocker == Blocker::None; }
+};
+
+// Sweeps the straight line from the ground point `from` toward `to` (only its x and y matter: the floor is followed
+// from `from.z`), at most `maxDistance` far. `halfWidth` 0 casts one ray per height on the centre line; above 0 it
+// adds one that far to either side. Actors never block. A hit on the target ends the sweep as clear.
+SweepResult Sweep(World &world, const Point3 &from, const Point3 &to, float maxDistance, const Settings &settings,
+                  float halfWidth, Trace *trace = nullptr);
+
+// The same over a polyline, the floor carried from leg to leg. `points[0]` is where the player stands.
+SweepResult SweepPath(World &world, const std::vector<Point3> &points, float maxDistance, const Settings &settings,
+                      float halfWidth, Trace *trace = nullptr);
+
+// --- Polyline helpers -------------------------------------------------------------------------------------------
+
+float PathLength(const std::vector<Point3> &points);
+// The point `distance` along the polyline, clamped to its ends.
+Point3 PointAlong(const std::vector<Point3> &points, float distance);
+// Cuts `trim` off the end of the polyline (the walk ends within reach of its target, whose own collision would
+// otherwise read as an obstacle). Never shorter than its first point.
+std::vector<Point3> TrimEnd(std::vector<Point3> points, float trim);
+
+// --- Detour planning --------------------------------------------------------------------------------------------
+
+enum class CandidateStatus {
+  Pending,
+  FirstLegBlocked, // the line from the player to the point is not free
+  NotWalkable,     // the point is not on the navmesh
+  OnwardBlocked,   // no free line from the point back onto the path
+  Valid,
+};
+
+struct Candidate {
+  Point3 point; // on the floor once the first leg was swept
+  int side = 0; // +1 left of the blocked direction, -1 right
+  float lateral = 0.0f;
+  float cost = 0.0f;
+  Point3 rejoin; // Valid: where the free onward line meets the path again
+  CandidateStatus status = CandidateStatus::Pending;
+};
+
+// Points to either side of a blocked spot: perpendicular to the blocked direction, a little back from the hit, at
+// growing distances. Sorted by cost: the sideways distance, plus a penalty for the side that is not preferred.
+// `preferredSide` is the side a detour on this route already took (strong penalty, so the route does not flip between
+// left and right); `hintSide` the side the sweep suggests (only one of the two parallel rays was blocked). 0 for none.
+std::vector<Candidate> MakeCandidates(const Point3 &blockPoint, float dirX, float dirY, int preferredSide,
+                                      int hintSide);
+
+inline constexpr float kSidePenalty = 250.0f; // other side than a detour already taken on this route
+inline constexpr float kHintPenalty = 60.0f;  // other side than the sweep suggests
+
+// Tests candidates one by one until one has a free line from the player to it and a free line from it back onto the
+// path beyond the obstacle. The work is cut into calls with a ray budget, so a search never costs more than that in
+// one frame.
+class DetourPlanner {
+public:
+  // How far beyond the blocked spot the onward line may meet the path again; the nearer one is tried first.
+  static constexpr float kRejoinNear = 350.0f;
+  static constexpr float kRejoinFar = 550.0f;
+
+  enum class State { Idle, Working, Found, Failed };
+
+  // `path` starts at the player and is already trimmed (TrimEnd); `blocked` is the sweep that found the obstacle on
+  // it.
+  void Start(std::vector<Point3> path, const SweepResult &blocked, int preferredSide);
+  void Reset();
+  // Carries on from where the last call stopped; `player` is where the player stands now. Stops once `rayBudget` rays
+  // were cast in this call (a sweep is never cut short, so it can overshoot by one sweep).
+  State Step(World &world, const Point3 &player, const Settings &settings, int rayBudget, Trace *trace = nullptr);
+  State GetState() const { return m_state; }
+  const Candidate &Result() const { return m_candidates[m_index]; } // Found only
+  const std::vector<Candidate> &Candidates() const { return m_candidates; }
+  int Rays() const { return m_rays; }
+
+private:
+  State m_state = State::Idle;
+  std::vector<Point3> m_path;
+  std::vector<Candidate> m_candidates;
+  float m_blockDistance = 0.0f;
+  size_t m_index = 0;
+  int m_stage = 0; // 0: first leg; 1, 2: onward line to the near / far rejoin point
+  int m_rays = 0;
+};
+
+// --- Detour policy ----------------------------------------------------------------------------------------------
+
+// Keeps the waypoint of a running detour and decides when it is over, which side later detours on the same route
+// prefer, and how many detours a route may take. Like the recovery budget (WalkerLogic::RecoveryPlanner), the budget
+// only comes back with real progress toward the target: a walk that keeps side-stepping in one place must not go on
+// for ever.
+class DetourTracker {
+public:
+  static constexpr int kBudget = 6;
+  static constexpr float kRefillProgress = 350.0f; // 5 meters closer than the best spot a detour started from
+  static constexpr float kArriveDistance = 45.0f;
+  static constexpr float kMaxSeconds = 8.0f;
+  static constexpr float kFailCooldown = 1.5f; // after a search found nothing, before the next one
+
+  enum class End {
+    Arrived,
+    PathClear,  // the path is free again from where the player now stands
+    LegBlocked, // something got into the line to the waypoint
+    TimedOut,
+    Abandoned, // recovery, a new route or a stop took over
+  };
+  static const char *EndName(End end);
+
+  // A new route (new target, a load door): forget everything.
+  void Reset();
+  // Every frame the walker moves, with the distance still to go to the target.
+  void Update(float dt, float remaining);
+  // Whether a new search may start: no detour running, budget left, not cooling down after a failed search.
+  bool MayPlan() const { return !m_active && m_used < kBudget && m_cooldown <= 0.0f; }
+  void Begin(const Point3 &waypoint, int side, float remaining);
+  void PlanFailed() { m_cooldown = kFailCooldown; }
+  void Finish();
+
+  bool Active() const { return m_active; }
+  const Point3 &Waypoint() const { return m_waypoint; }
+  int PreferredSide() const { return m_side; }
+  int Used() const { return m_used; }
+  // While a detour runs: true when the player is at the waypoint (End::Arrived) or it took too long (End::TimedOut).
+  bool Expired(float playerX, float playerY, End &why) const;
+
+private:
+  bool m_active = false;
+  Point3 m_waypoint;
+  int m_side = 0;
+  int m_used = 0;
+  float m_elapsed = 0.0f;
+  float m_cooldown = 0.0f;
+  float m_bestStart = 0.0f; // smallest remaining distance at which a detour started
+  bool m_hasStart = false;
+};
+
+} // namespace PathProbe

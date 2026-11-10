@@ -37,6 +37,7 @@ add_executable(neuro_fnv_tests
     QuestListingTests.cpp
     OverlayMathTests.cpp
     RouteDebugTests.cpp
+    PathProbeTests.cpp
     WireTextTests.cpp
     "${REPO}/src/Actions/Action.cpp"
     "${REPO}/src/Actions/ActionData.cpp"
@@ -62,6 +63,7 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Movement/AimLogic.cpp"
     "${REPO}/src/Movement/WalkerLogic.cpp"
     "${REPO}/src/Movement/RouteDebug.cpp"
+    "${REPO}/src/Movement/PathProbe.cpp"
     "${REPO}/src/Debug/OverlayMath.cpp"
     "${REPO}/src/Context/Distance.cpp"
     "${REPO}/src/Menus/PopupPolicy.cpp"
