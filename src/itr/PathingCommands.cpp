@@ -47,7 +47,43 @@ float ComputeDistance(const std::vector<PathPoint3> &nodes) {
   return distance;
 }
 
-bool BuildPath(Actor *actor, TESObjectREFR *target, PathResult &out) {
+// The engine's avoid nodes (added for neuro-FNV, not from itr-nvse). Read from FalloutNV.exe 1.4.0.525 itself, and
+// matching JohnnyGuitarNVSE's declarations (PathingAvoidNode.hpp, PathingRequest.hpp) and JIP-LN-NVSE (`avoidNodeArray
+// // 94`, kVtbl_PathingAvoidNodeArray):
+// - The seventh argument of 0x9DBC90 goes to PathingRequest::SetAvoidNodeArray (0x6D61E0), a smart-pointer assignment
+//   at request+0x94 that takes a reference; the request's destructor (0x6E2620) drops it, which frees the array.
+// - The engine makes one with its allocator (0xAA13E0, 0x18 bytes) and the constructor 0x6E3850, and appends nodes
+//   with 0x905450, which copies 0x24 bytes (the function at 0x9E71B0 does all three for the actors around a mover).
+// - A node is a point, a second point (cylinders only), radius (0x18), cost (0x1C) and type (0x20); type 0 is a
+//   sphere. The search (0x6A74C8 and its siblings) multiplies a triangle's cost by 1 + the sum over the nodes of
+//   cost * (1 - d^2 / r^2), d being the distance from the node to the triangle's centre (0x6DC990, 0x6DC780). The
+//   engine's own nodes have cost 2.0.
+struct PathingAvoidNodeLayout {
+  PathPoint3 point1;
+  PathPoint3 point2;
+  float radius;
+  float cost;
+  UINT32 type;
+};
+static_assert(sizeof(PathingAvoidNodeLayout) == 0x24);
+
+static void *MakeAvoidNodeArray(const std::vector<AvoidSphere> &spheres) {
+  void *memory = CdeclCall<void *>(0xAA13E0, 0x18u);
+  if (!memory)
+    return nullptr;
+  void *array = ThisCall<void *>(0x6E3850, memory); // PathingAvoidNodeArray::PathingAvoidNodeArray
+  for (const AvoidSphere &sphere : spheres) {
+    PathingAvoidNodeLayout node = {};
+    node.point1 = sphere.centre;
+    node.radius = sphere.radius;
+    node.cost = sphere.cost;
+    node.type = 0;                            // SPHERE
+    ThisCall<UINT32>(0x905450, array, &node); // BSSimpleArray<PathingAvoidNode>::Append
+  }
+  return array;
+}
+
+bool BuildPath(Actor *actor, TESObjectREFR *target, PathResult &out, const std::vector<AvoidSphere> *avoid) {
   out = PathResult();
 
   if (!actor || !target || !target->parentCell)
@@ -56,9 +92,11 @@ bool BuildPath(Actor *actor, TESObjectREFR *target, PathResult &out) {
   ScopedPathingRequest request;
   ScopedPathingSolution solution;
 
+  // Owned by the request from the call below on (it starts with no references; the request takes the only one).
+  void *avoidNodes = avoid && !avoid->empty() ? MakeAvoidNodeArray(*avoid) : nullptr;
   PathPoint3 destination = {target->pos.x, target->pos.y, target->pos.z};
   CdeclCall<void>(0x9DBC90, actor, request.Get(), &destination, target->parentCell, target->parentCell->worldSpace,
-                  0.0f, static_cast<void *>(nullptr));
+                  0.0f, avoidNodes);
 
   if (!CdeclCall<bool>(0x6D0900, request.Get(), solution.Get()))
     return false;

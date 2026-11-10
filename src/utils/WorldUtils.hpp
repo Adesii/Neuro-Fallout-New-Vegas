@@ -53,6 +53,10 @@ const char *LayerName(uint8_t layer);
 // body. 0 when it cannot be read; a ray with group 0 ignores nothing.
 uint16_t PlayerCollisionGroup(PlayerCharacter *player);
 
+// The cell a point lies in: the current interior, or the exterior cell of the player's worldspace at those
+// coordinates; the player's own cell when that one is not loaded.
+TESObjectCELL *CellAt(PlayerCharacter *player, float x, float y);
+
 // The player's collision capsule in game units: its radius and its full height. False when the character controller
 // is missing or holds values that cannot be a body (then nothing may be assumed in their place).
 bool PlayerCollisionShape(PlayerCharacter *player, float &radius, float &height);

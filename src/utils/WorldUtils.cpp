@@ -164,6 +164,24 @@ uint16_t PlayerCollisionGroup(PlayerCharacter *player) {
   return group;
 }
 
+// Exterior cells are 4096 units square and keyed by their coordinates in the worldspace's cell map, as
+// src/itr/NavmeshCommands.cpp looks them up for cover points.
+TESObjectCELL *CellAt(PlayerCharacter *player, float x, float y) {
+  auto *tes = TES::GetSingleton();
+  if (tes && tes->currentInterior)
+    return tes->currentInterior;
+  TESObjectCELL *own = player ? player->GetParentCell() : nullptr;
+  TESWorldSpace *world = own ? own->worldSpace : nullptr;
+  if (!world || !world->pCellMap)
+    return own;
+  const INT32 cellX = static_cast<INT32>(std::floor(x / 4096.0f));
+  const INT32 cellY = static_cast<INT32>(std::floor(y / 4096.0f));
+  const INT32 key = ((cellX & 0xFFFF) << 16) | (cellY & 0xFFFF);
+  TESObjectCELL *cell = nullptr;
+  world->pCellMap->GetAt(key, cell);
+  return cell ? cell : own;
+}
+
 // bhkCharacterController::shapeHeight (0x5F4) and shapeRadius (0x5F8), in Havok units. JIP-LN-NVSE names them
 // (`internal/havok.h`); the vendored JG definition has unnamed words there, so they are read by offset. Read in game
 // on 2026-11-10 (NWalkerProbe, Primm): radius 2.8932 and height 18.2880, which is 20.3 and exactly 128.0 game units,
