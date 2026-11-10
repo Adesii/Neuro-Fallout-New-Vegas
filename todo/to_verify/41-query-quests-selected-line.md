@@ -32,22 +32,40 @@ Seen again in play: `query_quests` gives no hint at all which quest is selected 
   quest stays selected.
 - The active quest may have no entry in the list (objective hidden or finished): the top line should still name it.
 
-## Result (2026-11-09)
-- New engine-free `src/Context/QuestListing.*` (host-tested in `tests/QuestListingTests.cpp`): `Format` builds the
-  `query_quests` text, `MarkSelected` decides which entries get "(selected)".
-- `GameplayHandler::QueryQuests` feeds it: the active quest (`player->activeQuest`, ignored when completed/failed),
-  what `select_quest` chose (`g_selectedObjective`) and whether the route runs (`g_currentQuestRoute` for that quest).
-- Output: under `## Current quest objectives` a first line "You already have quest X selected. do_current_quest is
-  following it." / "You are not following it right now; do_current_quest follows it."; the chosen entry reads
-  "- `3` (selected) - ...". If its exact target left the list, all targets of the chosen objective are tagged. A quest
-  selected only in the Pip-Boy (no `select_quest`) gets the top line but no entry tag. Nothing selected: output unchanged.
-- The `query_quests` description now mentions it. `select_quest` / `do_current_quest` descriptions still agree.
-- Quest-update notifications are untouched.
-- Host tests and the MSVC Debug build pass. Not run in game.
+## Result (2026-11-10, merged)
+Two implementations of this todo landed in parallel (one with the "(selected)" tag and route state, one with the
+objective in the top line and todo 04's grouped list). The merge keeps the engine-free `src/Context/QuestListing.*`
+(namespace `Quests`, todo 04) and carries the other half over onto it.
 
-### Manual in-game checks
-1. No quest selected: `query_quests` has no extra line and no "(selected)".
-2. `select_quest` one of several objectives, then `query_quests`: the top line names the quest and only that entry
-   (or its objective's entries) is tagged; the line says the route is not being followed.
+Built:
+- `src/Context/QuestListing.*` (host-tested in `tests/QuestListingTests.cpp`) builds the whole `query_quests` text.
+  When a quest is selected the result starts with "You already have quest X selected (current objective: Y). " plus
+  either "do_current_quest is following it." or "You are not following it right now; do_current_quest follows it.",
+  then a blank line, then the list grouped by quest with `###` headings (todo 04). The quest's heading ends in
+  "selected", and the entry `select_quest` chose reads "- `3` (selected) - ...". If its exact target left the list,
+  all targets of the chosen objective are tagged; markerless entries are never tagged. A quest selected only in the
+  Pip-Boy (no `select_quest`) gets the top line and heading but no entry tag. Nothing selected: no line, no tags.
+- `GameplayHandler::ReadSelectedQuest` reads `player->activeQuest` (a completed or failed quest counts as nothing
+  selected). The objective in the line is the one picked with `select_quest` while it is still displayed, else the
+  quest's only displayed objective; with several displayed and none picked only the quest is named. It also passes what
+  `select_quest` chose (`g_selectedObjective`, only for the active quest) and whether the route runs
+  (`g_currentQuestRoute` for that quest). The quest is named even when it has no entry in the list.
+- The line is only in the query result; quest-update notifications and `BuildFreshStatus` are untouched.
+  The `query_quests` description says it reports the selected quest; `select_quest` and `do_current_quest`
+  descriptions still agree.
+
+Checks run: `bash tools/test.sh` (all host tests pass), `clang-format`, MSVC Debug build (`just debug`) after the merge.
+Not run in game.
+
+Unverified: everything in game, including that `player->activeQuest` matches the quest the Pip-Boy shows as active
+after a load, and after the game itself (not Neuro) changes it.
+
+Manual in-game checks:
+1. No active quest: `query_quests` starts with "## Current quest objectives"; no "selected" anywhere.
+2. `select_quest` one of several objectives, then `query_quests`: the top line names the quest and objective, says the
+   route is not being followed; the quest heading and only the chosen entry (or its objective's entries) say selected.
 3. `do_current_quest`, then `query_quests` while it walks: the line says it is following it.
-4. Select a quest in the Pip-Boy by hand: top line, no entry tag. Complete the quest: the line disappears.
+4. Select a quest by hand in the Pip-Boy (one with several objectives): the line names the quest without an objective,
+   no entry tag; with a single objective it names that objective.
+5. Complete or fail the active quest, then `query_quests`: no selected line. Load a save with an active quest: the line
+   appears on the first `query_quests`.
