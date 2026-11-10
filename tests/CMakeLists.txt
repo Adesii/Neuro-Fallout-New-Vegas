@@ -34,6 +34,7 @@ add_executable(neuro_fnv_tests
     IdListTests.cpp
     NameSearchTests.cpp
     NearbyListingTests.cpp
+    QuestListingTests.cpp
     OverlayMathTests.cpp
     RouteDebugTests.cpp
     WireTextTests.cpp
@@ -54,6 +55,7 @@ add_executable(neuro_fnv_tests
     "${REPO}/src/Context/WireText.cpp"
     "${REPO}/src/Context/NearbyListing.cpp"
     "${REPO}/src/Context/ObjectPriority.cpp"
+    "${REPO}/src/Context/QuestListing.cpp"
     "${REPO}/src/Context/SeePush.cpp"
     "${REPO}/src/Inventory/ItemQuery.cpp"
     "${REPO}/src/Movement/StanceLogic.cpp"

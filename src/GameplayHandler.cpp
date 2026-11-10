@@ -17,6 +17,7 @@
 #include "Context/Location.hpp"
 #include "Context/NearbyListing.hpp"
 #include "Context/ObjectPriority.hpp"
+#include "Context/QuestListing.hpp"
 #include "Context/SeePush.hpp"
 #include "GameData.h"
 #include "GameExtraData.h"
@@ -822,19 +823,47 @@ std::string BuildFreshStatus() {
   return status.str();
 }
 
+namespace {
+
+// The quest already selected in the Pip-Boy (`player->activeQuest`), for the top line of query_quests. The objective is
+// the one Neuro picked with select_quest if it is still displayed, otherwise the quest's only displayed objective;
+// with several and no pick it is left out rather than guessed.
+std::optional<Quests::SelectedQuest> ReadSelectedQuest() {
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *quest = player ? player->activeQuest : nullptr;
+  if (!quest || (quest->flags & kQuestFlagFinished))
+    return std::nullopt;
+
+  Quests::SelectedQuest selected{QuestName(quest), {}};
+  BGSQuestObjective *only = nullptr;
+  size_t displayed = 0;
+  for (auto iter = player->questObjectiveList.Begin(); !iter.End(); ++iter) {
+    auto *objective = iter.Get();
+    if (!objective || objective->quest != quest ||
+        (objective->status & kObjectiveDisplayMask) != BGSQuestObjective::eQObjStatus_displayed)
+      continue;
+    if (g_selectedObjective && g_selectedObjective->questFormId == quest->GetFormID() &&
+        g_selectedObjective->objectiveId == objective->objectiveId) {
+      selected.objective = ObjectiveText(objective);
+      return selected;
+    }
+    only = objective;
+    ++displayed;
+  }
+  if (displayed == 1)
+    selected.objective = ObjectiveText(only);
+  return selected;
+}
+
+} // namespace
+
 void QueryQuests() {
   BuildQuestCatalog();
-  std::ostringstream context;
-  context << "## Current quest objectives";
-  if (g_quests.empty()) {
-    context << "\n- None.";
-  } else {
-    for (const auto &entry : g_quests) {
-      context << "\n- `" << entry.id << "` - " << entry.description;
-      context << " - " << DescribeQuestLocation(entry);
-    }
-  }
-  NeuroSDK::SendContext(context.str().c_str(), true);
+  std::vector<std::string> lines;
+  lines.reserve(g_quests.size());
+  for (const auto &entry : g_quests)
+    lines.push_back("`" + std::to_string(entry.id) + "` - " + entry.description + " - " + DescribeQuestLocation(entry));
+  NeuroSDK::SendContext(Quests::BuildQuestListing(ReadSelectedQuest(), lines).c_str(), true);
 }
 
 bool ValidateQuestSelection(int id, QuestSelection &selection, std::string &error) {
