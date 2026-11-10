@@ -17,6 +17,8 @@ namespace WalkerProbe {
 
 // Detours are off until switched on from the console (`NWalkerDetour 1`): nothing of this has run in the game yet.
 bool DetourEnabled();
+// `NWalkerDetour 3`: no side-step; a blocked spot goes straight to the pathfinder as a place to route around.
+bool RerouteOnly();
 // The collision layer the probe rays are cast as (WorldUtils::Layer); line of sight unless the console changed it.
 uint8_t RayLayer();
 

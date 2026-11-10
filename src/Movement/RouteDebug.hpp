@@ -80,6 +80,12 @@ struct ProbeView {
   bool hasWaypoint = false;
   Point3 waypoint;
   Point3 rejoin; // where the detour meets the path again
+  // Centres of the places the pathfinder was told to route around (BlockMemory), with their radius.
+  struct Avoided {
+    Point3 centre;
+    float radius = 0.0f;
+  };
+  std::vector<Avoided> avoided;
 };
 
 struct View {

@@ -194,6 +194,14 @@ void BuildOverlay(const View &view, const Overlay::Camera &camera, float scale, 
     if (Overlay::Project(camera, candidate.point, at))
       batch.Frame(at, 5.0f * scale, thin, colour(valid ? kColourWaypoint : kColourRejected));
   }
+  for (const ProbeView::Avoided &avoided : probe.avoided) {
+    // A red cross on the ground as wide as the avoided sphere, and a tall pole.
+    const Point3 &c = avoided.centre;
+    const float r = avoided.radius;
+    batch.WorldLine(camera, {c.x - r, c.y, c.z}, {c.x + r, c.y, c.z}, line, colour(kColourRayBlocked));
+    batch.WorldLine(camera, {c.x, c.y - r, c.z}, {c.x, c.y + r, c.z}, line, colour(kColourRayBlocked));
+    batch.WorldLine(camera, c, Raised(c, 2.0f * kMarkerPole), line, colour(kColourRayBlocked));
+  }
   if (probe.hasWaypoint) {
     batch.WorldLine(camera, view.player, probe.waypoint, line, colour(kColourWaypoint));
     batch.WorldLine(camera, probe.waypoint, probe.rejoin, thin, colour(kColourWaypoint));

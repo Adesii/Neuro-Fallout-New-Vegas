@@ -235,4 +235,47 @@ private:
   bool m_hasStart = false;
 };
 
+// --- Blocked spots ----------------------------------------------------------------------------------------------
+
+// What a walk has learnt about the places where its route was blocked. A side-step is tried once per spot. If the
+// route is blocked there again afterwards, or no side-step exists, or the player gets stuck at it, the spot is one
+// the pathfinder itself has to route around (the car in Primm fills the only way through; the next way in is over a
+// bridge far off). The engine side hands the avoided spots to the pathfinder with every route search.
+class BlockMemory {
+public:
+  static constexpr float kSameSpot = 150.0f; // two blocks this close are the same obstacle
+  static constexpr size_t kMaxAvoided = 6;
+
+  struct Spot {
+    Point3 point;
+    float dirX = 0.0f; // the direction the route ran into it
+    float dirY = 0.0f;
+  };
+
+  enum class Action {
+    Search,  // look for a side-step
+    Reroute, // tell the pathfinder to avoid the spot
+    Nothing, // the pathfinder was told already and still routes through it: there is no other way
+  };
+
+  // Everything (another interior or worldspace, a load).
+  void Reset();
+  // A new walk: side-steps may be tried again, the avoided spots stay. She passes the same car on the next walk too,
+  // and should not have to bump into it again.
+  void ResetWalk() { m_detours.clear(); }
+  // `rerouteOnly` skips the side-step (console mode for testing the rerouting alone).
+  Action Decide(const Point3 &point, bool rerouteOnly) const;
+  // A side-step was started for a block at `point`.
+  void NoteDetour(const Point3 &point);
+  bool DetourTried(const Point3 &point) const;
+  // Marks the spot as avoided, dropping the oldest one when the list is full. False when it already is.
+  bool Avoid(const Point3 &point, float dirX, float dirY);
+  bool Avoided(const Point3 &point) const;
+  const std::vector<Spot> &AvoidedSpots() const { return m_avoided; }
+
+private:
+  std::vector<Point3> m_detours;
+  std::vector<Spot> m_avoided;
+};
+
 } // namespace PathProbe

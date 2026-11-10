@@ -106,6 +106,23 @@ constexpr float kProbeClearWidthFactor = 1.6f;
 constexpr float kProbeMinOnward = 60.0f;
 constexpr float kProbeNoLimit = 1.0e9f;
 
+// Rerouting (the pathfinder's avoid nodes, see Pathing::BuildPath). A blocked spot the Walker cannot side-step is
+// given to the pathfinder as a sphere on the centre of the navmesh triangle under the obstacle, sampled this far past
+// the blocked spot along the route. The cost multiplies that triangle's length in the search by about a thousand: the
+// way through stays possible when it is the only one, and loses to any other way within a few kilometres. Without a
+// triangle under the sample the sphere sits on the sample itself and is wider, to catch the centres around it. All
+// four numbers are estimates.
+constexpr float kAvoidSamples[] = {40.0f, 120.0f};
+constexpr float kAvoidRadius = 150.0f;
+constexpr float kAvoidLooseRadius = 350.0f;
+constexpr float kAvoidCost = 1000.0f;
+constexpr float kAvoidHeightTolerance = 150.0f;
+constexpr float kAvoidSameCentre = 30.0f;
+// Getting stuck this close to a spot the path check saw blocked means that spot is the reason. Stuck anywhere else
+// for the third time in a row, the place right ahead of her is given to the pathfinder instead.
+constexpr float kStuckAtBlockDistance = 250.0f;
+constexpr int kStuckAttemptsBeforeAvoid = 2;
+
 // GetOpenState(ref) is FalloutNV.exe 1.4.0.525 0x47B250 (__cdecl). Two sources agree on the address and on the result
 // values None 0 / Open 1 / Opening 2 / Closed 3 / Closing 4: itr-nvse features/DoorPinchFix.cpp (MIT, revision in
 // tools/reference-manifest.json) and JohnnyGuitarNVSE BGSOpenCloseForm.
@@ -203,7 +220,17 @@ struct WalkerState {
   bool loggedNoDetour = false; // "no way round" is logged once per route
   bool loggedNoShape = false;  // so is an unreadable collision shape
   ProbeCost probeCost;
-  std::string lockedDoor; // a locked closed door seen in front of the player while stuck
+  // The blocked spot a search for a side-step is running for, and the last one the path check saw.
+  PathProbe::BlockMemory::Spot searchBlock;
+  PathProbe::BlockMemory::Spot lastBlock;
+  bool hasLastBlock = false;
+  // Length of the pathfinder's route from the player at the last search (-1: it found none), and the length before
+  // the last spot was given to it to avoid (to say what the rerouting did).
+  float routeLength = -1.0f;
+  bool reportReroute = false;
+  float lengthBeforeReroute = -1.0f;
+  bool progressAlongRoute = false; // what the progress stall last measured: the route's length or the straight line
+  std::string lockedDoor;          // a locked closed door seen in front of the player while stuck
   // Per command, not per route: they carry on across a cell change.
   WalkerLogic::ProgressReminder reminder;
   WalkerLogic::PauseNotice pauseNotice;
@@ -213,6 +240,12 @@ struct WalkerState {
 };
 
 WalkerState g_state;
+
+// Blocked spots outlive a walk: she passes the same car on the next one. They belong to one interior or worldspace
+// (`g_avoidSpace`, a form ID) and are forgotten when she leaves it or a save is loaded.
+PathProbe::BlockMemory g_blocks;
+std::vector<Pathing::AvoidSphere> g_avoid;
+uint32_t g_avoidSpace = 0;
 
 // Debug mode (todo 43): what the last route search steered by and where the player went. Kept apart from WalkerState
 // so it outlives the command: a failed walk is exactly when the route needs looking at. Filled only while
@@ -296,6 +329,12 @@ void ResetRouteState() {
   g_state.detourBlocker.clear();
   g_state.loggedNoDetour = false;
   g_state.loggedNoShape = false;
+  g_state.searchBlock = {};
+  g_state.lastBlock = {};
+  g_state.hasLastBlock = false;
+  g_state.routeLength = -1.0f;
+  g_state.reportReroute = false;
+  g_state.progressAlongRoute = false;
 }
 
 // RouteDebug::Point3 and PathProbe::Point3 are the same type (Overlay::Point3).
@@ -313,6 +352,9 @@ void PublishDebug(bool active) {
     return;
   g_debug.view.active = active;
   g_debug.view.trail = g_debug.trail.Points();
+  g_debug.view.probe.avoided.clear();
+  for (const Pathing::AvoidSphere &sphere : g_avoid)
+    g_debug.view.probe.avoided.push_back({ToDebugPoint(sphere.centre), sphere.radius});
   WalkerOverlay::Publish(g_debug.view);
 }
 
@@ -328,6 +370,7 @@ void ClearCommand(PlayerCharacter *player) {
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
   ResetRouteState();
+  g_blocks.ResetWalk(); // the next walk may side-step again; the spots the pathfinder avoids stay
   g_state.reminder.Reset();
   g_state.pauseNotice.Reset();
   g_state.hasCommand = false;
@@ -381,7 +424,8 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
                     RouteDebug::Route *debug = nullptr, bool keepRoute = false) {
   g_state.waypointMarker->pos = destination;
   Pathing::PathResult path;
-  if (!Pathing::BuildPath(player, g_state.waypointMarker, path) || path.nodes.empty())
+  if (!Pathing::BuildPath(player, g_state.waypointMarker, path, g_avoid.empty() ? nullptr : &g_avoid) ||
+      path.nodes.empty())
     return false;
   size_t chosen = path.nodes.size() - 1;
   for (size_t index = 1; index < path.nodes.size(); ++index) {
@@ -395,6 +439,7 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
   if (keepRoute) {
     g_state.routeNodes = path.nodes;
     g_state.routeChosen = chosen;
+    g_state.routeLength = path.distance;
   }
   if (debug) {
     debug->nodes.clear();
@@ -411,6 +456,7 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &desti
   using RouteDebug::Mode;
   g_state.routeNodes.clear(); // stays empty unless a path is found: the check then sweeps the straight line
   g_state.routeChosen = 0;
+  g_state.routeLength = -1.0f;
   if (Distance3D(player->GetPos(), destination) < kInteractionDistance) {
     if (debug)
       debug->mode = Mode::Close;
@@ -535,6 +581,23 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
     g_state.navigationAge = 0.0f;
     g_state.navigationValid = true;
     g_state.routeRefreshed = true;
+    if (g_state.reportReroute) {
+      // What giving the pathfinder a spot to avoid did to the route. The other way round is longer and may lead away
+      // from the target for a while, so progress starts over from the new route's length (see Process).
+      g_state.reportReroute = false;
+      g_state.progress.Reset();
+      const float before = g_state.lengthBeforeReroute;
+      const float now = g_state.routeLength;
+      if (now < 0.0f)
+        _WARNING("Walker reroute: the pathfinder finds no route to %s any more", g_state.command.description.c_str());
+      else if (before >= 0.0f && std::abs(now - before) < 70.0f)
+        _MESSAGE("Walker reroute: the route to %s is still %.0f m long: the pathfinder has no other way, or the "
+                 "avoided spot does not reach it",
+                 g_state.command.description.c_str(), Units::ToMeters(now));
+      else
+        _MESSAGE("Walker reroute: the route to %s is now %.0f m long (was %.0f m)", g_state.command.description.c_str(),
+                 Units::ToMeters(now), Units::ToMeters(std::max(before, 0.0f)));
+    }
     if (debug)
       RecordRoute(player, target, destination, std::move(route), g_state.navigationPoint);
   }
@@ -699,6 +762,41 @@ std::vector<PathProbe::Point3> ProbePath(const NiPoint3 &playerPosition, const N
   return PathProbe::TrimEnd(std::move(path), kInteractionDistance);
 }
 
+// Gives a blocked spot to the pathfinder as a place to route around, for this walk and the following ones here.
+// False when it already had it.
+bool AvoidBlockedSpot(PlayerCharacter *player, const PathProbe::BlockMemory::Spot &spot, const char *why) {
+  if (!g_blocks.Avoid(spot.point, spot.dirX, spot.dirY))
+    return false;
+  if (g_avoid.size() >= PathProbe::BlockMemory::kMaxAvoided * std::size(kAvoidSamples))
+    g_avoid.erase(g_avoid.begin(), g_avoid.begin() + static_cast<std::ptrdiff_t>(std::size(kAvoidSamples)));
+  for (float ahead : kAvoidSamples) {
+    const NiPoint3 sample = {spot.point.x + spot.dirX * ahead, spot.point.y + spot.dirY * ahead, spot.point.z};
+    PathPoint3 centre = {sample.x, sample.y, sample.z};
+    float radius = kAvoidLooseRadius;
+    NiPoint4 triangle = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
+    auto *cell = WorldUtils::CellAt(player, sample.x, sample.y);
+    const bool onNavmesh = cell && Pathing::GetPointNavMesh(cell, sample, false, kAvoidHeightTolerance, triangle);
+    if (onNavmesh) {
+      centre = {triangle.x, triangle.y, triangle.z};
+      radius = kAvoidRadius;
+    }
+    bool known = false;
+    for (const Pathing::AvoidSphere &sphere : g_avoid)
+      known = known || Math::GetDistance2D(sphere.centre, centre) <= kAvoidSameCentre;
+    if (known)
+      continue;
+    g_avoid.push_back({centre, radius, kAvoidCost});
+    _MESSAGE("Walker reroute: the pathfinder is to avoid (%.0f, %.0f, %.0f), radius %.0f (%s): %s", centre.x, centre.y,
+             centre.z, radius,
+             onNavmesh ? "the centre of the navmesh triangle under the obstacle" : "no navmesh triangle found there",
+             why);
+  }
+  g_state.lengthBeforeReroute = g_state.routeLength;
+  g_state.reportReroute = true;
+  g_state.navigationValid = false; // search again now, with the spot avoided
+  return true;
+}
+
 void EndDetour(PathProbe::DetourTracker::End why) {
   g_state.detourPlanner.Reset();
   if (!g_state.detour.Active())
@@ -720,6 +818,7 @@ void FinishDetourSearch(float remaining) {
   if (state == PathProbe::DetourPlanner::State::Found) {
     const PathProbe::Candidate &found = planner.Result();
     g_state.detour.Begin(found.point, found.side, remaining);
+    g_blocks.NoteDetour(g_state.searchBlock.point);
     g_state.detourRejoin = found.rejoin;
     g_state.loggedNoDetour = false;
     _MESSAGE("Walker detour %d on the way to %s: the path is blocked by %s; going round on the %s through (%.0f, "
@@ -745,10 +844,11 @@ void FinishDetourSearch(float remaining) {
         onward += candidate.status == PathProbe::CandidateStatus::OnwardBlocked;
       }
       _MESSAGE("Walker detour: the path to %s is blocked by %s and no way round was found (%d points: %d with no free "
-               "line to them, %d off the navmesh, %d with no free line onward; %d rays); walking on",
+               "line to them, %d off the navmesh, %d with no free line onward; %d rays)",
                g_state.command.description.c_str(), g_state.detourBlocker.c_str(),
                static_cast<int>(planner.Candidates().size()), firstLeg, offNavmesh, onward, planner.Rays());
     }
+    AvoidBlockedSpot(PlayerCharacter::GetSingleton(), g_state.searchBlock, "there is no way round beside it");
   }
   planner.Reset();
 }
@@ -811,6 +911,8 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
       g_debug.view.probe.rays = std::move(trace.rays);
     if (ahead.blocker != Blocker::Obstacle && ahead.blocker != Blocker::Rise)
       EndDetour(DetourTracker::End::PathClear);
+    else
+      g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY};
     return;
   }
 
@@ -820,7 +922,7 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
     FinishDetourSearch(remaining);
     return;
   }
-  if (!searched || !tracker.MayPlan())
+  if (!searched)
     return;
 
   std::vector<PathProbe::Point3> path = ProbePath(playerPosition, destination);
@@ -837,10 +939,27 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
     if (!blocked)
       g_debug.view.probe.candidates.clear();
   }
+  g_state.hasLastBlock = blocked;
+  if (blocked)
+    g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY};
   if (!blocked || PathProbe::PathLength(path) - ahead.clearDistance < kProbeMinOnward) {
     account();
     return;
   }
+  // A side-step first; when one was already taken for this spot it did not get her past, and the pathfinder has to
+  // find another way. When the pathfinder already knows and still routes through, there is no other way.
+  const auto action = g_blocks.Decide(ahead.blockPoint, WalkerProbe::RerouteOnly());
+  if (action == PathProbe::BlockMemory::Action::Reroute) {
+    account();
+    AvoidBlockedSpot(player, g_state.lastBlock,
+                     WalkerProbe::RerouteOnly() ? "the route is blocked there" : "the side-step did not get past it");
+    return;
+  }
+  if (action == PathProbe::BlockMemory::Action::Nothing || !tracker.MayPlan()) {
+    account();
+    return;
+  }
+  g_state.searchBlock = g_state.lastBlock;
   char buffer[128];
   if (ahead.blocker == Blocker::Rise)
     std::snprintf(buffer, sizeof(buffer), "a rise of %.0f units %.1f m ahead: ", ahead.step,
@@ -914,6 +1033,20 @@ bool PickDetour(PlayerCharacter *player, int tier, NiPoint3 &out) {
 
 // Chooses and starts a recovery step. False when the walk was failed instead (the command is gone then).
 bool BeginRecovery(PlayerCharacter *player, float remaining, const char *why) {
+  if (WalkerProbe::DetourEnabled()) {
+    // Stuck at something: the pathfinder should stop sending her there. At a spot the path check saw blocked (or was
+    // side-stepping) at once; anywhere else from the third time in a row, with the place right ahead of her.
+    const NiPoint3 here = player->GetPos();
+    if (g_state.hasLastBlock && Math::GetDistance2D(here, g_state.lastBlock.point) <= kStuckAtBlockDistance) {
+      AvoidBlockedSpot(player, g_state.lastBlock, "she got stuck at it");
+    } else if (g_state.planner.Attempts() >= kStuckAttemptsBeforeAvoid && IsValidPoint(g_state.navigationPoint)) {
+      const float dx = g_state.navigationPoint.x - here.x;
+      const float dy = g_state.navigationPoint.y - here.y;
+      const float length = std::sqrt(dx * dx + dy * dy);
+      if (length > 1.0f)
+        AvoidBlockedSpot(player, {{here.x, here.y, here.z}, dx / length, dy / length}, "she keeps getting stuck here");
+    }
+  }
   EndDetour(PathProbe::DetourTracker::End::Abandoned); // the recovery steps take over from here
   const DoorAhead door = FindDoorAhead(player);
   if (door.ref && door.closed && door.locked) {
@@ -1190,6 +1323,17 @@ void Process() {
     }
   }
 
+  // Blocked spots belong to the interior or worldspace they were found in.
+  const uint32_t space = !currentCell                ? 0
+                         : currentCell->IsInterior() ? currentCell->GetFormID()
+                         : currentCell->worldSpace   ? currentCell->worldSpace->GetFormID()
+                                                     : 0;
+  if (space != g_avoidSpace) {
+    g_avoidSpace = space;
+    g_blocks.Reset();
+    g_avoid.clear();
+  }
+
   const NiPoint3 playerPosition = player->GetPos();
   float walked = 0.0f;
   float frameDx = 0.0f;
@@ -1225,15 +1369,24 @@ void Process() {
     navigationPoint = {waypoint.x, waypoint.y, waypoint.z};
   }
 
+  // Progress is the straight distance to the target, except once the pathfinder has been sent round a blocked spot:
+  // that way can lead away from the target for a long time, so the length of its route counts instead.
+  const bool alongRoute = !g_avoid.empty() && g_state.routeLength >= 0.0f;
+  const float progressDistance = alongRoute ? g_state.routeLength : distance;
+  if (alongRoute != g_state.progressAlongRoute) {
+    g_state.progressAlongRoute = alongRoute; // the two measures cannot be compared: start over
+    g_state.progress.Reset();
+  }
+
   MovementPlan plan;
   plan.move = shouldMove;
   if (!shouldMove) {
     g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, false);
     g_state.oscillation.Reset();
-    g_state.progress.Update(deltaTime, distance, false);
+    g_state.progress.Update(deltaTime, progressDistance, false);
     g_state.slide.Reset();
     g_state.recovery = {};
-  } else if (g_state.progress.Update(deltaTime, distance, true)) {
+  } else if (g_state.progress.Update(deltaTime, progressDistance, true)) {
     // Counts through recovery steps too: a walk that only ever recovers is not getting anywhere either.
     FinishFailed(player, WalkerLogic::FailureReason::NoProgress);
     return;
@@ -1310,6 +1463,10 @@ void Stop() {
 void ResetDebug() {
   ResetDebugCapture();
   WalkerOverlay::Clear();
+  // Called on a load, a new game and the main menu: what was blocked may not be in this game's world.
+  g_blocks.Reset();
+  g_avoid.clear();
+  g_avoidSpace = 0;
 }
 
 bool IsActive() { return g_state.hasCommand; }

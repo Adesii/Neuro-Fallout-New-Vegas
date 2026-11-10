@@ -454,3 +454,40 @@ TEST("detour tracker: a new route forgets everything") {
   CHECK_EQ(tracker.PreferredSide(), 0);
   CHECK_EQ(tracker.Used(), 0);
 }
+
+TEST("block memory: a side-step is tried once per spot, then the pathfinder has to route around it") {
+  BlockMemory memory;
+  const Point3 car = {200.0f, 0.0f, 0.0f};
+  CHECK(memory.Decide(car, false) == BlockMemory::Action::Search);
+  memory.NoteDetour(car);
+  // Blocked again a step further along the same car: the side-step did not get her past.
+  const Point3 again = {260.0f, 60.0f, 0.0f};
+  CHECK(memory.DetourTried(again));
+  CHECK(memory.Decide(again, false) == BlockMemory::Action::Reroute);
+  CHECK(memory.Avoid(again, 1.0f, 0.0f));
+  CHECK_EQ(memory.AvoidedSpots().size(), 1u);
+  // The pathfinder knows and still routes through: nothing more to try, and no second entry.
+  CHECK(memory.Decide(car, false) == BlockMemory::Action::Nothing);
+  CHECK(!memory.Avoid(car, 1.0f, 0.0f));
+  // Another obstacle further on starts over with a side-step.
+  CHECK(memory.Decide({900.0f, 0.0f, 0.0f}, false) == BlockMemory::Action::Search);
+}
+
+TEST("block memory: reroute-only mode skips the side-step, the oldest spot makes room, a new walk keeps the spots") {
+  BlockMemory memory;
+  CHECK(memory.Decide({0.0f, 0.0f, 0.0f}, true) == BlockMemory::Action::Reroute);
+  for (size_t index = 0; index < BlockMemory::kMaxAvoided; ++index)
+    CHECK(memory.Avoid({1000.0f * static_cast<float>(index), 0.0f, 0.0f}, 0.0f, 1.0f));
+  CHECK(memory.Avoid({50000.0f, 0.0f, 0.0f}, 0.0f, 1.0f));
+  CHECK_EQ(memory.AvoidedSpots().size(), BlockMemory::kMaxAvoided);
+  CHECK(!memory.Avoided({0.0f, 0.0f, 0.0f})); // the first one was dropped
+  CHECK(memory.Avoided({50000.0f, 0.0f, 0.0f}));
+
+  memory.NoteDetour({7000.0f, 7000.0f, 0.0f});
+  memory.ResetWalk();
+  CHECK(!memory.DetourTried({7000.0f, 7000.0f, 0.0f}));
+  CHECK(memory.Avoided({50000.0f, 0.0f, 0.0f}));
+  memory.Reset();
+  CHECK(memory.AvoidedSpots().empty());
+  CHECK(memory.Decide({50000.0f, 0.0f, 0.0f}, false) == BlockMemory::Action::Search);
+}

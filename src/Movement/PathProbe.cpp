@@ -409,4 +409,40 @@ bool DetourTracker::Expired(float playerX, float playerY, End &why) const {
   return false;
 }
 
+void BlockMemory::Reset() { *this = {}; }
+
+BlockMemory::Action BlockMemory::Decide(const Point3 &point, bool rerouteOnly) const {
+  if (Avoided(point))
+    return Action::Nothing;
+  return rerouteOnly || DetourTried(point) ? Action::Reroute : Action::Search;
+}
+
+void BlockMemory::NoteDetour(const Point3 &point) {
+  if (!DetourTried(point))
+    m_detours.push_back(point);
+}
+
+bool BlockMemory::DetourTried(const Point3 &point) const {
+  for (const Point3 &detour : m_detours)
+    if (Distance2D(detour, point) <= kSameSpot)
+      return true;
+  return false;
+}
+
+bool BlockMemory::Avoid(const Point3 &point, float dirX, float dirY) {
+  if (Avoided(point))
+    return false;
+  if (m_avoided.size() >= kMaxAvoided)
+    m_avoided.erase(m_avoided.begin());
+  m_avoided.push_back({point, dirX, dirY});
+  return true;
+}
+
+bool BlockMemory::Avoided(const Point3 &point) const {
+  for (const Spot &spot : m_avoided)
+    if (Distance2D(spot.point, point) <= kSameSpot)
+      return true;
+  return false;
+}
+
 } // namespace PathProbe

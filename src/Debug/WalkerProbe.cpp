@@ -30,31 +30,13 @@ using PathProbe::Point3;
 
 bool g_detourEnabled = false;
 bool g_requireNavmesh = true;
+bool g_rerouteOnly = false;
 uint8_t g_rayLayer = WorldUtils::Layer::kLineOfSight;
 
 // A point counts as on the navmesh when a triangle lies under it within this height (GetPointNavMesh's zLimit).
 constexpr float kNavmeshHeightTolerance = 150.0f;
-constexpr float kExteriorCellSize = 4096.0f;
 
 NiPoint3 ToNi(const Point3 &p) { return {p.x, p.y, p.z}; }
-
-// The cell a point lies in: the interior, or the exterior cell of the player's worldspace at those coordinates
-// (looked up like src/itr/NavmeshCommands.cpp does for cover points), the player's own cell when that is not loaded.
-TESObjectCELL *CellAt(PlayerCharacter *player, float x, float y) {
-  auto *tes = TES::GetSingleton();
-  if (tes && tes->currentInterior)
-    return tes->currentInterior;
-  TESObjectCELL *own = player ? player->GetParentCell() : nullptr;
-  TESWorldSpace *world = own ? own->worldSpace : nullptr;
-  if (!world || !world->pCellMap)
-    return own;
-  const INT32 cellX = static_cast<INT32>(std::floor(x / kExteriorCellSize));
-  const INT32 cellY = static_cast<INT32>(std::floor(y / kExteriorCellSize));
-  const INT32 key = ((cellX & 0xFFFF) << 16) | (cellY & 0xFFFF);
-  TESObjectCELL *cell = nullptr;
-  world->pCellMap->GetAt(key, cell);
-  return cell ? cell : own;
-}
 
 std::string DescribeReference(TESObjectREFR *ref, uint8_t layer) {
   char buffer[192];
@@ -146,6 +128,8 @@ void LogControllerShape(PlayerCharacter *player) {
 
 bool DetourEnabled() { return g_detourEnabled; }
 
+bool RerouteOnly() { return g_rerouteOnly; }
+
 uint8_t RayLayer() { return g_rayLayer; }
 
 double NowMicroseconds() {
@@ -189,7 +173,7 @@ PathProbe::RayHit EngineWorld::Cast(const Point3 &from, const Point3 &to) {
 bool EngineWorld::Walkable(const Point3 &point) {
   if (!g_requireNavmesh)
     return true;
-  TESObjectCELL *cell = CellAt(m_player, point.x, point.y);
+  TESObjectCELL *cell = WorldUtils::CellAt(m_player, point.x, point.y);
   if (!cell)
     return false;
   if (Pathing::PointOnNavmesh({point.x, point.y, point.z}, cell, cell->worldSpace))
@@ -203,9 +187,11 @@ std::string DescribeHit(const PathProbe::RayHit &hit) {
 }
 
 // `NWalkerDetour` toggles the detours, `NWalkerDetour 1` / `0` set them, `NWalkerDetour 2` switches them on without
-// requiring the waypoint to be on the navmesh. An optional second number is the collision layer the rays are cast as
+// requiring the waypoint to be on the navmesh, `NWalkerDetour 3` skips the side-step and hands every blocked spot to
+// the pathfinder at once. An optional second number is the collision layer the rays are cast as
 // (37 line of sight, the default; 30 character controller; see WorldUtils::Layer). Returns the new state.
-DEFINE_NEURO_COMMAND_PLUGIN(WalkerDetour, "Walker raycast detours: [0 off/1 on/2 on, off-navmesh allowed] [ray layer]",
+DEFINE_NEURO_COMMAND_PLUGIN(WalkerDetour,
+                            "Walker raycast detours: [0 off/1 on/2 on, off-navmesh allowed/3 reroute only] [ray layer]",
                             false, kParams_TwoOptionalInts);
 
 bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
@@ -219,8 +205,10 @@ bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
     g_detourEnabled = !g_detourEnabled;
   } else {
     g_detourEnabled = mode != 0;
-    if (mode != 0)
+    if (mode != 0) {
       g_requireNavmesh = mode != 2;
+      g_rerouteOnly = mode == 3;
+    }
   }
   *result = g_detourEnabled ? 1.0 : 0.0;
   _MESSAGE("Walker detours %s (rays cast as %s, waypoints %s).", g_detourEnabled ? "on" : "off",
@@ -228,6 +216,10 @@ bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
   Console_Print("Walker detours %s; rays cast as layer %d (%s); waypoints %s.", g_detourEnabled ? "on" : "off",
                 static_cast<int>(g_rayLayer), WorldUtils::LayerName(g_rayLayer),
                 g_requireNavmesh ? "must be on the navmesh" : "may be off the navmesh");
+  if (g_detourEnabled)
+    Console_Print(g_rerouteOnly
+                      ? "A blocked spot is given to the pathfinder to route around at once (no side-step)."
+                      : "A blocked spot is side-stepped once; if that fails the pathfinder routes around it.");
   if (g_detourEnabled && !WalkerOverlay::Enabled())
     Console_Print("NWalkerDebug 1 draws the probe rays (grey clear, red blocked) and the detour (violet).");
   return true;

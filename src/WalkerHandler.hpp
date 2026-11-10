@@ -44,7 +44,8 @@ std::string GetDescription();
 // While set, Walker keeps moving the player but leaves yaw and pitch alone (combat owns the aim).
 void SetLookSuppressed(bool suppressed);
 std::vector<Event> TakeEvents();
-// Debug mode (todo 43): forget the captured route and trail and clear the overlay (load, new game, main menu).
+// On a load, a new game and the main menu: forget the debug mode's captured route and trail, clear the overlay, and
+// forget the blocked spots the pathfinder was told to avoid (todo 48).
 void ResetDebug();
 
 } // namespace Walker
