@@ -1,10 +1,10 @@
 # 48 - Check the path ahead with raycasts and detour around what blocks it (evaluation)
 
-Status: open (evaluate before building)
+Status: to verify
 Area: Walker / pathing (`src/WalkerHandler.cpp`, `src/Movement/`, `src/utils/WorldUtils.*` rays)
 Source: designer, 2026-11-08, from the todo 43 debug overlay in Primm
-Related: `to_verify/43-walker-debug-path-overlay.md` (where this was found; draw the probes there),
-`45-custom-navigation-grid.md` (the heavier alternative), `to_verify/25-walker-stuck-recovery.md` (Wander recovery)
+Related: `43-walker-debug-path-overlay.md` (where this was found; the probes are drawn there),
+`../45-custom-navigation-grid.md` (the heavier alternative), `25-walker-stuck-recovery.md` (Wander recovery)
 
 ## Problem
 With the debug overlay on, the designer saw why the Walker runs into the car in Primm: the car is not part of the
@@ -53,3 +53,76 @@ instead of through it. This would make the Wander recovery proactive and is much
 ## Done when
 A short written evaluation (what the rays catch, cost, chosen design) is in `docs/design/raycast-path-detours.md`, the
 designer has decided whether to build it, and if built, the Walker gets around the Primm car without getting stuck.
+
+## Result (2026-11-10)
+
+Evaluation and design: `docs/design/raycast-path-detours.md` (the six questions, evidence, every estimated number).
+The questions about what rays hit and what they cost can only be answered in the game, so the feature was built as
+the instrument for them, **behind a console switch that is off by default**. The designer has not yet decided whether
+it stays or becomes the default; that is what the checks below are for.
+
+Built:
+- **Engine-free core** (`src/Movement/PathProbe.*`, `tests/PathProbeTests.cpp`, 24 cases): the ground-following
+  sweep (floor ray every 20 units, forward rays at knee and chest height, rise, drop, doors, actors and the target
+  told apart), the points to either side of a blocked spot and their order, the search with a per-frame ray budget,
+  and the tracker (arrival, time-out, side kept, budget of 6 that only real progress refills, cooldown after a failed
+  search).
+- **Rays** (`WorldUtils::CastRay`): the existing Havok ray, now also returning the reference behind the hit, its
+  collision layer and the surface normal. `src/itr/internal/RayCast.h` follows the pinned itr-nvse layout.
+- **Walker** (`src/WalkerHandler.cpp`): keeps the pathfinder's nodes of each route search, sweeps the next 400 units
+  on every search, searches for a way round when blocked, and steers at the waypoint until it is reached or the route
+  is free again. With no way round nothing changes. Stuck recovery ends a detour and works as before.
+- **Console** (`src/Debug/WalkerProbe.cpp`): `NWalkerDetour [0/1/2] [layer]` (the switch; 2 drops the navmesh
+  requirement; the layer the rays are cast as) and `NWalkerProbe [rays] [layer]` (measures ray cost and logs what
+  rays hit ahead of the player). They take the two opcodes after `NWalkerDebug`.
+- **Overlay**: grey and red probe rays, a red pole at the blocked spot, the points tried, a violet detour.
+- **Log**: a line per detour start and end, one per route when no way round was found, and per walk the rays cast,
+  total time and worst frame.
+
+Differences from the sketch:
+- The route is checked on its centre line only; the side rays (22 units out, plus the centre) are used for the legs
+  the search invents and for deciding that the route is free again. Side rays on the navmesh route itself would clip
+  door frames and corners.
+- The rays follow the floor instead of running node to node, because path nodes are far apart and a straight ray
+  between two of them cuts through any slope or stairs in between.
+- "A path onward to the target" is checked with rays back onto the old route, not with the pathfinder: `BuildPath`
+  only searches from where the player stands.
+- The waypoint is steered at directly, not through `BuildPath` as the Wander step does: the line to it was just
+  checked with rays.
+- Doors are not opened ahead of time; a door on the route starts no detour and the stuck recovery opens it as before.
+
+Checks run: `bash tools/test.sh` (363 pass), `clang-format`, `env -u FalloutNVNeuroPlugin bash tools/build.sh Debug`
+(builds, no warnings). Nothing was run in the game; the built DLL is not deployed.
+
+Unverified (needs the game): what a ray cast as LINEOFSIGHT hits and misses (fences, glass, clutter, bushes), whether
+a ray can be cast as CHARCONTROLLER, whether the floor ray finds every floor, the hit normal and the reference lookup
+on real hits, the cost of a ray, the navmesh test for the waypoint, every number in the design note's estimates list,
+and whether the route searched from the waypoint goes on past the obstacle.
+
+### Manual in-game checklist
+Measurements first, detours off:
+1. Primm, `NWalkerDebug 1`, stand 3 m from the car facing it, `NWalkerProbe`. Expected in `neuro-fnv.log`: a
+   "character controller" line, 18 "as LAYER" lines, five cost lines, two "sweep" lines saying blocked after about
+   3 m by an obstacle; red rays on the car in the overlay. Send those lines.
+2. The same facing open ground, stairs or a ramp, a hillside, a kerb, a closed door, an NPC, a chain-link fence or a
+   window, a bush, a fence with rails. Expected: clear on open ground, stairs and slopes; "a door" at the door; clear
+   at the NPC.
+3. Note the "microseconds each" numbers (also needed for todo 45).
+
+The detour:
+4. `NWalkerDetour 1`, then the Primm walk that ran into the car. Expected: red rays and pole at the car before she
+   reaches it, a violet pole beside it, she walks round without touching the car. Log: `Walker detour 1 on the way to
+   ...` and `Walker detour ended: ...`.
+5. The same walk with `NWalkerDetour 0` for comparison.
+6. `no way round was found ... N off the navmesh` with open ground beside the obstacle: try `NWalkerDetour 2`.
+7. A long walk through Goodsprings and Primm with detours on: no detours on stairs, slopes, in doorways or along
+   walls. Each false one is in the log with what it took for an obstacle.
+8. Targets that are a container, a door and an NPC: she arrives and interacts as before.
+9. An NPC or companion on the route: no detour.
+10. A closed door on the route: no detour; the door recovery opens it.
+11. An obstacle next to a ledge or on a bridge: no detour off the edge.
+12. The `Walker path check on the walk to ...` lines after a few walks: rays, total time, worst frame.
+13. If LINEOFSIGHT rays miss things she bumps into: `NWalkerDetour 1 30` and repeat 4 and 7.
+
+Decisions for the designer after the checks: keep it or not; on by default or not; which layer; whether one waypoint
+is enough or todo 45's stage 2 (a small on-demand grid) is wanted.

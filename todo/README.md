@@ -39,9 +39,8 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) (container done, to verify; 2026-11-09 follow-up: slim opening text, no container-specific poke; Pip-Boy open) | Context / Menus |
 | 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
-| 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (evaluate first) | Walker / pathing |
+| 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (evaluation written; needs in-game ray costs from `NWalkerProbe` and the designer's decision) | Walker / pathing |
 | 47 | [Aim down sights automatically past 10 meters](47-auto-aim-down-sights.md) | Combat |
-| 48 | [Check the path ahead with raycasts and detour around blockers](48-raycast-path-detours.md) (evaluate first) | Walker / pathing |
 | 49 | [Fix JSON string escaping upstream in libneurosdk](49-libneurosdk-json-escaping.md) (later; worked around in the plugin) | SDK / transport |
 | 50 | [move_to / interact_with interrupt the do_current_quest route](50-quest-route-interrupt-by-move-interact.md) | Walker / Gameplay actions |
 | 51 | [Ask for confirmation before changing the followed quest](51-confirm-quest-course-change.md) (idea from Skyrim) | Gameplay actions |
@@ -59,6 +58,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
 | 41 | [query_quests says which quest is selected](to_verify/41-query-quests-selected-line.md) (top line, "(selected)" tag, route state) | Gameplay actions |
 | 43 | [In-game Walker debug mode: show the computed path](to_verify/43-walker-debug-path-overlay.md) (`NWalkerDebug` console command, D3D9 overlay) | Walker / tooling |
+| 48 | [Check the path ahead with raycasts and detour around blockers](to_verify/48-raycast-path-detours.md) (off by default: `NWalkerDetour 1`; `NWalkerProbe` measures rays; designer's decision pending) | Walker / pathing |
 
 ## Archive
 

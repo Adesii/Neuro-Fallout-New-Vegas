@@ -1,9 +1,10 @@
 # 45 - Custom navigation grid from raycasts, with A* (evaluation)
 
-Status: open (evaluate before building)
+Status: open (evaluation written 2026-11-10; waiting for in-game ray costs and the designer's decision)
 Area: Walker / pathing (`src/Movement/`, `src/WalkerHandler.cpp`, `src/itr/` pathing)
 Source: designer, 2026-11-07
-Related: `43-walker-debug-path-overlay.md` (find out first why the navmesh route fails), `25-walker-stuck-recovery.md`
+Related: `to_verify/43-walker-debug-path-overlay.md` (find out first why the navmesh route fails),
+`to_verify/25-walker-stuck-recovery.md`, `to_verify/48-raycast-path-detours.md` (the lighter step, built first)
 
 ## Problem
 The Walker relies entirely on the game's navmesh (`Pathing::BuildPath`, adapted from itr-nvse). New Vegas's navmesh is
@@ -47,3 +48,25 @@ A custom navigation layer for the player, built from raycasts, used where the na
 ## Done when
 There is a written evaluation (cost numbers, what rays can and cannot detect, storage plan, recommended design) in
 `docs/design/custom-navigation-grid.md`, and the designer has decided whether to build it.
+
+## Evaluation (2026-11-10)
+
+Written: `docs/design/custom-navigation-grid.md`. It answers questions 2 to 6 from the sources and gives the cost in
+rays, but **not the cost in milliseconds**: that needs the game. Nothing of the grid itself was built.
+
+Recommendation in short: do not build the full grid yet. Todo 48 (built, to verify) covers the case seen in Primm. If
+obstacles remain that one waypoint cannot get around, the next step is a small grid sampled on demand around the
+blocked spot and searched with A* (nothing saved, nothing sampled ahead); saving and sampling while playing come
+last, if at all. The navmesh stays the long-range route in every stage.
+
+Already there from todo 48 and reusable: the walkability test between two ground points (`PathProbe::Sweep`), the ray
+interface with a host-test fake, the per-frame ray budget, waypoint following, and the overlay drawing.
+
+Still needed before the designer can decide:
+1. Run `NWalkerProbe` in Primm and in an interior and copy the five "microseconds each" lines into the cost table of
+   the design note (this is check 3 of todo 48).
+2. From the same log: the "character controller" line (the collision radius sets the grid's cell size) and the
+   LINEOFSIGHT against CHARCONTROLLER lines at a fence or window (which layer the grid would cast as).
+3. The Primm test of todo 48: does one waypoint get her round the car?
+
+Decisions for the designer: the three at the end of the design note.
