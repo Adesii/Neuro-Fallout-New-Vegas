@@ -6,6 +6,7 @@
 // src/Debug/WalkerOverlay.cpp draws it. Nothing here changes how the Walker walks.
 
 #include "Debug/OverlayMath.hpp"
+#include "Movement/PathProbe.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -69,6 +70,18 @@ private:
   std::vector<Point3> m_points;
 };
 
+// The raycast path check (todo 48): the rays of the last sweep of the path, where it was blocked, the points the last
+// search for a way round tried, and the detour being walked.
+struct ProbeView {
+  std::vector<PathProbe::TraceRay> rays;
+  std::vector<PathProbe::Candidate> candidates;
+  bool hasBlock = false;
+  Point3 block;
+  bool hasWaypoint = false;
+  Point3 waypoint;
+  Point3 rejoin; // where the detour meets the path again
+};
+
 struct View {
   bool hasRoute = false;
   Route route;
@@ -77,6 +90,7 @@ struct View {
   bool hasTarget = false;
   Point3 target;
   std::vector<Point3> trail;
+  ProbeView probe;
 };
 
 // Colours (ARGB). The route's line colour says how it was found.
@@ -90,6 +104,10 @@ inline constexpr uint32_t kColourTarget = 0xFFFFFFFF;   // white: the command's 
 inline constexpr uint32_t kColourDetour = 0xFFFF40FF;   // magenta: a Wander spot during recovery
 inline constexpr uint32_t kColourTrail = 0xB04060FF;    // blue: where the player actually went
 inline constexpr uint32_t kColourLabel = 0xFFFFFFFF;
+inline constexpr uint32_t kColourRayClear = 0x90C8C8C8;   // grey: a probe ray that hit nothing
+inline constexpr uint32_t kColourRayBlocked = 0xFFFF3060; // red: a probe ray up to where it was blocked
+inline constexpr uint32_t kColourWaypoint = 0xFFB070FF;   // violet: the detour waypoint and its two legs
+inline constexpr uint32_t kColourRejected = 0xC0808080;   // dark grey: a point the search for a way round threw out
 
 uint32_t ModeColour(Mode mode);
 

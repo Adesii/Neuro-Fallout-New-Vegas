@@ -172,6 +172,35 @@ void BuildOverlay(const View &view, const Overlay::Camera &camera, float scale, 
       batch.Frame(at, 9.0f * scale, 2.0f * scale, colour(kColourChosen));
   }
 
+  // The raycast path check: the rays of the last sweep, the points tried beside the obstacle, and the detour.
+  const ProbeView &probe = view.probe;
+  for (const PathProbe::TraceRay &ray : probe.rays) {
+    batch.WorldLine(camera, ray.from, ray.to, ray.blocked ? thin * 1.5f : thin,
+                    colour(ray.blocked ? kColourRayBlocked : kColourRayClear));
+    if (ray.blocked)
+      batch.WorldBox(camera, ray.to, 3.0f * scale, colour(kColourRayBlocked));
+  }
+  if (probe.hasBlock) {
+    batch.WorldLine(camera, probe.block, Raised(probe.block, kMarkerPole), line, colour(kColourRayBlocked));
+    Overlay::ScreenPoint at;
+    if (Overlay::Project(camera, probe.block, at))
+      batch.Frame(at, 8.0f * scale, 2.0f * scale, colour(kColourRayBlocked));
+  }
+  for (const PathProbe::Candidate &candidate : probe.candidates) {
+    if (candidate.status == PathProbe::CandidateStatus::Pending)
+      continue;
+    const bool valid = candidate.status == PathProbe::CandidateStatus::Valid;
+    Overlay::ScreenPoint at;
+    if (Overlay::Project(camera, candidate.point, at))
+      batch.Frame(at, 5.0f * scale, thin, colour(valid ? kColourWaypoint : kColourRejected));
+  }
+  if (probe.hasWaypoint) {
+    batch.WorldLine(camera, view.player, probe.waypoint, line, colour(kColourWaypoint));
+    batch.WorldLine(camera, probe.waypoint, probe.rejoin, thin, colour(kColourWaypoint));
+    batch.WorldLine(camera, probe.waypoint, Raised(probe.waypoint, kMarkerPole), line, colour(kColourWaypoint));
+    batch.WorldBox(camera, probe.waypoint, 7.0f * scale, colour(kColourWaypoint));
+  }
+
   if (view.hasTarget) {
     batch.WorldLine(camera, view.target, Raised(view.target, kMarkerPole), line, colour(kColourTarget));
     Overlay::ScreenPoint at;

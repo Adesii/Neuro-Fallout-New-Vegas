@@ -1,10 +1,13 @@
 #include "WalkerHandler.hpp"
+#include "Context/Distance.hpp"
 #include "Debug/WalkerOverlay.hpp"
+#include "Debug/WalkerProbe.hpp"
 #include "GameData.h"
 #include "GameOSDepend.h"
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Movement/AimLogic.hpp"
+#include "Movement/PathProbe.hpp"
 #include "Movement/RouteDebug.hpp"
 #include "Movement/WalkerLogic.hpp"
 #include "Utils/DebugLog.hpp"
@@ -25,6 +28,7 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <random>
 #include <utility>
 
@@ -91,6 +95,17 @@ constexpr float kDetourArrivedDistance = 80.0f;
 constexpr float kQuarterTurn = 1.5707964f;
 constexpr float kHalfTurn = 3.1415927f;
 
+// Raycast path check (todo 48, docs/design/raycast-path-detours.md). The path is swept this far ahead on every route
+// search; a search for a way round casts at most this many rays a frame. To call the path clear again while a detour
+// runs, the side rays are this much further out than the player's half width, so the detour is not dropped the moment
+// the centre line is free by a hair. An obstacle this close to the end of the path is the target's own surroundings,
+// which arriving and the interaction checks deal with.
+constexpr float kProbeLookAhead = 400.0f;
+constexpr int kProbeRayBudget = 300;
+constexpr float kProbeClearWidthFactor = 1.6f;
+constexpr float kProbeMinOnward = 60.0f;
+constexpr float kProbeNoLimit = 1.0e9f;
+
 // GetOpenState(ref) is FalloutNV.exe 1.4.0.525 0x47B250 (__cdecl). Two sources agree on the address and on the result
 // values None 0 / Open 1 / Opening 2 / Closed 3 / Closing 4: itr-nvse features/DoorPinchFix.cpp (MIT, revision in
 // tools/reference-manifest.json) and JohnnyGuitarNVSE BGSOpenCloseForm.
@@ -133,6 +148,22 @@ struct Recovery {
   NiPoint3 detour = {0.0f, 0.0f, 0.0f};
 };
 
+// What the raycast path check cost over one command, for the log.
+struct ProbeCost {
+  int frames = 0; // frames in which rays were cast
+  int rays = 0;
+  double microseconds = 0.0;
+  double worstFrame = 0.0;
+  void Add(int castRays, double took) {
+    if (castRays <= 0)
+      return;
+    ++frames;
+    rays += castRays;
+    microseconds += took;
+    worstFrame = std::max(worstFrame, took);
+  }
+};
+
 struct WalkerState {
   TESObjectREFR *waypointMarker = nullptr;
   TESObjectREFR *trackedTarget = nullptr;
@@ -160,6 +191,17 @@ struct WalkerState {
   WalkerLogic::ProgressTracker progress;
   WalkerLogic::RecoveryPlanner planner;
   Recovery recovery;
+  // Raycast path check: the pathfinder's nodes of the last route search (empty when it found none), the one steered
+  // at, whether the route was searched this frame, and the detour being planned or walked.
+  std::vector<PathPoint3> routeNodes;
+  size_t routeChosen = 0;
+  bool routeRefreshed = false;
+  PathProbe::DetourTracker detour;
+  PathProbe::DetourPlanner detourPlanner;
+  PathProbe::Point3 detourRejoin;
+  std::string detourBlocker;   // what blocked the path, for the log
+  bool loggedNoDetour = false; // "no way round" is logged once per route
+  ProbeCost probeCost;
   std::string lockedDoor; // a locked closed door seen in front of the player while stuck
   // Per command, not per route: they carry on across a cell change.
   WalkerLogic::ProgressReminder reminder;
@@ -245,8 +287,16 @@ void ResetRouteState() {
   g_state.planner.Reset(RetryBudget());
   g_state.recovery = {};
   g_state.lockedDoor.clear();
+  g_state.routeNodes.clear();
+  g_state.routeChosen = 0;
+  g_state.routeRefreshed = false;
+  g_state.detour.Reset();
+  g_state.detourPlanner.Reset();
+  g_state.detourBlocker.clear();
+  g_state.loggedNoDetour = false;
 }
 
+// RouteDebug::Point3 and PathProbe::Point3 are the same type (Overlay::Point3).
 RouteDebug::Point3 ToDebugPoint(const NiPoint3 &p) { return {p.x, p.y, p.z}; }
 RouteDebug::Point3 ToDebugPoint(const PathPoint3 &p) { return {p.x, p.y, p.z}; }
 
@@ -267,6 +317,12 @@ void PublishDebug(bool active) {
 void ClearCommand(PlayerCharacter *player) {
   if (g_state.hasCommand)
     PublishDebug(false); // the route stays on screen, dimmed, after the walk ends
+  if (g_state.probeCost.frames > 0)
+    _MESSAGE("Walker path check on the walk to %s: %d rays in %d frames, %.2f ms in all, %.0f microseconds in the "
+             "worst frame",
+             g_state.command.description.c_str(), g_state.probeCost.rays, g_state.probeCost.frames,
+             g_state.probeCost.microseconds / 1000.0, g_state.probeCost.worstFrame);
+  g_state.probeCost = {};
   ReleaseMovementKeys();
   Player::SetAutoMove(player, false);
   ResetRouteState();
@@ -317,9 +373,10 @@ TESObjectCELL *GetNavigationCell(PlayerCharacter *player) {
 
 // The first path node past the waypoint-reached radius, so a node the player is already standing on does not become
 // the steering target (and force a repath every frame). The last node when every one is that close.
-// `debug` (debug mode only) receives the nodes and the chosen index.
+// `debug` (debug mode only) receives the nodes and the chosen index. `keepRoute` stores them as the walk's route for
+// the raycast path check; the Wander step's reachability tests leave it false.
 bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPoint3 &pathPoint,
-                    RouteDebug::Route *debug = nullptr) {
+                    RouteDebug::Route *debug = nullptr, bool keepRoute = false) {
   g_state.waypointMarker->pos = destination;
   Pathing::PathResult path;
   if (!Pathing::BuildPath(player, g_state.waypointMarker, path) || path.nodes.empty())
@@ -333,6 +390,10 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
     }
   }
   pathPoint = path.nodes[chosen];
+  if (keepRoute) {
+    g_state.routeNodes = path.nodes;
+    g_state.routeChosen = chosen;
+  }
   if (debug) {
     debug->nodes.clear();
     debug->nodes.reserve(path.nodes.size());
@@ -346,6 +407,8 @@ bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPo
 // `debug` (debug mode only) records how the point was found. The two fallbacks are logged once per route either way.
 PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &destination, RouteDebug::Route *debug) {
   using RouteDebug::Mode;
+  g_state.routeNodes.clear(); // stays empty unless a path is found: the check then sweeps the straight line
+  g_state.routeChosen = 0;
   if (Distance3D(player->GetPos(), destination) < kInteractionDistance) {
     if (debug)
       debug->mode = Mode::Close;
@@ -353,7 +416,7 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &desti
   }
 
   PathPoint3 pathPoint;
-  if (BuildPathPoint(player, destination, pathPoint, debug)) {
+  if (BuildPathPoint(player, destination, pathPoint, debug, true)) {
     if (debug)
       debug->mode = Mode::Path;
     return pathPoint;
@@ -372,7 +435,7 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &desti
         debug->hasSnapped = true;
         debug->snapped = ToDebugPoint(onNavmesh);
       }
-      if (BuildPathPoint(player, onNavmesh, pathPoint, debug)) {
+      if (BuildPathPoint(player, onNavmesh, pathPoint, debug, true)) {
         if (debug)
           debug->mode = Mode::Snapped;
         if (!g_state.loggedSnapped) {
@@ -446,6 +509,7 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
   const NiPoint3 playerPosition = player->GetPos();
   if (Distance3D(playerPosition, destination) < kInteractionDistance) {
     g_state.navigationValid = false;
+    g_state.routeNodes.clear();
     const PathPoint3 direct = {destination.x, destination.y, destination.z};
     if (WalkerOverlay::Enabled()) {
       RouteDebug::Route route;
@@ -468,6 +532,7 @@ PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, fl
     g_state.navigationDestination = destination;
     g_state.navigationAge = 0.0f;
     g_state.navigationValid = true;
+    g_state.routeRefreshed = true;
     if (debug)
       RecordRoute(player, target, destination, std::move(route), g_state.navigationPoint);
   }
@@ -609,6 +674,170 @@ void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, 
     HoldMovementKey(input->keyBinds[ControlCode::Left], 3);
 }
 
+// --- Raycast path check and detours (todo 48) -----------------------------------------------------------------
+//
+// The navmesh does not know every object (the car in Primm): the pathfinder's route can run straight through one.
+// On every route search the way ahead is swept with rays (PathProbe::SweepPath). When something blocks it, points to
+// either side are tested until one has a free line from the player and a free line back onto the path, and the
+// Walker steers at that point until it is there or the path is free again. With no such point the walk goes on as
+// before and the stuck recovery deals with it. Off unless switched on with NWalkerDetour.
+
+// The way ahead as the check sweeps it: from the player along the route's nodes from the one steered at (or straight
+// at the destination when the pathfinder found nothing), without the last stretch within reach of the destination,
+// where the target's own collision would read as an obstacle.
+std::vector<PathProbe::Point3> ProbePath(const NiPoint3 &playerPosition, const NiPoint3 &destination) {
+  std::vector<PathProbe::Point3> path;
+  path.push_back(ToDebugPoint(playerPosition));
+  if (g_state.routeNodes.empty()) {
+    path.push_back(ToDebugPoint(destination));
+  } else {
+    for (size_t index = g_state.routeChosen; index < g_state.routeNodes.size(); ++index)
+      path.push_back(ToDebugPoint(g_state.routeNodes[index]));
+  }
+  return PathProbe::TrimEnd(std::move(path), kInteractionDistance);
+}
+
+void EndDetour(PathProbe::DetourTracker::End why) {
+  g_state.detourPlanner.Reset();
+  if (!g_state.detour.Active())
+    return;
+  _MESSAGE("Walker detour ended: %s", PathProbe::DetourTracker::EndName(why));
+  g_state.detour.Finish();
+  g_state.navigationValid = false; // path again from where the detour left the player
+  g_debug.view.probe.hasWaypoint = false;
+}
+
+// A search for a way round has ended: start walking the detour, or note that there is none.
+void FinishDetourSearch(float remaining) {
+  PathProbe::DetourPlanner &planner = g_state.detourPlanner;
+  const auto state = planner.GetState();
+  if (state != PathProbe::DetourPlanner::State::Found && state != PathProbe::DetourPlanner::State::Failed)
+    return;
+  if (WalkerOverlay::Enabled())
+    g_debug.view.probe.candidates = planner.Candidates();
+  if (state == PathProbe::DetourPlanner::State::Found) {
+    const PathProbe::Candidate &found = planner.Result();
+    g_state.detour.Begin(found.point, found.side, remaining);
+    g_state.detourRejoin = found.rejoin;
+    g_state.loggedNoDetour = false;
+    _MESSAGE("Walker detour %d on the way to %s: the path is blocked by %s; going round on the %s through (%.0f, "
+             "%.0f, %.0f), %.1f m to the side (%d rays)",
+             g_state.detour.Used(), g_state.command.description.c_str(), g_state.detourBlocker.c_str(),
+             found.side > 0 ? "left" : "right", found.point.x, found.point.y, found.point.z,
+             Units::ToMeters(found.lateral), planner.Rays());
+    if (WalkerOverlay::Enabled()) {
+      g_debug.view.probe.hasWaypoint = true;
+      g_debug.view.probe.waypoint = found.point;
+      g_debug.view.probe.rejoin = found.rejoin;
+    }
+  } else {
+    g_state.detour.PlanFailed();
+    if (!g_state.loggedNoDetour || WalkerOverlay::Logs(WalkerOverlay::LogLevel::Routes)) {
+      g_state.loggedNoDetour = true;
+      int firstLeg = 0;
+      int offNavmesh = 0;
+      int onward = 0;
+      for (const PathProbe::Candidate &candidate : planner.Candidates()) {
+        firstLeg += candidate.status == PathProbe::CandidateStatus::FirstLegBlocked;
+        offNavmesh += candidate.status == PathProbe::CandidateStatus::NotWalkable;
+        onward += candidate.status == PathProbe::CandidateStatus::OnwardBlocked;
+      }
+      _MESSAGE("Walker detour: the path to %s is blocked by %s and no way round was found (%d points: %d with no free "
+               "line to them, %d off the navmesh, %d with no free line onward; %d rays); walking on",
+               g_state.command.description.c_str(), g_state.detourBlocker.c_str(),
+               static_cast<int>(planner.Candidates().size()), firstLeg, offNavmesh, onward, planner.Rays());
+    }
+  }
+  planner.Reset();
+}
+
+// One frame of the check while the Walker walks its route (not while standing within reach or in a recovery step).
+void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &playerPosition,
+                  const NiPoint3 &destination, float remaining, float deltaTime) {
+  using PathProbe::Blocker;
+  using PathProbe::DetourTracker;
+  DetourTracker &tracker = g_state.detour;
+  PathProbe::DetourPlanner &planner = g_state.detourPlanner;
+  const bool searched = g_state.routeRefreshed; // rays are cast when the route was searched: every 0.25 s
+  g_state.routeRefreshed = false;
+  tracker.Update(deltaTime, remaining);
+  if (!WalkerProbe::DetourEnabled()) {
+    EndDetour(DetourTracker::End::Abandoned);
+    return;
+  }
+
+  const PathProbe::Point3 here = ToDebugPoint(playerPosition);
+  const PathProbe::Settings settings;
+  const bool debug = WalkerOverlay::Enabled();
+  WalkerProbe::EngineWorld world(player, target);
+  const double started = WalkerProbe::NowMicroseconds();
+  auto account = [&] { g_state.probeCost.Add(world.Rays(), WalkerProbe::NowMicroseconds() - started); };
+
+  if (tracker.Active()) {
+    DetourTracker::End why = DetourTracker::End::Abandoned;
+    if (tracker.Expired(here.x, here.y, why)) {
+      EndDetour(why);
+      return;
+    }
+    if (!searched)
+      return;
+    // Still a free line to the waypoint? And is the path itself free again from here, with room to spare?
+    const PathProbe::SweepResult leg =
+        PathProbe::Sweep(world, here, tracker.Waypoint(), kProbeNoLimit, settings, settings.halfWidth);
+    if (!leg.Clear()) {
+      account();
+      EndDetour(DetourTracker::End::LegBlocked);
+      return;
+    }
+    PathProbe::Trace trace;
+    const PathProbe::SweepResult ahead =
+        PathProbe::SweepPath(world, ProbePath(playerPosition, destination), kProbeLookAhead, settings,
+                             settings.halfWidth * kProbeClearWidthFactor, debug ? &trace : nullptr);
+    account();
+    if (debug)
+      g_debug.view.probe.rays = std::move(trace.rays);
+    if (ahead.blocker != Blocker::Obstacle && ahead.blocker != Blocker::Rise)
+      EndDetour(DetourTracker::End::PathClear);
+    return;
+  }
+
+  if (planner.GetState() == PathProbe::DetourPlanner::State::Working) {
+    planner.Step(world, here, settings, kProbeRayBudget);
+    account();
+    FinishDetourSearch(remaining);
+    return;
+  }
+  if (!searched || !tracker.MayPlan())
+    return;
+
+  std::vector<PathProbe::Point3> path = ProbePath(playerPosition, destination);
+  PathProbe::Trace trace;
+  const PathProbe::SweepResult ahead =
+      PathProbe::SweepPath(world, path, kProbeLookAhead, settings, 0.0f, debug ? &trace : nullptr);
+  // A drop on the pathfinder's own route is its business (it may mean to jump down); a door is opened by the stuck
+  // recovery, not walked around.
+  const bool blocked = ahead.blocker == Blocker::Obstacle || ahead.blocker == Blocker::Rise;
+  if (debug) {
+    g_debug.view.probe.rays = std::move(trace.rays);
+    g_debug.view.probe.hasBlock = blocked;
+    g_debug.view.probe.block = ahead.blockPoint;
+    if (!blocked)
+      g_debug.view.probe.candidates.clear();
+  }
+  if (!blocked || PathProbe::PathLength(path) - ahead.clearDistance < kProbeMinOnward) {
+    account();
+    return;
+  }
+  char buffer[96];
+  std::snprintf(buffer, sizeof(buffer), "%s %.1f m ahead: ", PathProbe::BlockerName(ahead.blocker),
+                Units::ToMeters(ahead.clearDistance));
+  g_state.detourBlocker = buffer + WalkerProbe::DescribeHit(ahead.hit);
+  planner.Start(std::move(path), ahead, tracker.PreferredSide());
+  planner.Step(world, here, settings, kProbeRayBudget);
+  account();
+  FinishDetourSearch(remaining);
+}
+
 // --- Stuck recovery -------------------------------------------------------------------------------------------
 
 // What a frame of recovery asks of the movement code.
@@ -668,6 +897,7 @@ bool PickDetour(PlayerCharacter *player, int tier, NiPoint3 &out) {
 
 // Chooses and starts a recovery step. False when the walk was failed instead (the command is gone then).
 bool BeginRecovery(PlayerCharacter *player, float remaining, const char *why) {
+  EndDetour(PathProbe::DetourTracker::End::Abandoned); // the recovery steps take over from here
   const DoorAhead door = FindDoorAhead(player);
   if (door.ref && door.closed && door.locked) {
     g_state.lockedDoor = DoorLabel(door.ref);
@@ -928,6 +1158,7 @@ void Process() {
                               WalkerLogic::StuckDetector::kTeleportDistance;
     const WalkerLogic::RecoveryPlanner planner = g_state.planner;
     const WalkerLogic::ProgressTracker progress = g_state.progress;
+    const PathProbe::DetourTracker detour = g_state.detour;
     ReleaseMovementKeys();
     ResetRouteState();
     g_state.trackedTarget = target;
@@ -935,6 +1166,7 @@ void Process() {
     if (sameWalk) {
       g_state.planner = planner;
       g_state.progress = progress;
+      g_state.detour = detour; // the waypoint is in world coordinates and the detour budget belongs to the walk
     } else if (changedCell) {
       g_state.stuck.StartGrace(kCellChangeGrace); // positions jump and the world is still streaming in
       ResetDebugCapture();                        // the old route and trail are in another place
@@ -965,6 +1197,16 @@ void Process() {
   const float reach = InteractionReach(target);
   const bool shouldMove = distance >= reach;
   PathPoint3 navigationPoint = GetNavigationPoint(player, target, deltaTime);
+  // The raycast path check runs while she walks her route; standing within reach or a recovery step ends a detour.
+  if (shouldMove && !g_state.recovery.active)
+    UpdateDetour(player, target, playerPosition, target->GetPos(), distance, deltaTime);
+  else
+    EndDetour(PathProbe::DetourTracker::End::Abandoned);
+  g_state.routeRefreshed = false;
+  if (g_state.detour.Active()) {
+    const PathProbe::Point3 &waypoint = g_state.detour.Waypoint();
+    navigationPoint = {waypoint.x, waypoint.y, waypoint.z};
+  }
 
   MovementPlan plan;
   plan.move = shouldMove;

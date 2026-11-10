@@ -329,6 +329,8 @@ bool Cmd_NWalkerDebug_Execute(COMMAND_ARGS) {
   if (g_enabled)
     Console_Print("Cyan: navmesh path, orange: path to the navmesh point next to the target, red: straight line (no "
                   "path), green: point steered at, magenta: Wander spot, blue: walked trail.");
+  if (g_enabled)
+    Console_Print("Path check (NWalkerDetour): grey rays clear, red rays and pole blocked, violet: detour waypoint.");
   return true;
 }
 

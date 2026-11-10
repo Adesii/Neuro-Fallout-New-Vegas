@@ -1,5 +1,6 @@
 #include "CombatHandler.hpp"
 #include "Debug/WalkerOverlay.hpp"
+#include "Debug/WalkerProbe.hpp"
 #include "GameplayHandler.hpp"
 #include "NeuroSDK.hpp"
 #include "Utils/DebugLog.hpp"
@@ -151,6 +152,8 @@ extern "C" NEURO_FNV_EXPORT bool NVSEPlugin_Load(NVSEInterface *nvse) {
   NeuroSDK::GetSingleton().RegisterCommands(nvse);
   // After SendContext: opcodes follow registration order, and the ESM's compiled scripts store SendContext's.
   WalkerOverlay::RegisterCommands(nvse);
+  // After NWalkerDebug for the same reason: NWalkerDetour and NWalkerProbe take the next two opcodes.
+  WalkerProbe::RegisterCommands(nvse);
 // HOOKS
 #if RUNTIME
   if (!nvse->isEditor)

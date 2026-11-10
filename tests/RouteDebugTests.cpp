@@ -143,3 +143,44 @@ TEST("route debug: nothing is drawn through an unusable camera") {
   BuildOverlay(view, Overlay::Camera{}, 1.0f, batch);
   CHECK_EQ(batch.Triangles(), size_t{0});
 }
+
+TEST("route debug: the path check's rays, blocked spot and detour are drawn, with or without a route") {
+  View view;
+  view.player = {0.0f, 0.0f, 0.0f};
+  view.active = true;
+  view.probe.rays.push_back({{0.0f, 0.0f, 40.0f}, {60.0f, 0.0f, 40.0f}, false});
+  view.probe.rays.push_back({{60.0f, 0.0f, 40.0f}, {100.0f, 0.0f, 40.0f}, true});
+  view.probe.hasBlock = true;
+  view.probe.block = {100.0f, 0.0f, 0.0f};
+  PathProbe::Candidate rejected;
+  rejected.point = {60.0f, 80.0f, 0.0f};
+  rejected.status = PathProbe::CandidateStatus::OnwardBlocked;
+  PathProbe::Candidate untested;
+  untested.point = {60.0f, -80.0f, 0.0f};
+  view.probe.candidates = {rejected, untested};
+  view.probe.hasWaypoint = true;
+  view.probe.waypoint = {60.0f, 190.0f, 0.0f};
+  view.probe.rejoin = {450.0f, 0.0f, 0.0f};
+  Overlay::Batch batch;
+  BuildOverlay(view, TestCamera(), 1.0f, batch);
+  bool sawClear = false;
+  bool sawBlocked = false;
+  bool sawRejected = false;
+  bool sawWaypoint = false;
+  for (const auto &v : batch.Vertices()) {
+    sawClear |= v.color == kColourRayClear;
+    sawBlocked |= v.color == kColourRayBlocked;
+    sawRejected |= v.color == kColourRejected;
+    sawWaypoint |= v.color == kColourWaypoint;
+  }
+  CHECK(sawClear);
+  CHECK(sawBlocked);
+  CHECK(sawRejected);
+  CHECK(sawWaypoint);
+
+  // Without the probe nothing of it is drawn.
+  View empty;
+  Overlay::Batch nothing;
+  BuildOverlay(empty, TestCamera(), 1.0f, nothing);
+  CHECK_EQ(nothing.Triangles(), size_t{0});
+}
