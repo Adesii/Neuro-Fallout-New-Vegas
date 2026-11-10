@@ -59,7 +59,8 @@ designer has decided whether to build it, and if built, the Walker gets around t
 Evaluation and design: `docs/design/raycast-path-detours.md` (the six questions, evidence, every estimated number).
 The questions about what rays hit and what they cost can only be answered in the game, so the feature was built as
 the instrument for them, **behind a console switch that is off by default**. The designer has not yet decided whether
-it stays or becomes the default; that is what the checks below are for.
+it stays or becomes the default; that is what the checks below are for. (The ray measurements were run the same
+day: see the playtest section at the end.)
 
 Built:
 - **Engine-free core** (`src/Movement/PathProbe.*`, `tests/PathProbeTests.cpp`, 24 cases): the ground-following
@@ -126,3 +127,31 @@ The detour:
 
 Decisions for the designer after the checks: keep it or not; on by default or not; which layer; whether one waypoint
 is enough or todo 45's stage 2 (a small on-demand grid) is wanted.
+
+## Playtest 2026-11-10: ray measurements
+
+The designer ran `NWalkerProbe` at four spots outside Primm (slope, stairs, an NPC, a raised static). Detours were not
+switched on in this run. Full numbers are in the design note under "Measured in game".
+
+Confirmed:
+- A ray costs about 5 microseconds (3.7 to 6 for the short ones); the check is 0.17 ms every quarter second and a
+  search frame 1.5 ms. Finding the reference behind a hit costs nothing measurable.
+- The reference, the collision layer and the normal of a hit read correctly (statics by form ID, "NCR Trooper" on
+  layer CHARCONTROLLER, the landscape on layer GROUND without a reference).
+- The sweep followed a slope and a flight of stairs (341 units up over 600) as clear, where a level ray hit them.
+- An NPC in the way was ignored and the static behind him found.
+- The character controller reads radius 20.3 and height 128.0 units.
+- Rays can be cast as other layers. CHARCONTROLLER, PROJECTILE and CAMERAPICK gave the same hits as LINEOFSIGHT;
+  PATHPICK and BIPED went through the NPC.
+
+Changed because of it:
+- The side rays now use the measured collision radius (`WorldUtils::PlayerCollisionShape`); the guessed 22 units is
+  gone. If the shape cannot be read the check does not run on that walk (one log line).
+- A blocking rise or drop is logged with its height, in `NWalkerProbe` and in the detour line.
+
+Open from this run: at the first spot (player at -62535, -52027, 6016, not on the navmesh) the sweep stopped after 240
+units at "a rise too high to step onto" on static 00156881. Ask the designer what stood there: a real ledge, or steps
+or a kerb she can walk up (then the 28-unit limit is too low).
+
+Still to run: checks 1 (the car), 2 (door, fence or window, bush, railed fence, clutter; also compare the PATHPICK
+lines), an interior for the cost, and all of 4 to 13 (the detour itself).

@@ -1,9 +1,9 @@
 # Raycast path check and detours (todo 48)
 
-Evaluation and design as built, 2026-11-10. Nothing here has run in the game. The feature is built behind a console
-switch that is **off by default**, because the open questions below can only be answered in game and the same code is
-the instrument that answers them. The designer decides after the checks whether it stays, and whether it is on by
-default.
+Evaluation and design as built, 2026-11-10. The rays were measured in game the same day (`NWalkerProbe` at four
+spots outside Primm, see "Measured in game"); the detour itself has not run yet. The feature is behind a console
+switch that is **off by default**. The designer decides after the remaining checks whether it stays, and whether it
+is on by default.
 
 ## Problem
 
@@ -23,12 +23,13 @@ exists; the Walker does not look for it before walking into the car.
    line only, minus the last 100 units before the destination.
 3. **Search**. When an obstacle or a rise blocks it, twelve points are tested: 80, 130, 190, 260, 340 and 430 units
    (1.1 m to 6.1 m) to the left and right of the blocked spot, 45 units back from it. A point is taken when (a) the line from the player to
-   it is free at the player's width (centre ray plus a ray 22 units to either side), (b) it is on the navmesh, and
+   it is free at the player's width (centre ray plus a ray to either side, the player's collision radius out: 20.3
+   units), (b) it is on the navmesh, and
    (c) the line from it back onto the route 350 units (5 m) beyond the blocked spot, or 550 (7.9 m), tried second, is
    free at the player's width. Nearest points first. At most 300 rays a frame; a search that needs more carries on next frame.
 4. **Detour**. The Walker steers straight at the point (violet in the overlay) instead of the path node. It ends when
    the player is within 45 units of it, when the route is free again from where the player stands (checked with side
-   rays 35 units out, so it is not dropped the moment the centre line is free by a hair), when something gets into the
+   rays 32 units out, so it is not dropped the moment the centre line is free by a hair), when something gets into the
    line to the point, after 8 s, or when the stuck recovery takes over. Then the route is searched again from there.
 5. **Side and budget**. A side once taken is kept for later detours on the same walk (other-side points cost 250 units
    more). Without one, the side where only one side ray was blocked is avoided (60 units). A walk may take 6 detours;
@@ -53,62 +54,99 @@ Log, at every log level: one line when a detour starts (what blocked the path, h
 rays), one when it ends (why), one per route when no way round was found (how many points failed on which test), and
 at the end of each walk the rays cast, the time they took in all and the worst frame.
 
+## Measured in game (2026-11-10)
+
+The designer ran `NWalkerProbe` four times outside Primm (cells 000E1A0D, 000E1A14, 000E1A15), rays cast as
+LINEOFSIGHT for the cost lines:
+
+| Ray | Microseconds each |
+| --- | --- |
+| 60 units, chest height | 3.7 to 4.0 |
+| 400 units, chest height | 4.6 to 5.9 |
+| 3500 units, chest height | 5.7 to 9.5 |
+| 180 units down | 4.5 to 5.7 |
+| 400 units with the reference lookup | 4.6 to 6.0 (the lookup costs nothing measurable) |
+
+- A whole sweep of 600 units took 253 to 260 microseconds on the centre line (50 rays) and 388 to 410 at the player's
+  width (90 rays): about 5 microseconds a ray, floor following included.
+- The character controller reads radius 2.8932 and height 18.2880 Havok units: 20.3 and exactly 128.0 game units, the
+  standard actor height. The JIP-LN-NVSE offsets hold, so the radius is now what the side rays use.
+- The reference behind a hit, its layer and the normal all read sensibly: statics with their form IDs, "NCR Trooper"
+  as base type 42 on layer CHARCONTROLLER, the landscape with no reference on layer GROUND, normals of unit length
+  that match what was hit (0, 0, 1 on a floor, -1, 0, 0 on a riser, tilted on slopes). The byte at 0xAC was never set
+  in 40,000 rays.
+- A slope: a level knee ray hit the ground after 217 units, and the sweep still called 600 units clear (floor 5 units
+  higher at the end). This is the false wall that floor following is there to avoid.
+- Stairs: level knee and chest rays hit risers after 147 and 201 units, and the sweep followed the steps 341 units up
+  over 600 units and called them clear.
+- An NPC 63 units ahead: both level rays hit him; the sweep ignored him and reported the static 387 units behind
+  him.
+- Rays cast as LINEOFSIGHT, CHARCONTROLLER, PROJECTILE and CAMERAPICK hit the same things at the same distances in
+  all four spots. Cast as PATHPICK or BIPED they went through the NPC and hit the static behind him. So the layer a
+  ray is cast as does change what it hits, a ray can be cast as CHARCONTROLLER, and PATHPICK is a way to see past
+  actors.
+- Open from this run: at the first spot the sweep stopped after 240 units at "a rise too high to step onto" on static
+  00156881, with the player not on the navmesh (standing on something). Whether that was a real ledge or steps the
+  player can walk up is not known; the probe now logs how high the rise was.
+
+Not covered by this run: anything transparent (glass, chain-link), bushes, loose clutter, a door, an interior, and
+the detour itself.
+
 ## The six questions
 
 ### 1. What the rays hit
 
-Source-backed:
+Source-backed, and confirmed in game where marked:
 
 - The ray is the one line of sight already uses (`TES::Pick`, 0x458440). It is cast "as" a collision layer, which
-  decides what it can hit. Line of sight uses layer 37 (LINEOFSIGHT) and that is the default here, because it is the
-  only layer this project has seen work in game.
+  decides what it can hit. Line of sight uses layer 37 (LINEOFSIGHT) and that is the default here.
 - A hit tells more than the old helper read: the reference behind it (`TES::Pick` returns the `NiAVObject`,
   `TESObjectREFR::FindReferenceFor3D` 0x56F930 maps it to a reference), the collision layer of the thing hit (low 7
-  bits of the collidable's filter info), and the surface normal. Sources are named at `WorldUtils::CastRay`.
+  bits of the collidable's filter info), and the surface normal. Sources are named at `WorldUtils::CastRay`. All
+  three confirmed in game.
 - So the check can tell actors, doors and the walk's own target from everything else, and it does: an actor never
-  blocks (a companion in the way must not reroute the walk), a door blocks without a detour (the stuck recovery opens
-  doors), and a hit on the target ends the sweep as clear.
+  blocks (a companion in the way must not reroute the walk; confirmed with an NCR trooper), a door blocks without a
+  detour (the stuck recovery opens doors), and a hit on the target ends the sweep as clear.
 - Rays ignore the player's own collision group, as line of sight does since 2026-11-08.
+- The floor ray finds terrain (layer GROUND) and statics. Confirmed for both.
 
-Not known until measured (`NWalkerProbe` logs each):
+Still not known:
 
 - Which objects a LINEOFSIGHT ray passes through that the player does not: glass, chain-link fences (TRANSPARENT),
-  loose clutter, invisible walls. Layer 30 (CHARCONTROLLER, the layer of the player's own body) should hit exactly what
-  the player collides with, but no source shows a ray cast as that layer. The collision filter's layer table is not in
-  any reference, so this is a measurement: compare the lines for LINEOFSIGHT and CHARCONTROLLER at a fence, a window, a
-  bush and a pile of clutter.
-- Whether the floor ray reports the ground under every kind of floor (terrain, statics, bridges).
+  loose clutter, invisible walls. A ray can be cast as CHARCONTROLLER (confirmed), which should hit exactly what the
+  player collides with, but the two have not been compared at anything where they could differ.
+- What PATHPICK misses besides actors. It is the engine's own layer for path picks and it sees through actors, which
+  would end the "actor hides the wall behind" gap below; it may also see through doors or clutter. Compare
+  `NWalkerProbe 2000 38` with the default at a closed door before trying `NWalkerDetour 1 38`.
 - Whether a ray that starts inside a mesh hits its far side. The overlap of the spans exists because of this.
-- Whether the normal at 0x30 is a unit vector for every hit. Only itr-nvse reads it. It is logged, not used.
-- The byte at 0xAC that itr-nvse treats as "no result". Logged as "budget byte set".
 
-Not handled: an actor in front of a wall hides the wall for that ray (the ray stops at the first hit).
+Not handled: an actor in front of a wall hides the wall for that ray (the ray stops at the first hit). The sweep
+still found the wall behind the trooper, because its later spans start beyond him.
 
 ### 2. Cost
 
-In rays, from the host tests:
+In rays, from the host tests, and in time at the measured 5 microseconds a ray:
 
-| Step | Rays |
-| ---- | ---- |
-| Check of 400 units of route, centre line | 34 (20 floor, 14 forward) |
-| The same at the player's width (while a detour runs) | 62, plus the leg to the waypoint |
-| One point of a search | about 50 to 250 (two or three legs of 3 to 9 m) |
-| A whole search, all twelve points fail on the last test | up to about 2500, over about 8 frames |
+| Step | Rays | Time |
+| ---- | ---- | ---- |
+| Check of 400 units of route, centre line | 34 (20 floor, 14 forward) | 0.17 ms |
+| The same at the player's width (while a detour runs) | 62, plus the leg to the waypoint | about 0.5 ms |
+| One point of a search | about 50 to 250 (two or three legs of 3 to 9 m) | 0.25 to 1.25 ms |
+| A whole search, all twelve points fail on the last test | up to about 2500, over about 8 frames | about 13 ms in all, 1.5 ms a frame |
 
-So a normal walk costs about 136 rays a second, and a search is a one-off burst capped at 300 rays a frame (plus the
-sweep that crosses the cap). What a ray costs in milliseconds is not known: run `NWalkerProbe` and read the
-"microseconds each" lines, and read the "Walker path check on the walk to ..." line after a walk for the real total
-and the worst frame. If a ray costs 10 microseconds, the check is 0.3 ms every quarter second and a search frame 3 ms.
+A normal walk costs about 136 rays a second, 0.7 ms of every second. A search is a one-off burst capped at 300 rays a
+frame (plus the sweep that crosses the cap). Cost is not a concern at these numbers. The "Walker path check on the
+walk to ..." line after each walk gives the real total and the worst frame. An interior has not been measured.
 
 ### 3. Heights and width
 
-- Heights are the designer's knee and chest: 40 and 90 units (0.57 m and 1.29 m). They catch anything solid between
-  about 0.6 m and 1.3 m, which should include a car body and a boarded fence. They miss a single rail between the two
-  heights and anything lower than 40 units (kerbs, rubble: stepped over or left to the Jump recovery). A third ray at
-  hip height costs 7 more rays per check if a fence turns out to slip through.
-- Width: the side rays are 22 units from the centre line. That is a guess. JIP-LN-NVSE names the character
-  controller's `shapeRadius` (0x5F8) and `shapeHeight` (0x5F4); no second source does, so `NWalkerProbe` only logs
-  them. Once the logged radius is confirmed plausible in game it should replace the 22 and the guess should go.
+- Heights are the designer's knee and chest: 40 and 90 units (0.57 m and 1.29 m) on a body 128 units tall. They catch
+  anything solid between about 0.6 m and 1.3 m, which should include a car body and a boarded fence. They miss a
+  single rail between the two heights and anything lower than 40 units (kerbs, rubble: stepped over or left to the
+  Jump recovery). A third ray at hip height costs 7 more rays per check if a fence turns out to slip through.
+- Width: the side rays are the player's collision radius from the centre line, read from the character controller
+  (`WorldUtils::PlayerCollisionShape`): 20.3 units in game. The earlier guess of 22 is gone. If the shape cannot be
+  read, the check does not run on that walk and the log says so once.
 - The route itself is checked on the centre line only. Side rays there would clip every door frame and corner the
   navmesh route turns around.
 
@@ -128,7 +166,7 @@ and the worst frame. If a ray costs 10 microseconds, the check is 0.3 ms every q
 - Both sides blocked, a wall across the route, a point off the navmesh: no detour, the walk goes on as before.
 - A ledge beside the obstacle: a line that crosses a drop of more than 60 units is not free, so a detour never leads
   off an edge. A drop on the pathfinder's own route is left alone (it may mean to jump down).
-- Narrow corridors: the nearest point is 80 units to the side and needs 22 more for the side ray, so in a corridor
+- Narrow corridors: the nearest point is 80 units to the side and needs 20 more for the side ray, so in a corridor
   narrower than about 3 m no point passes and nothing changes.
 - An obstacle that reaches more than about 6 m to both sides of the route: the furthest point is 430 units out.
 - The route after the waypoint is only assumed to be the straight line back onto the old route. The pathfinder can
@@ -145,9 +183,10 @@ the navmesh itself is missing or wrong, or anything that reaches more than 6 m t
 ## Numbers that are estimates
 
 All in `PathProbe::Settings`, `PathProbe.cpp` and the constants at the top of `WalkerHandler.cpp`: floor sample every
-20 units, forward span 60, knee 40, chest 90, half width 22, rise 28, drop 60, floor ray from 60 above to 120 below,
+20 units, forward span 60, knee 40, chest 90, rise 28, drop 60, floor ray from 60 above to 120 below,
 look-ahead 400, side distances 80 to 430, back-off 45, rejoin 350 / 550, arrival 45, 8 s, budget 6, refill 350,
-cooldown 1.5 s, 300 rays a frame, clear-again width factor 1.6.
+cooldown 1.5 s, 300 rays a frame, clear-again width factor 1.6. The half width is not one of them: it is the
+measured collision radius.
 
 ## Evidence
 
@@ -173,37 +212,38 @@ does.
 
 ## In-game checks
 
-Measurements first, with detours off:
+Measurements (first run done 2026-11-10; what is left):
 
-1. Load a save in Primm. `NWalkerDebug 1`, then stand 3 m from the car, face it, and run `NWalkerProbe`. Expected in
-   `neuro-fnv.log`: a "character controller" line, 18 "as LAYER ..." lines, five cost lines, two "sweep" lines saying
-   blocked after about 3 m by an obstacle, and red rays on the car in the overlay. Send the block of lines.
-2. Repeat facing: open ground (expected clear for 600), stairs or a ramp (clear, floor ends above the start), a slope
-   up a hill (clear), a kerb, a closed door (blocked by a door), an NPC (clear), a chain-link fence or window (compare
-   LINEOFSIGHT with CHARCONTROLLER), a bush, a low fence with rails.
-3. From the cost lines: note the microseconds per ray. This is the number todo 45 needs too.
+1. Primm, `NWalkerDebug 1`, stand 3 m from the car, face it, `NWalkerProbe`. Expected: the two "sweep" lines say
+   blocked after about 3 m by an obstacle, and red rays end on the car in the overlay.
+2. Wherever the sweep says "a rise too high to step onto": is it something she really cannot walk up? The line now
+   gives the height of the rise (limit 28 units per 20). If she can walk up it, send the line: the limit is too low.
+3. Facing a closed door (expected: blocked by a door), a chain-link fence or a window, a bush, a low fence with
+   rails, loose clutter. Compare the LINEOFSIGHT, CHARCONTROLLER and PATHPICK lines.
+4. Once inside a building, for the cost in an interior.
 
 Then the detour:
 
-4. `NWalkerDetour 1` and the Primm walk through the car. Expected: red rays and pole at the car before she reaches
+5. `NWalkerDetour 1` and the Primm walk through the car. Expected: red rays and pole at the car before she reaches
    it, a violet pole to one side, she walks to it and on past the car without touching it; the log has `Walker detour
    1 on the way to ...` and `Walker detour ended: the path is clear again` or `reached the waypoint`.
-5. The same walk with `NWalkerDetour 0`: the old behaviour, for comparison.
-6. If the log says `no way round was found ... N off the navmesh` at a spot with open ground beside the obstacle, try
+6. The same walk with `NWalkerDetour 0`: the old behaviour, for comparison.
+7. If the log says `no way round was found ... N off the navmesh` at a spot with open ground beside the obstacle, try
    `NWalkerDetour 2`. If that works the navmesh test is the problem, not the idea.
-7. A long walk through Goodsprings and Primm with detours on: no detour on stairs, slopes, through doorways or along
+8. A long walk through Goodsprings and Primm with detours on: no detour on stairs, slopes, through doorways or along
    walls. Every false one shows in the log with what it took for an obstacle.
-8. A walk whose target is a container, a door and an NPC: it must arrive and interact as before (no detour around the
+9. A walk whose target is a container, a door and an NPC: it must arrive and interact as before (no detour around the
    target itself).
-9. A companion or NPC standing on the route: no detour.
-10. A closed door on the route: no detour; the door recovery opens it as before.
-11. An obstacle beside a ledge or on a bridge: no detour off the edge.
-12. After a few walks, the `Walker path check on the walk to ...` lines: rays, total time and worst frame.
-13. If rays cast as LINEOFSIGHT miss things the player bumps into, try `NWalkerDetour 1 30` and repeat 4 and 7.
+10. A companion or NPC standing on the route: no detour.
+11. A closed door on the route: no detour; the door recovery opens it as before.
+12. An obstacle beside a ledge or on a bridge: no detour off the edge.
+13. After a few walks, the `Walker path check on the walk to ...` lines: rays, total time and worst frame.
+14. If rays cast as LINEOFSIGHT miss things the player bumps into, try `NWalkerDetour 1 30` and repeat 5 and 8.
 
 ## Unverified
 
-- Everything under "Not known until measured" above.
+- Everything under "Still not known" above.
+- The rise limit of 28 units per 20 (see the open point of the measured run).
 - That steering straight at the waypoint works as well as following path nodes (same movement code, different point).
 - That the route searched from the waypoint goes on past the obstacle and not back through it.
 - `PointOnNavmesh` and `GetPointNavMesh` as the navmesh test for a point in a neighbouring exterior cell.

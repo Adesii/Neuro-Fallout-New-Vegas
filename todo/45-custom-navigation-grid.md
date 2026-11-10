@@ -1,6 +1,6 @@
 # 45 - Custom navigation grid from raycasts, with A* (evaluation)
 
-Status: open (evaluation written 2026-11-10; waiting for in-game ray costs and the designer's decision)
+Status: open (evaluation written and ray cost measured 2026-11-10; waiting for the todo 48 test and the designer's decision)
 Area: Walker / pathing (`src/Movement/`, `src/WalkerHandler.cpp`, `src/itr/` pathing)
 Source: designer, 2026-11-07
 Related: `to_verify/43-walker-debug-path-overlay.md` (find out first why the navmesh route fails),
@@ -51,8 +51,8 @@ There is a written evaluation (cost numbers, what rays can and cannot detect, st
 
 ## Evaluation (2026-11-10)
 
-Written: `docs/design/custom-navigation-grid.md`. It answers questions 2 to 6 from the sources and gives the cost in
-rays, but **not the cost in milliseconds**: that needs the game. Nothing of the grid itself was built.
+Written: `docs/design/custom-navigation-grid.md`. It answers questions 2 to 6 from the sources and question 1 from ray
+counts and the measured cost of a ray. Nothing of the grid itself was built.
 
 Recommendation in short: do not build the full grid yet. Todo 48 (built, to verify) covers the case seen in Primm. If
 obstacles remain that one waypoint cannot get around, the next step is a small grid sampled on demand around the
@@ -62,11 +62,14 @@ last, if at all. The navmesh stays the long-range route in every stage.
 Already there from todo 48 and reusable: the walkability test between two ground points (`PathProbe::Sweep`), the ray
 interface with a host-test fake, the per-frame ray budget, waypoint following, and the overlay drawing.
 
+Measured 2026-11-10 (the designer's `NWalkerProbe` run outside Primm; numbers in the design note): a ray costs about
+5 microseconds, the reference lookup nothing measurable; the collision radius reads 20.3 units, so the grid's cell is
+20 units; reference, layer and normal of a hit all read correctly. With that, 50 m x 50 m is 153,000 rays (0.8 s of
+ray time, 13 s at 1 ms a frame), an on-demand search around one obstacle at most a second, and sampling ahead of a
+walking player about 1 ms a frame. Cost no longer argues against any stage.
+
 Still needed before the designer can decide:
-1. Run `NWalkerProbe` in Primm and in an interior and copy the five "microseconds each" lines into the cost table of
-   the design note (this is check 3 of todo 48).
-2. From the same log: the "character controller" line (the collision radius sets the grid's cell size) and the
-   LINEOFSIGHT against CHARCONTROLLER lines at a fence or window (which layer the grid would cast as).
-3. The Primm test of todo 48: does one waypoint get her round the car?
+1. The Primm test of todo 48: does one waypoint get her round the car? That decides whether stage 2 is needed.
+2. The same probe once in an interior, and at a fence or window (which layer the grid would cast as).
 
 Decisions for the designer: the three at the end of the design note.

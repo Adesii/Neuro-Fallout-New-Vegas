@@ -1,8 +1,8 @@
 # Custom navigation grid from raycasts (todo 45): evaluation
 
-Written 2026-11-10. Nothing was measured in the game: the cost numbers this evaluation needs come from the
-`NWalkerProbe` console command built with todo 48, and the table in "Cost" is waiting for them. Everything else is
-answered from the sources and from the ray counts of the sweep that todo 48 already uses.
+Written 2026-11-10. The cost of a ray was measured in game the same day with `NWalkerProbe` (four spots outside
+Primm); an interior has not been measured. Everything else is answered from the sources and from the ray counts of the
+sweep that todo 48 already uses.
 
 ## Recommendation
 
@@ -20,49 +20,49 @@ Do not build the full grid yet. Build it in stages, and only as far as the game 
 
 Reasons: the one failure seen so far is an object standing on a good route, which stage 1 targets directly; a ray
 cannot tell everything the grid would need (see "What a ray can tell"), so the grid's quality is unknown until the
-sweep has been watched in game; and a saved grid goes stale in ways that are hard to detect.
+sweep has been watched in game; and a saved grid goes stale in ways that are hard to detect. Cost is not among the
+reasons any more: at the measured 5 microseconds a ray every stage is affordable.
 
 ## 1. Cost
 
-What the game can afford per frame is one number: the cost of a ray. Run `NWalkerProbe` (optionally with a ray count,
-default 2000) in Primm and in an interior and fill in:
+Measured (2026-11-10, exterior, rays cast as LINEOFSIGHT, 2000 rays per line, four runs):
 
-| Ray | Microseconds each (Primm) | (interior) |
+| Ray | Microseconds each (outside Primm) | (interior) |
 | --- | --- | --- |
-| 60 units, chest height | to measure | to measure |
-| 400 units, chest height | to measure | to measure |
-| 3500 units, chest height | to measure | to measure |
-| 180 units down | to measure | to measure |
-| 400 units with reference lookup | to measure | to measure |
+| 60 units, chest height | 3.7 to 4.0 | to measure |
+| 400 units, chest height | 4.6 to 5.9 | to measure |
+| 3500 units, chest height | 5.7 to 9.5 | to measure |
+| 180 units down | 4.5 to 5.7 | to measure |
+| 400 units with reference lookup | 4.6 to 6.0 | to measure |
 
-The grid's rays are the short ones (a floor ray and rays to the neighbours), so the first and fourth rows decide.
+The grid's rays are the short ones, so about 5 microseconds a ray, or 200 rays for 1 ms of a frame. Finding the
+reference behind a hit costs nothing measurable, so every sample can say what it hit.
 
-Ray counts, independent of that number. With a cell of 32 units (0.46 m; see "Resolution"):
+Ray counts, with a cell of 20 units (0.29 m; see "Resolution"):
 
-| What | Cells | Rays per cell | Rays |
-| --- | --- | --- | --- |
-| 50 m x 50 m, every cell, 4 neighbours | 12,000 | 5 (1 floor, 2 heights to 2 neighbours) | 60,000 |
-| The same with diagonals sampled | 12,000 | 9 | 108,000 |
-| The same with todo 48's sweep per edge (its own floor samples, 3 rays wide) | 12,000 | 32 | 384,000 |
-| On-demand search around one obstacle (stage 2), 300 to 1500 cells reached | 300 to 1,500 | 5 to 9 | 1,500 to 13,500 |
+| What | Cells | Rays per cell | Rays | Ray time in all |
+| --- | --- | --- | --- | --- |
+| 50 m x 50 m, every cell, 4 neighbours | 30,600 | 5 (1 floor, 2 heights to 2 neighbours) | 153,000 | 0.8 s |
+| The same with diagonals sampled | 30,600 | 9 | 276,000 | 1.4 s |
+| On-demand search around one obstacle (stage 2), 800 to 4000 cells reached | 800 to 4,000 | 5 to 9 | 4,000 to 36,000 | 0.02 to 0.18 s |
 
-At a budget of B rays a frame and 60 frames a second:
+Spread over frames at 60 frames a second:
 
-- 50 m x 50 m at 5 rays a cell takes 60,000 / (60 x B) seconds: 5 s at 200 rays a frame, 2 s at 500.
-- An on-demand search takes 5 to 45 frames at 300 rays a frame (todo 48's budget), under a second.
+- 50 m x 50 m at 5 rays a cell: 13 s at 200 rays a frame (1 ms), 5 s at 500 rays a frame (2.5 ms).
+- An on-demand search: 7 to 60 frames at 600 rays a frame (3 ms), so at most a second, usually a fraction of one.
 - Keeping a 50 m wide strip sampled ahead of a walking player needs about speed x 50 m of new ground a second. At
-  4 m/s (an assumption; the run speed was not read) that is 950 cells or 4,750 rays a second, about 80 rays a frame.
+  4 m/s (an assumption; the run speed was not read) that is 2,450 cells or 12,250 rays a second: about 200 rays or
+  1 ms a frame.
 
-Frame time is B x the measured cost. If a short ray costs 5 microseconds, 200 rays are 1 ms; at 20 microseconds they
-are 4 ms. So "builds itself while playing" is affordable if a short ray is around 10 microseconds or less, and the
-on-demand search is affordable almost regardless.
+So "builds itself while playing" costs about 1 ms a frame while she walks into new ground and nothing while she
+stands or walks known ground, and the on-demand search is cheap. The numbers are from one exterior on the designer's
+machine; a dense interior should be measured before stage 3.
 
 ### Resolution
 
 The cell must not be larger than the player's collision radius, or a gap one cell wide could be narrower than the
-player. The radius is not known from two sources: JIP-LN-NVSE names `bhkCharacterController::shapeRadius` (0x5F8), and
-`NWalkerProbe` logs it. 32 units is a placeholder until that line has been read in game. Halving the cell quadruples
-every number above.
+player. The radius reads 20.3 units in game (`WorldUtils::PlayerCollisionShape`; the height reads exactly 128, which
+backs the offset), so the cell is 20 units. Halving the cell quadruples every number above.
 
 ## 2. What a ray can tell
 
@@ -70,9 +70,11 @@ Source-backed (details and sources in `raycast-path-detours.md` and at `WorldUti
 
 - A ray straight down gives the floor height, and with it the step between two neighbours (rise, drop, slope).
 - A horizontal ray between two neighbours at knee and chest height gives blocking.
-- A hit names the reference behind it and its collision layer. So a door can be marked as a door, an actor ignored,
-  and a hit on something movable (layers CLUTTER, PROPS, DEBRIS) kept apart from a hit on a static or the terrain.
-- The surface normal is in the payload (one source, itr-nvse), which would give the slope without a second ray.
+- A hit names the reference behind it and its collision layer (both confirmed in game). So a door can be marked as a
+  door, an actor ignored, and a hit on something movable (layers CLUTTER, PROPS, DEBRIS) kept apart from a hit on a
+  static or the terrain (the landscape reports layer GROUND and no reference).
+- The surface normal is in the payload and reads as a unit vector matching the surface (confirmed in game), which
+  gives the slope without a second ray.
 
 Limits:
 
@@ -81,9 +83,10 @@ Limits:
   more heights reduce this and cost rays.
 - Havok can sweep a whole shape along a line, which would answer "can the capsule move from here to there" exactly.
   No reference documents an engine function for it, so it is not available without new reverse engineering.
-- Which layer to cast as is open. LINEOFSIGHT is known to work but lets vision-transparent things through (glass,
-  chain-link). CHARCONTROLLER should match what the player collides with; whether a ray can be cast as it is a
-  measurement (`NWalkerProbe` prints both side by side).
+- Which layer to cast as is open. In game, rays cast as LINEOFSIGHT and CHARCONTROLLER hit the same statics, terrain
+  and NPC; they have not been compared at glass, chain-link or clutter, where they could differ. Cast as PATHPICK a
+  ray goes through actors, which a grid wants (an actor must never mark a cell blocked); what else it goes through is
+  not known.
 - Water, trigger volumes and scripted blockers (collision that appears with a quest stage) are invisible or change
   without notice.
 
@@ -91,10 +94,10 @@ Limits:
 
 - **Key:** worldspace form ID plus exterior cell coordinates, or the interior cell's form ID. One file per cell under
   the plugin's own folder next to the DLL, written when the cell unloads.
-- **Layout:** a cell is 4096 units, so 128 x 128 columns at 32 units. A column holds one entry per floor level
-  (buildings and bridges have several): height (16 bits), edge bits (8), flags (8). About 64 KB a cell and level
-  before compression, mostly runs of the same value. A whole playthrough's visited cells would be in the tens of
-  megabytes uncompressed.
+- **Layout:** a cell is 4096 units, so 205 x 205 columns at 20 units. A column holds one entry per floor level
+  (buildings and bridges have several): height (16 bits), edge bits (8), flags (8). About 170 KB a cell and level
+  before compression, mostly runs of the same value. A whole playthrough's visited cells would be around a hundred
+  megabytes uncompressed, so compression is not optional.
 - **Stale data:** a header with the format version and a hash of the load order catches a changed mod list. It does
   not catch a mod updated in place, a quest that enabled or disabled an object, or a door. The answer is not a better
   fingerprint but to treat the file as a hint: the live sweep of todo 48 still runs along every route, a stored free
@@ -151,5 +154,5 @@ gives up the navmesh's knowledge of doors.
 ## Decisions for the designer
 
 1. After the Primm test of todo 48: is the one-waypoint detour enough for now, or go to stage 2?
-2. With the measured cost: is 1 ms a frame acceptable for sampling during a walk? That sets the ray budget.
+2. Is 1 ms a frame (200 rays) acceptable for sampling during a walk, and 3 ms for the few frames of a search?
 3. Should a saved grid (stage 3) exist at all, given that Neuro's playthrough visits most places once?
