@@ -155,3 +155,46 @@ or a kerb she can walk up (then the 28-unit limit is too low).
 
 Still to run: checks 1 (the car), 2 (door, fence or window, bush, railed fence, clutter; also compare the PATHPICK
 lines), an interior for the cost, and all of 4 to 13 (the detour itself).
+
+## Playtest 2026-11-10: the Primm car, and rerouting
+
+Designer's result: the detour did not help at the car. The side-step put the player against it (the first probe of
+the measurement run was taken there). The car fills the only way through at that point; the other ways into Primm are
+under the bridge and round, or over the bridge, both much longer on the navmesh, so the pathfinder keeps routing
+through the car. A side-step works for an object one can walk around, not for this.
+
+Built in answer (details and the evidence from the game executable in the design note):
+- **Rerouting through the pathfinder.** The engine's path requests take "avoid nodes" that multiply the cost of the
+  navmesh triangles they cover. `Pathing::BuildPath` now passes them. A blocked spot the Walker cannot pass becomes
+  two spheres on the centres of the navmesh triangles under the obstacle, cost 1000.
+- **When:** the search for a side-step finds nothing; the route is blocked again at a spot already side-stepped; she
+  gets stuck near a spot the check saw blocked; or she gets stuck for the third time in a row anywhere (then the place
+  right ahead of her). `PathProbe::BlockMemory`, two new host tests.
+- **Kept** for later walks in the same interior or worldspace (six spots at most), forgotten on leaving it or on a
+  load.
+- **Progress stall:** once a spot is avoided it measures the length of the pathfinder's route, not the straight
+  distance, and starts over when the route changes, so the long way round does not fail with "never got closer".
+- `NWalkerDetour 3`: no side-step, every blocked spot goes to the pathfinder at once.
+- Overlay: a red cross and tall pole on each avoided centre. Log: `Walker reroute: ...` lines.
+
+Choices made without asking (say if any is wrong): the spots outlive the walk; getting stuck three times in a row
+anywhere also counts (only while `NWalkerDetour` is on); the progress stall changes its measure as described.
+
+Checks run: `bash tools/test.sh` (365 pass), `clang-format`, the Debug DLL builds (only the old warnings in
+`NeuroSDK.cpp`). Not run in the game.
+
+Unverified: that the search this project calls honours the avoid nodes the way the disassembled cost function
+suggests; that the bridge route lies within what the pathfinder can search from there; the radius (150 / 350), the
+cost (1000) and the two sample distances (40, 120).
+
+### In-game checks for the rerouting
+With `NWalkerDebug 1 1`:
+1. `NWalkerDetour 1`, walk to the waypoint behind the car. Expected: one side-step, then `Walker reroute: the
+   pathfinder is to avoid ...`, a red cross at the car, `the route to ... is now N m long (was M m)`, and she goes by
+   the bridge. It must not end with "never got meaningfully closer" on the way.
+2. From a fresh load, `NWalkerDetour 3`, same walk: the reroute about 5 m before the car, no side-step.
+3. `is still N m long` in the log means the pathfinder did not react: send the reroute lines and the `Walker debug
+   route` lines around them.
+4. A second walk to the same place without loading: avoids the car from the start.
+5. After loading: the first walk goes up to the car again.
+6. A blocked route with no other way: she still walks up to it as before.

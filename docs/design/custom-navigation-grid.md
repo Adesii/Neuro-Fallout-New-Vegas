@@ -6,22 +6,26 @@ sweep that todo 48 already uses.
 
 ## Recommendation
 
-Do not build the full grid yet. Build it in stages, and only as far as the game shows is needed:
+Do not build the grid. The Primm car, which started this, turned out not to be a local problem: it fills the only way
+through, and the next way in is over a bridge far off. A grid around the obstacle (stage 2 below) cannot find that;
+only a route search that knows the whole area can. The engine's pathfinder is that search, and it accepts "avoid
+nodes" that make it route around a place (see `raycast-path-detours.md`, "The Primm car test and rerouting"). That is
+now built on top of todo 48 and is the thing to test next.
 
-1. **Now (done, todo 48):** the ray sweep along the navmesh route and a one-waypoint detour. Test it at the Primm car.
-2. **If obstacles remain that one waypoint cannot get around** (a car against a fence, a U-shaped barricade): a small
-   grid built on demand around the blocked spot, searched with A*, sampling a cell only when the search reaches it.
-   Nothing is saved, nothing is sampled ahead of time. This replaces step 3 of todo 48 (the twelve fixed points) and
-   keeps everything else.
+The stages, in the order they would make sense if the rerouting is not enough:
+
+1. **Done (todo 48):** the ray sweep along the navmesh route, a one-waypoint side-step, and rerouting through the
+   pathfinder for spots the side-step cannot pass.
+2. **If obstacles remain where the navmesh has no other way but a walkable gap exists off the navmesh:** a small grid
+   built on demand around the blocked spot, searched with A*, sampling a cell only when the search reaches it.
 3. **Only if stage 2 is too slow or too forgetful in practice:** keep the sampled cells in memory while the area is
    loaded, then save them per cell.
 4. **Not recommended at all:** the grid alone for short walks, or a grid that samples everything around the player
    all the time. The navmesh stays the long-range route in every stage.
 
-Reasons: the one failure seen so far is an object standing on a good route, which stage 1 targets directly; a ray
-cannot tell everything the grid would need (see "What a ray can tell"), so the grid's quality is unknown until the
-sweep has been watched in game; and a saved grid goes stale in ways that are hard to detect. Cost is not among the
-reasons any more: at the measured 5 microseconds a ray every stage is affordable.
+Cost does not argue against any stage (5 microseconds a ray, see below). What argues against the grid is that it
+solves a case that has not been seen yet, that a ray cannot tell everything the grid would need (see "What a ray can
+tell"), and that a saved grid goes stale in ways that are hard to detect.
 
 ## 1. Cost
 
@@ -153,6 +157,6 @@ gives up the navmesh's knowledge of doors.
 
 ## Decisions for the designer
 
-1. After the Primm test of todo 48: is the one-waypoint detour enough for now, or go to stage 2?
+1. After the test of the rerouting at the Primm car: does anything remain that needs stage 2?
 2. Is 1 ms a frame (200 rays) acceptable for sampling during a walk, and 3 ms for the few frames of a search?
 3. Should a saved grid (stage 3) exist at all, given that Neuro's playthrough visits most places once?

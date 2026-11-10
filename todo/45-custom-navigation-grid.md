@@ -1,6 +1,6 @@
 # 45 - Custom navigation grid from raycasts, with A* (evaluation)
 
-Status: open (evaluation written and ray cost measured 2026-11-10; waiting for the todo 48 test and the designer's decision)
+Status: open (evaluated 2026-11-10; recommendation: do not build, rerouting in todo 48 covers the Primm car; designer's decision pending)
 Area: Walker / pathing (`src/Movement/`, `src/WalkerHandler.cpp`, `src/itr/` pathing)
 Source: designer, 2026-11-07
 Related: `to_verify/43-walker-debug-path-overlay.md` (find out first why the navmesh route fails),
@@ -73,3 +73,10 @@ Still needed before the designer can decide:
 2. The same probe once in an interior, and at a fence or window (which layer the grid would cast as).
 
 Decisions for the designer: the three at the end of the design note.
+
+## After the Primm car test (2026-11-10)
+
+The designer's test showed the car fills the only way through; the other ways into Primm are far off. A grid around
+the obstacle would not have found them either. The answer built instead is rerouting through the engine pathfinder's
+avoid nodes (todo 48, design note "The Primm car test and rerouting"). The recommendation is now: do not build the
+grid unless a case turns up where the navmesh has no other way but a walkable gap exists off the navmesh.

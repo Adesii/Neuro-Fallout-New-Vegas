@@ -54,6 +54,52 @@ Log, at every log level: one line when a detour starts (what blocked the path, h
 rays), one when it ends (why), one per route when no way round was found (how many points failed on which test), and
 at the end of each walk the rays cast, the time they took in all and the worst frame.
 
+## The Primm car test and rerouting (2026-11-10)
+
+The designer ran the detour at the Primm car. It did not help: the side-step put the player against the car. The car
+does not stand on an open route, it fills the only way through at that point. The other ways into Primm are under the
+bridge and round, or up and over the bridge, both much longer on the navmesh, so the pathfinder keeps choosing the way
+through the car. No point beside the obstacle can fix that; the pathfinder itself has to be sent another way.
+
+The engine has this built in. A path request carries a list of "avoid nodes", and the search multiplies the cost of
+the navmesh triangles they cover. The engine uses them to path NPCs around each other. Read from FalloutNV.exe
+1.4.0.525 itself (disassembly), and matching JohnnyGuitarNVSE's `PathingAvoidNode.hpp` / `PathingRequest.hpp` and
+JIP-LN-NVSE's `avoidNodeArray // 94`:
+
+- The seventh argument of the request builder this project already calls (0x9DBC90, so far always null) is stored as
+  the request's avoid node array (`PathingRequest::SetAvoidNodeArray` 0x6D61E0, a reference-counted pointer at
+  request+0x94; the request's destructor releases it).
+- The engine builds one with its allocator (0xAA13E0, 0x18 bytes), the constructor 0x6E3850 and an append (0x905450)
+  that copies 0x24 bytes per node: point, second point, radius, cost, type.
+- For a sphere (type 0) the search multiplies a triangle's cost by 1 + cost x (1 - d^2 / r^2), where d is the distance
+  from the node to the triangle's centre (0x6DC780, used from the search at 0x6A74C8). The engine's own nodes have
+  cost 2.0. Only the triangle's centre is tested, so a sphere that misses the centre does nothing.
+
+What was built on it:
+
+- `Pathing::BuildPath` takes a list of spheres and hands them to the request.
+- A blocked spot becomes two spheres, sampled 40 and 120 units past the blocked spot along the route: each on the
+  centre of the navmesh triangle under the sample (radius 150), or on the sample itself with radius 350 when no
+  triangle is found there. Cost 1000: the way through stays possible when it is the only one and loses to any other
+  way within a few kilometres.
+- When a spot is given to the pathfinder (`PathProbe::BlockMemory`, host-tested):
+  1. the search for a side-step finds nothing;
+  2. the route is blocked again within 150 units of a spot that was already side-stepped on this walk;
+  3. she gets stuck within 250 units of a spot the path check saw blocked;
+  4. she gets stuck for the third time in a row anywhere (then the place right ahead of her is given).
+- The spots are kept for later walks in the same interior or worldspace (six at most, the oldest dropped) and
+  forgotten on leaving it and on a load. So the second walk past the car takes the other way from the start.
+- Once any spot is avoided, the progress stall measures the length of the pathfinder's route instead of the straight
+  distance, and starts over when the route changes: the way over the bridge leads away from the target for a while.
+- `NWalkerDetour 3` skips the side-step and gives every blocked spot to the pathfinder at once, to test this alone.
+- Log: `Walker reroute: the pathfinder is to avoid (x, y, z) ...` with the reason, then `the route to X is now N m
+  long (was M m)`, or `is still N m long` when nothing changed. Overlay: a red cross and tall pole on each avoided
+  centre.
+
+Not known until it runs: whether the search this project calls (`PathManager::Solve`, 0x6D0900, a standard request)
+uses the cost function that was read; whether the bridge route is found within the cells that are loaded; whether one
+triangle under the car is enough; whether cost 1000 is in a sensible range.
+
 ## Measured in game (2026-11-10)
 
 The designer ran `NWalkerProbe` four times outside Primm (cells 000E1A0D, 000E1A14, 000E1A15), rays cast as
@@ -163,7 +209,9 @@ walk to ..." line after each walk gives the real total and the worst frame. An i
 
 ### 5. Failure cases
 
-- Both sides blocked, a wall across the route, a point off the navmesh: no detour, the walk goes on as before.
+- Both sides blocked, a wall across the route, a point off the navmesh: no side-step; the spot goes to the pathfinder
+  to route around (see "The Primm car test and rerouting"). If the pathfinder has no other way, the walk goes on as
+  before.
 - A ledge beside the obstacle: a line that crosses a drop of more than 60 units is not free, so a detour never leads
   off an edge. A drop on the pathfinder's own route is left alone (it may mean to jump down).
 - Narrow corridors: the nearest point is 80 units to the side and needs 20 more for the side ray, so in a corridor
@@ -175,10 +223,11 @@ walk to ..." line after each walk gives the real total and the worst frame. An i
 
 ### 6. Does this remove the need for todo 45?
 
-For what has been seen (one object standing on an otherwise good route): probably yes, if the Primm car check passes.
-It does not handle obstacles that need more than one turn (a car against a fence, a U-shaped barricade), areas where
-the navmesh itself is missing or wrong, or anything that reaches more than 6 m to both sides. Those are what a grid would add; see
-`custom-navigation-grid.md`, which recommends building on this sweep and deciding after the Primm test.
+The Primm car turned out not to be a local problem (see above), and a grid around the obstacle would not have solved
+it either: the way round is over a bridge far off. Rerouting through the pathfinder's avoid nodes is aimed at exactly
+that and also covers the cases a side-step cannot (a car against a fence, a U-shaped barricade), as long as the
+navmesh has another way. What neither does: areas where the navmesh itself is missing. See
+`custom-navigation-grid.md`.
 
 ## Numbers that are estimates
 
@@ -222,6 +271,20 @@ Measurements (first run done 2026-11-10; what is left):
    rails, loose clutter. Compare the LINEOFSIGHT, CHARCONTROLLER and PATHPICK lines.
 4. Once inside a building, for the cost in an interior.
 
+The rerouting (the Primm car), with `NWalkerDebug 1 1` so the route lines are in the log:
+
+- `NWalkerDetour 1`, then the walk to the waypoint behind the car. Expected: one side-step, then `Walker reroute: the
+  pathfinder is to avoid ...` (a red cross on the ground at the car), `the route to ... is now N m long (was M m)`,
+  and she turns and goes by the bridge or under it. The walk must not end with "never got meaningfully closer" on
+  the way.
+- `NWalkerDetour 3`, same walk from a fresh load: the reroute line appears about 5 m before the car, no side-step.
+- If the log says `is still N m long`: the pathfinder did not react. Send the reroute lines and the `Walker debug
+  route` lines around them.
+- A second walk to the same place without loading: the route avoids the car from the start.
+- After loading the save: the first walk goes to the car again (the spots are forgotten).
+- A route that is blocked with no other way (a closed gate with one entrance): she must still walk up to it as
+  before, not stand still.
+
 Then the detour:
 
 5. `NWalkerDetour 1` and the Primm walk through the car. Expected: red rays and pole at the car before she reaches
@@ -242,6 +305,8 @@ Then the detour:
 
 ## Unverified
 
+- Everything under "Not known until it runs" in the rerouting section, and its four numbers (samples 40 and 120,
+  radius 150 / 350, cost 1000).
 - Everything under "Still not known" above.
 - The rise limit of 28 units per 20 (see the open point of the measured run).
 - That steering straight at the waypoint works as well as following path nodes (same movement code, different point).
