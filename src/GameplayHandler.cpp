@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -76,6 +77,7 @@ struct QuestEntry : QuestSelection {
   float doorDistance = -1.0f;
   bool hasDoor = false;
   std::string destinationName;
+  int rank = 1; // Quests::CategoryRank of the quest
 };
 
 struct ObjectEntry : ObjectSelection {
@@ -143,6 +145,30 @@ std::string QuestName(TESQuest *quest) {
   if (name && name[0])
     return name;
   return quest ? "Quest " + std::to_string(quest->GetFormID()) : "Unknown quest";
+}
+
+// The plugin that defines the quest: the form id's top byte is its load-order index into the data handler's file array
+// (TESDataHandler::pFileArray, JG internal/Game/Bethesda/TESDataHandler.hpp; the same array is JIP GameData.h
+// ModList::loadedMods, read by its GetNthModName). Unverified in game; empty when the index is out of range.
+std::string QuestPluginFile(TESQuest *quest) {
+  auto *data = quest ? TESDataHandler::GetSingleton() : nullptr;
+  if (!data)
+    return {};
+  const uint32_t index = quest->GetFormID() >> 24;
+  if (index >= data->uiCompiledFileCount || index >= std::size(data->pFileArray) || !data->pFileArray[index])
+    return {};
+  const char *name = data->pFileArray[index]->GetName();
+  return name ? name : "";
+}
+
+// TESQuest::editorName (+0x64; vendored and JIP GameForms.h, JG TESQuest.hpp say quest editor IDs are kept in vanilla).
+std::string QuestEditorId(TESQuest *quest) {
+  const char *id = quest ? quest->editorName.c_str() : nullptr;
+  return id ? id : "";
+}
+
+Quests::Category QuestCategory(TESQuest *quest) {
+  return Quests::Classify(QuestPluginFile(quest), QuestEditorId(quest), Quests::MainQuestEditorIds());
 }
 
 std::string ObjectiveText(BGSQuestObjective *objective) {
@@ -391,6 +417,7 @@ void BuildQuestCatalog() {
         (objective->quest->flags & kQuestFlagFinished))
       continue;
     const std::string description = QuestName(objective->quest) + ": " + ObjectiveText(objective);
+    const Quests::Category category = QuestCategory(objective->quest);
     for (auto targetIter = objective->targets.Begin(); !targetIter.End(); ++targetIter) {
       auto *target = targetIter.Get();
       if (!IsUsableTarget(target))
@@ -413,14 +440,15 @@ void BuildQuestCatalog() {
             entry.doorDistance = Distance3D(player->GetPos(), door->GetPos());
         }
       }
+      entry.rank = Quests::CategoryRank(category.kind);
       g_quests.push_back(std::move(entry));
     }
   }
 
   // The same order query_quests shows them in (grouped by quest), so the ids read top to bottom.
   std::sort(g_quests.begin(), g_quests.end(), [](const QuestEntry &left, const QuestEntry &right) {
-    return Quests::ListedBefore({left.priority, left.questFormId, left.objectiveId, left.targetFormId},
-                                {right.priority, right.questFormId, right.objectiveId, right.targetFormId});
+    return Quests::ListedBefore({left.rank, left.priority, left.questFormId, left.objectiveId, left.targetFormId},
+                                {right.rank, right.priority, right.questFormId, right.objectiveId, right.targetFormId});
   });
   for (size_t index = 0; index < g_quests.size(); ++index)
     g_quests[index].id = static_cast<int>(index + 1);
@@ -861,10 +889,24 @@ void QueryQuests() {
   const auto objectiveKey = [](uint32_t questFormId, uint32_t objectiveId) {
     return (static_cast<uint64_t>(questFormId) << 32) | objectiveId;
   };
+  // One category per quest, and one log line per quest so the main-quest editor IDs can be collected in game (todo 04).
+  std::unordered_map<uint32_t, Quests::Category> categories;
+  const auto categoryOf = [&categories](TESQuest *quest) -> const Quests::Category & {
+    const uint32_t formId = quest ? quest->GetFormID() : 0;
+    auto found = categories.find(formId);
+    if (found != categories.end())
+      return found->second;
+    const Quests::Category category = QuestCategory(quest);
+    _DMESSAGE("Quest %08X \"%s\" editor=%s plugin=%s priority=%u category=%s", formId, QuestName(quest).c_str(),
+              QuestEditorId(quest).c_str(), QuestPluginFile(quest).c_str(), quest ? quest->priority : 0u,
+              category.label.c_str());
+    return categories.emplace(formId, category).first->second;
+  };
   for (const auto &entry : g_quests) {
     auto *quest = LookupQuest(entry.questFormId);
-    rows.push_back({{entry.priority, entry.questFormId, entry.objectiveId, entry.targetFormId},
+    rows.push_back({{entry.rank, entry.priority, entry.questFormId, entry.objectiveId, entry.targetFormId},
                     QuestName(quest),
+                    categoryOf(quest).label,
                     ObjectiveText(FindObjective(entry.questFormId, entry.objectiveId)),
                     entry.id,
                     DescribeQuestLocation(entry)});
@@ -883,11 +925,14 @@ void QueryQuests() {
       const uint32_t questFormId = objective->quest->GetFormID();
       if (!listedObjectives.insert(objectiveKey(questFormId, objective->objectiveId)).second)
         continue;
-      rows.push_back({{objective->quest->priority, questFormId, objective->objectiveId, 0},
-                      QuestName(objective->quest),
-                      ObjectiveText(objective),
-                      0,
-                      {}});
+      const Quests::Category &category = categoryOf(objective->quest);
+      rows.push_back(
+          {{Quests::CategoryRank(category.kind), objective->quest->priority, questFormId, objective->objectiveId, 0},
+           QuestName(objective->quest),
+           category.label,
+           ObjectiveText(objective),
+           0,
+           {}});
     }
   }
 
