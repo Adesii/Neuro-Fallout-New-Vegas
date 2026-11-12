@@ -150,8 +150,8 @@ Changed in answer: the Walker no longer guesses which triangles an obstacle cove
   ground that is already marked, which means it has no other way.
 - **No other way fails the walk at once** with a new reason: "the way there is blocked (by NAME) and no way around it
   was found". Before, she would walk into the obstacle and fail as stuck half a minute later.
-- Only an obstacle counts in the loop, not a rise: the limit for a rise is a guess, and marking a route off because
-  of a kerb would lose it.
+- The loop and the regular check use one test for "blocked" (`RouteBlocked`: an obstacle or a rise). At first the
+  loop ignored rises; see the third run.
 - The bounds-based marking and its helpers are gone. Marked triangles are still kept for later walks in the same
   worldspace, so a second attempt fails or reroutes immediately.
 - Log, always: `Walker reroute: asking the pathfinder for another way ...`, then either `after N tries and M navmesh
@@ -160,6 +160,26 @@ Changed in answer: the Walker no longer guesses which triangles an obstacle cove
 
 Unverified: that the pathfinder has the way over the bridge within reach at all. If it has not, the result is the
 quick "blocked" failure, which is correct but does not get her into Primm.
+
+### Third run (2026-11-12): a loop, and why the pathfinder does not see the underpass
+
+- **Loop.** The route was blocked by a rise (the low end of a wreck, 42 and 47 units). The regular check counts a
+  rise as blocked; the reroute loop did not, so it called the route free at once, the check called it blocked again,
+  and the two restarted each other every frame while she stood still, until the designer moved her. Fixed: both use
+  `RouteBlocked`. As a guard against any other disagreement, a reroute started four times in a row within 100 units
+  fails the walk as blocked.
+- **Once she was moved,** the loop worked as designed: two tries, four triangles marked, a third route that went
+  through marked ground, "no other way", and the walk failed as blocked within a frame.
+- **Why there is no other way from there.** The designer's later walks show it. From the low ground west of the
+  highway two cells further south the pathfinder finds the way at once: south, through the underpass at about
+  y = -57770, and back north on the Primm side. From the wrecks (y about -49100) that underpass is three exterior
+  cells south. With the usual five-by-five cells loaded around the player it is one row outside what is loaded, so
+  its navmesh does not exist for the pathfinder and every route it can build to the Primm side goes down the highway
+  through the wrecks. This is read from the routes in the log; the size of the loaded grid was not read from the
+  game.
+- So at the wrecks the correct answer of everything built so far is "blocked, no way found in the loaded area", and
+  she now gets it within about five seconds instead of looping or walking into the wrecks. Getting to Primm from
+  there needs a decision about what she should do when the loaded area has no way: see the todo file.
 
 ## Measured in game (2026-11-10)
 

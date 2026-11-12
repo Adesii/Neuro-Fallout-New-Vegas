@@ -126,6 +126,8 @@ constexpr size_t kAvoidMaxSpheres = 160;
 constexpr float kRerouteProveDistance = 1500.0f; // a route must be free this far ahead to be taken
 constexpr int kRerouteMaxTries = 40;
 constexpr int kRerouteTriesPerFrame = 2;
+constexpr float kRerouteSamePlace = 100.0f; // reroutes started this close together count as the same attempt,
+constexpr int kRerouteMaxRepeats = 3;       // and after this many of them the walk fails as blocked
 
 // The navigation grid (todo 45, src/Movement/NavGrid.*), the normal way round a blocked route. It is searched for a
 // way from where she stands to the point of the route this far beyond the blocked spot; at most this many rays a
@@ -187,6 +189,7 @@ struct Reroute {
   int tries = 0;
   int marked = 0;
   float lengthBefore = -1.0f;
+  int repeats = 0; // how many reroutes were started at about this place just before this one
   std::string why;
   std::string blocker; // the name of what blocks, for Neuro; empty when it has none
 };
@@ -254,6 +257,8 @@ struct WalkerState {
   // the last spot was given to it to avoid (to say what the rerouting did).
   float routeLength = -1.0f;
   Reroute reroute;
+  NiPoint3 rerouteAt = {0.0f, 0.0f, 0.0f}; // where the last reroute was started, and how many in a row there
+  int rerouteCount = 0;
   bool progressAlongRoute = false; // what the progress stall last measured: the route's length or the straight line
   // A search on the navigation grid for a way round `searchBlock`, its goal, and whether the detour being walked
   // came from the grid.
@@ -373,6 +378,7 @@ void ResetRouteState() {
   g_state.hasLastBlock = false;
   g_state.routeLength = -1.0f;
   g_state.reroute = {};
+  g_state.rerouteCount = 0;
   g_state.progressAlongRoute = false;
   g_state.gridSearch.Reset();
   g_state.detourFromGrid = false;
@@ -788,6 +794,16 @@ std::vector<PathProbe::Point3> ProbePath(const NiPoint3 &playerPosition, const N
   return PathProbe::TrimEnd(std::move(path), kInteractionDistance);
 }
 
+// The one test for "this route is blocked", shared by the regular check and the rerouting. They must agree: when the
+// rerouting called a route free that the check called blocked (it ignored rises), the two started each other every
+// frame and she stood still for ever (2026-11-12). A drop on the pathfinder's own route is its business (it may mean
+// to jump down) and a door is opened by the stuck recovery, so neither blocks. Nor does anything within reach of the
+// end of the route: that is the target's own surroundings.
+bool RouteBlocked(const PathProbe::SweepResult &ahead, const std::vector<PathProbe::Point3> &path) {
+  const bool inTheWay = ahead.blocker == PathProbe::Blocker::Obstacle || ahead.blocker == PathProbe::Blocker::Rise;
+  return inTheWay && PathProbe::PathLength(path) - ahead.clearDistance >= kProbeMinOnward;
+}
+
 // Marks the navmesh triangles the route runs through just past the place where it is blocked, `clearDistance` along
 // `path`. Returns how many were not marked before: none means the pathfinder went through marked ground again.
 int AvoidRouteTriangles(PlayerCharacter *player, const std::vector<PathProbe::Point3> &path, float clearDistance) {
@@ -823,7 +839,17 @@ void StartReroute(const char *why) {
   if (g_state.reroute.active)
     return;
   EndDetour(PathProbe::DetourTracker::End::Abandoned);
+  // How often in a row it was started at about the same place: more than a few means it is not helping.
+  int repeats = 0;
+  if (auto *player = PlayerCharacter::GetSingleton()) {
+    const NiPoint3 here = player->GetPos();
+    if (g_state.rerouteCount > 0 && Math::GetDistance2D(here, g_state.rerouteAt) <= kRerouteSamePlace)
+      repeats = g_state.rerouteCount;
+    g_state.rerouteAt = here;
+    g_state.rerouteCount = repeats + 1;
+  }
   g_state.reroute = {};
+  g_state.reroute.repeats = repeats;
   g_state.reroute.active = true;
   g_state.reroute.lengthBefore = g_state.routeLength;
   g_state.reroute.why = why;
@@ -847,12 +873,21 @@ bool StepReroute(PlayerCharacter *player, const NiPoint3 &playerPosition, const 
                                                               WalkerOverlay::Enabled() ? &trace : nullptr);
     if (WalkerOverlay::Enabled())
       g_debug.view.probe.rays = std::move(trace.rays);
-    // Only something standing in the way counts here. A rise is left to the walk itself: the limit for one is a
-    // guess, and a route marked off because of a kerb she could have stepped up would be lost for good.
-    const bool blocked =
-        ahead.blocker == Blocker::Obstacle && PathProbe::PathLength(path) - ahead.clearDistance >= kProbeMinOnward;
-    if (!blocked || g_state.routeNodes.empty()) {
-      // Free as far as it was checked (or the pathfinder has no route at all, and there is nothing to reroute).
+    const bool blocked = RouteBlocked(ahead, path);
+    if (reroute.repeats >= kRerouteMaxRepeats || (blocked && g_state.routeNodes.empty())) {
+      // It was asked at this place several times already and she is still here (whatever it answered did not get
+      // her past, or the check and this loop disagree about what blocks), or there is nothing to ask: the pathfinder
+      // has no route at all and the straight line she steers along is blocked. Give up rather than go round in
+      // circles.
+      _MESSAGE("Walker reroute: no other way to %s: %s", g_state.command.description.c_str(),
+               g_state.routeNodes.empty() ? "the pathfinder has no route and the straight line is blocked"
+                                          : "asked here repeatedly without getting past");
+      const std::string blocker = reroute.blocker;
+      FinishFailed(player, WalkerLogic::FailureReason::Blocked, blocker);
+      return false;
+    }
+    if (!blocked) {
+      // Free as far as it was checked.
       _MESSAGE("Walker reroute: after %d tries and %d navmesh triangles avoided the route to %s is free for the next "
                "%.0f m; it is %.0f m long (was %.0f m)",
                reroute.tries, reroute.marked, g_state.command.description.c_str(), Units::ToMeters(ahead.clearDistance),
@@ -1052,7 +1087,7 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
     account();
     if (debug)
       g_debug.view.probe.rays = std::move(trace.rays);
-    if (ahead.blocker != Blocker::Obstacle && ahead.blocker != Blocker::Rise)
+    if (ahead.blocker != Blocker::Obstacle && ahead.blocker != Blocker::Rise) // wider rays, so not RouteBlocked
       EndDetour(DetourTracker::End::PathClear);
     else
       g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY, ahead.hit.formId};
@@ -1080,7 +1115,7 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
       PathProbe::SweepPath(world, path, kProbeLookAhead, settings, 0.0f, debug ? &trace : nullptr);
   // A drop on the pathfinder's own route is its business (it may mean to jump down); a door is opened by the stuck
   // recovery, not walked around.
-  const bool blocked = ahead.blocker == Blocker::Obstacle || ahead.blocker == Blocker::Rise;
+  const bool blocked = RouteBlocked(ahead, path);
   if (debug) {
     g_debug.view.probe.rays = std::move(trace.rays);
     g_debug.view.probe.hasBlock = blocked;

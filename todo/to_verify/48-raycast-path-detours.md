@@ -243,3 +243,29 @@ To run: nothing to switch on. `NWalkerDebug 1 1`, then the same walk. Expected i
 round`, `Walker reroute: asking the pathfinder ...`, a `try N` line per attempt, then either `the route ... is free
 for the next ... m` with a clearly longer route and she goes another way, or `no other way to ...` and the walk
 fails within a second or two with the "blocked" message. Send the `Walker reroute` lines either way.
+
+## Playtest 2026-11-12 (third run): a loop, and the underpass the pathfinder cannot see
+
+Designer: an endless loop of "0 tries, 0 navmesh" reroute lines until she was moved by hand; and the pathfinder does
+find the way round once she is near the underpass, but not from the wrecks.
+
+From the log:
+- The loop was a bug in the reroute loop of the previous change: it ignored rises, the regular check does not, and
+  this block was a rise (the low end of a wreck). Each called the other every frame. Fixed with one shared test
+  (`RouteBlocked`) and a guard: a reroute started four times in a row at one place fails the walk as blocked.
+- After she was moved the loop ran as designed and failed the walk as blocked: the pathfinder has no other route.
+- The reason is in the later walks: the way round is an underpass about 123 m south of the wrecks, three exterior
+  cells away, one row outside the cells loaded around her. Its navmesh is not there for the pathfinder until she is
+  further south. From the low ground west of the highway, two cells south, the route through it is found at once.
+
+Open question for the designer (not built): what she should do when everything in the loaded area is blocked.
+1. Fail at once with the "blocked" message, as now, and leave it to Neuro.
+2. Head for the navmesh point nearest the target that she can reach with a ray-clear route, in another loaded cell
+   (here: west down the slope), and look again from there; a few such hops, then fail. It would probably solve this
+   place, and it would also send her on long walks to nowhere whenever a target really is cut off.
+3. Read the game's own map of how navmeshes connect across unloaded cells and plan over that. The right tool, and
+   a research task of its own.
+
+Checks: `bash tools/test.sh` (382 pass), the Debug DLL builds. Not run in the game.
+To run: the same walk from the wrecks. Expected: about five seconds of standing (the grid), then a few `Walker
+reroute` lines ending in `no other way to ...`, and the "blocked" message to Neuro. No loop.
