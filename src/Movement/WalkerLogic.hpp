@@ -33,6 +33,26 @@ std::string DescribeFailure(FailureReason reason, const std::string &target, con
 // Silent notice that a walk is on hold. `cause` is a short phrase such as "a menu is open".
 std::string DescribePause(const std::string &target, const std::string &cause);
 
+// --- Quest route interruption (todo 50) -------------------------------------------------------------------------
+
+// What Neuro just started, for one question: does it end the do_current_quest route? The route restarts the walk to
+// the quest target on its own whenever the Walker is free, so anything else she decides to do would only be a detour
+// the route undoes. Designer, 2026-11-12: anything and everything she starts herself interrupts the route (walking
+// somewhere, interacting, exploring, attacking); the route stays off until do_current_quest is called again.
+enum class Command {
+  MoveToObject,
+  InteractWithObject,
+  Explore,
+  Attack,
+  OpenVats,
+  OpenInventory, // a menu on top of the walk: the route waits and carries on afterwards
+  CrouchToggle,  // changes how she walks, not where
+  Query,         // looking around (query_nearby, search_nearby, query_enemies, query_quests)
+};
+bool EndsQuestRoute(Command command);
+// The silent note sent with the interrupting action. `route` is the route's description (quest and objective).
+std::string DescribeRouteInterrupted(const std::string &route);
+
 // --- Stuck detection --------------------------------------------------------------------------------------------
 
 // Stuck means: wanted to move for a full window and covered less than `minDistance` in it. Skyrim's Walker uses 50

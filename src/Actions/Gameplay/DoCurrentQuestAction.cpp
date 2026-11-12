@@ -10,7 +10,8 @@ namespace {
 const Definition kDefinition = {.name = "do_current_quest",
                                 .description =
                                     "Follow the currently selected quest objective, navigating to and interacting with "
-                                    "its target when needed.",
+                                    "its target when needed. Anything else you start (moving, interacting, exploring, "
+                                    "attacking) ends the route; call this again to resume it.",
                                 .schema = {}};
 
 } // namespace

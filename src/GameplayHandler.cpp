@@ -1053,6 +1053,19 @@ bool RevalidateCurrentQuest(const QuestSelection &selection, std::string &error)
   return true;
 }
 
+bool InterruptQuestRoute(WalkerLogic::Command command) {
+  if (!g_currentQuestRoute || !WalkerLogic::EndsQuestRoute(command))
+    return false;
+  const std::string description = g_currentQuestRoute->description;
+  // The route first: ContinueCurrentQuest() would restart the walk to the quest target on the next frame otherwise.
+  ClearCurrentQuestRoute();
+  if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Quest)
+    Walker::Stop(); // releases every held input
+  _MESSAGE("Quest route interrupted by another command (%d): %s", static_cast<int>(command), description.c_str());
+  NeuroSDK::SendContext(WalkerLogic::DescribeRouteInterrupted(description).c_str(), true);
+  return true;
+}
+
 void DoCurrentQuest(const QuestSelection &selection) {
   ClearCurrentQuestRoute();
   g_currentQuestRoute = selection;
@@ -1147,6 +1160,8 @@ void ReportStartFailure(const std::string &what) {
 } // namespace
 
 void StartObjectAction(const ObjectSelection &selection, Walker::Intent intent) {
+  InterruptQuestRoute(intent == Walker::Intent::Interact ? WalkerLogic::Command::InteractWithObject
+                                                         : WalkerLogic::Command::MoveToObject);
   if (!Walker::Start(selection.referenceFormId, intent, Walker::Owner::Object, selection.name))
     ReportStartFailure("moving to " + selection.name);
 }
@@ -1172,6 +1187,7 @@ bool PrepareExploration(ObjectSelection &selection, std::string &error) {
 }
 
 void StartExploration(const ObjectSelection &selection) {
+  InterruptQuestRoute(WalkerLogic::Command::Explore);
   if (!Walker::Start(selection.referenceFormId, Walker::Intent::Move, Walker::Owner::Exploration, selection.name))
     ReportStartFailure("exploring toward " + selection.name);
 }

@@ -2,6 +2,7 @@
 #include "TestFramework.hpp"
 #include <cmath>
 #include <limits>
+#include <string>
 #include <vector>
 
 using namespace WalkerLogic;
@@ -463,4 +464,20 @@ TEST("walker interaction: reset starts over and bad input does not fire") {
   CHECK(gate.Update(std::numeric_limits<float>::quiet_NaN(), false, std::numeric_limits<float>::infinity(), true,
                     false) == InteractionGate::Verdict::Wait);
   CHECK(gate.Update(-1.0f, false, 0.0f, true, false) == InteractionGate::Verdict::Wait);
+}
+
+TEST("quest route: anything Neuro starts herself ends it, looking around and menus do not") {
+  for (auto command :
+       {Command::MoveToObject, Command::InteractWithObject, Command::Explore, Command::Attack, Command::OpenVats})
+    CHECK(EndsQuestRoute(command));
+  for (auto command : {Command::Query, Command::CrouchToggle, Command::OpenInventory})
+    CHECK(!EndsQuestRoute(command));
+}
+
+TEST("quest route: the interruption note names the route and how to resume it") {
+  const std::string note = DescribeRouteInterrupted("Ain't That a Kick in the Head: Talk to Sunny");
+  CHECK(note.find("Ain't That a Kick in the Head: Talk to Sunny") != std::string::npos);
+  CHECK(note.find("do_current_quest") != std::string::npos);
+  CHECK(note.rfind("## ", 0) == 0); // Markdown heading below the top level
+  CHECK(DescribeRouteInterrupted("").find("your quest route") != std::string::npos);
 }

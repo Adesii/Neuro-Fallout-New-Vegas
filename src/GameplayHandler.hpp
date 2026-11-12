@@ -39,6 +39,11 @@ void SelectQuest(const QuestSelection &selection);
 bool PrepareCurrentQuest(QuestSelection &selection, std::string &error);
 bool RevalidateCurrentQuest(const QuestSelection &selection, std::string &error);
 void DoCurrentQuest(const QuestSelection &selection);
+// Neuro started `command` herself. When that ends the do_current_quest route (WalkerLogic::EndsQuestRoute, todo 50)
+// and one is running, the route is cleared, a walk it owns is stopped, and she gets one silent note saying so. The
+// route stays off until do_current_quest is called again. Call it once the command is accepted, before it starts
+// its own walk. True when a route was ended.
+bool InterruptQuestRoute(WalkerLogic::Command command);
 
 // `page` is one-based; an empty `search` lists everything (Nearby::ParseQuery has validated both).
 void QueryNearby(int page, const std::string &search);

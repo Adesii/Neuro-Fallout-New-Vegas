@@ -46,6 +46,27 @@ std::string DescribePause(const std::string &target, const std::string &cause) {
   return "Your walk to " + target + " is on hold: " + cause + ". It continues by itself once that is over.";
 }
 
+bool EndsQuestRoute(Command command) {
+  switch (command) {
+  case Command::MoveToObject:
+  case Command::InteractWithObject:
+  case Command::Explore:
+  case Command::Attack:
+  case Command::OpenVats:
+    return true;
+  case Command::OpenInventory:
+  case Command::CrouchToggle:
+  case Command::Query:
+    return false;
+  }
+  return false;
+}
+
+std::string DescribeRouteInterrupted(const std::string &route) {
+  return "## Quest route\nYou stopped following " + (route.empty() ? std::string("your quest route") : route) +
+         " to do something else. The quest stays selected; call do_current_quest when you want to follow it again.";
+}
+
 std::string DescribeProgress(bool quest, bool exploring, const std::string &target, float walkedDistance,
                              float walkSeconds, float remainingDistance) {
   std::string text = quest       ? "You are still following the quest route: "

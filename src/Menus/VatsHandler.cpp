@@ -508,6 +508,8 @@ Actions::PreparedAction PrepareOpen(std::optional<CombatHandler::TargetSelection
 
   return Actions::PreparedAction::Success(
       [target = std::move(target)]() {
+        // VATS is attacking: like attack, it ends the quest route (todo 50). Another walk only pauses under the menu.
+        GameplayHandler::InterruptQuestRoute(WalkerLogic::Command::OpenVats);
         g_open = std::make_unique<OpenState>();
         g_open->target = target;
         g_open->startedAt = Clock::now();
