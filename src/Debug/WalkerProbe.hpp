@@ -15,12 +15,13 @@ struct NVSEInterface;
 
 namespace WalkerProbe {
 
-// Detours are off until switched on from the console (`NWalkerDetour 1`): nothing of this has run in the game yet.
+// The path check is on unless `NWalkerDetour 0` switched it off.
 bool DetourEnabled();
-// `NWalkerDetour 3`: no side-step; a blocked spot goes straight to the pathfinder as a place to route around.
+// Debugging form `NWalkerDetour 3`: no grid and no side-step; a blocked spot goes straight to the pathfinder as a
+// place to route around.
 bool RerouteOnly();
-// `NWalkerDetour 4`: a blocked route is searched for a way round on the navigation grid (src/Movement/NavGrid.*)
-// instead of with the side-step.
+// The normal form: a blocked route is searched for a way round on the navigation grid (src/Movement/NavGrid.*).
+// False in the debugging forms `NWalkerDetour 2` and `4`, which side-step to a single waypoint instead.
 bool GridEnabled();
 // The collision layer the probe rays are cast as (WorldUtils::Layer); line of sight unless the console changed it.
 uint8_t RayLayer();

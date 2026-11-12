@@ -30,7 +30,8 @@ In the test world: 600 units of open ground 18 cells and 1,150 rays; round a car
 rays (9 frames); out of a U-shaped pocket and round it 290 cells and 18,000 rays (18 frames); a wall with no way
 round the full 4000 cells and 270,000 rays (4.5 s at 60 frames a second, 1.35 s of ray time).
 
-Walker (`NWalkerDetour 4`): when the path check finds the route blocked, the grid is searched for a way from where
+Walker (on by default since 2026-11-12; `NWalkerDetour 0` switches the whole path check off, `NWalkerDetour 2` uses
+the older side-step instead of the grid): when the path check finds the route blocked, the grid is searched for a way from where
 she stands to the point of the route 450 units beyond the blocked spot. She stands still while it searches. The
 route found is walked waypoint by waypoint (skipping one when the next but one can be walked to directly) with the
 same checks as a side-step, and when it is found only part of the way it is walked if it gets well past the near side
@@ -60,7 +61,7 @@ With `NWalkerDebug 1`:
 3. Facing stairs, a slope, a doorway, a narrow gap between two objects: does the route go where you could walk, and
    only there?
 4. `NWalkerGrid 600 8000` at a wall with no way round: note the milliseconds (the worst case).
-5. `NWalkerDetour 4`, then a walk whose route is blocked by something she can walk around off the navmesh. Expected:
+5. A walk whose route is blocked by something she can walk around off the navmesh (no command needed). Expected:
    she stops for a moment, `Walker detour 1 ...: the grid found a way round`, a violet chain of waypoints, she walks
    it without touching the obstacle.
 6. The same at the Primm car: expected `the grid found no way round`, then the reroute lines.

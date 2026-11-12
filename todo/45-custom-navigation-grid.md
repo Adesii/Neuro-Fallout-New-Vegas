@@ -102,3 +102,9 @@ Checks run: `bash tools/test.sh` (383 pass), `clang-format`, the Debug DLL build
 
 In-game checks: the seven in the design note under "In-game checks for the grid". This file stays in `todo/` because
 the task is only partly built.
+
+## On by default (2026-11-12)
+
+The grid is now the normal way round a blocked route and needs no command (the designer wants features on, with a
+switch to turn them off). `NWalkerDetour 0` switches the whole path check off; `NWalkerDetour 2` uses the older
+side-step instead of the grid. "`NWalkerDetour 4`" in the section above is the old number for the grid.

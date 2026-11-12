@@ -215,3 +215,14 @@ To run again: `NWalkerDebug 1 1`, `NWalkerDetour 3`, the same walk. Expected: on
 navmesh triangle(s) ... under the bounds of the object that blocks` with N above 2, red crosses all over the car's
 ground, and a route that no longer passes the car (`is now ... m long`, clearly longer). If it says `under a circle
 around the blocked spot`, the car's bounds could not be read: send the line.
+
+## On by default (2026-11-12)
+
+The designer does not want to enable features through commands: things should work, and a switch should turn them off
+when something goes wrong. The path check is now on from the start in its normal form (grid, then rerouting).
+`NWalkerDetour 0` switches it off until the game is closed, `NWalkerDetour 1` back on. The older forms are for
+debugging: `2` side-step, `3` reroute only, `4` side-step off the navmesh. **The numbers changed**: `4` used to be the
+grid and `2` the side-step off the navmesh; earlier sections of this file use the old numbers.
+
+Checks from here on need no command. When a walk goes wrong, try it again after `NWalkerDetour 0`: if it works then,
+the path check is the cause.

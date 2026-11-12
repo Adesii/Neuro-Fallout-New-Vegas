@@ -30,10 +30,13 @@ namespace {
 
 using PathProbe::Point3;
 
-bool g_detourEnabled = false;
+// On from the start, in its normal form (the grid, then the pathfinder): the designer wants features to work without
+// being switched on, and a switch to turn them off when something goes wrong (2026-11-12). The other forms are for
+// debugging.
+bool g_detourEnabled = true;
 bool g_requireNavmesh = true;
 bool g_rerouteOnly = false;
-bool g_gridEnabled = false;
+bool g_gridEnabled = true;
 uint8_t g_rayLayer = WorldUtils::Layer::kLineOfSight;
 
 // A point counts as on the navmesh when a triangle lies under it within this height (GetPointNavMesh's zLimit).
@@ -191,14 +194,17 @@ std::string DescribeHit(const PathProbe::RayHit &hit) {
   return DescribeReference(hit.formId ? WorldUtils::LookupReference(hit.formId) : nullptr, hit.layer);
 }
 
-// `NWalkerDetour` toggles the detours, `NWalkerDetour 1` / `0` set them, `NWalkerDetour 2` switches them on without
-// requiring the waypoint to be on the navmesh, `NWalkerDetour 3` skips the side-step and hands every blocked spot to
-// the pathfinder at once, `NWalkerDetour 4` looks for the way round on the navigation grid instead of side-stepping. An
-// optional second number is the collision layer the rays are cast as (37 line of sight, the default; 30 character
-// controller; see WorldUtils::Layer). Returns the new state.
-DEFINE_NEURO_COMMAND_PLUGIN(WalkerDetour,
-                            "Walker detours: [0 off/1 side-step/2 same, off navmesh/3 reroute only/4 grid] [ray layer]",
-                            false, kParams_TwoOptionalInts);
+// The path check is on from the start. `NWalkerDetour 0` switches it off (the Walker then follows the navmesh route
+// as it did before todo 48), `NWalkerDetour 1` switches it back on in its normal form: a blocked stretch is walked
+// around on the navigation grid, and failing that the pathfinder is told to route around the obstacle. `NWalkerDetour`
+// alone toggles. The other numbers are for debugging: `2` side-steps to one waypoint instead of using the grid, `3`
+// skips both and hands every blocked spot to the pathfinder at once, `4` is `2` without requiring the waypoint to be
+// on the navmesh. An optional second number is the collision layer the rays are cast as (37 line of sight, the
+// default; 30 character controller; see WorldUtils::Layer). Returns the new state. The setting lasts until the game is
+// closed.
+DEFINE_NEURO_COMMAND_PLUGIN(
+    WalkerDetour, "Walker path check: [0 off/1 on/2 side-step/3 reroute only/4 side-step off navmesh] [layer]", false,
+    kParams_TwoOptionalInts);
 
 bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
   int mode = -1;
@@ -212,17 +218,20 @@ bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
   } else {
     g_detourEnabled = mode != 0;
     if (mode != 0) {
-      g_requireNavmesh = mode != 2;
+      g_gridEnabled = mode == 1;
       g_rerouteOnly = mode == 3;
-      g_gridEnabled = mode == 4;
+      g_requireNavmesh = mode != 4;
     }
   }
   *result = g_detourEnabled ? 1.0 : 0.0;
-  _MESSAGE("Walker detours %s (rays cast as %s, waypoints %s).", g_detourEnabled ? "on" : "off",
-           WorldUtils::LayerName(g_rayLayer), g_requireNavmesh ? "must be on the navmesh" : "may be off the navmesh");
-  Console_Print("Walker detours %s; rays cast as layer %d (%s); waypoints %s.", g_detourEnabled ? "on" : "off",
-                static_cast<int>(g_rayLayer), WorldUtils::LayerName(g_rayLayer),
-                g_requireNavmesh ? "must be on the navmesh" : "may be off the navmesh");
+  const char *form = !g_detourEnabled   ? "off"
+                     : g_rerouteOnly    ? "on, reroute only"
+                     : g_gridEnabled    ? "on"
+                     : g_requireNavmesh ? "on, side-step instead of the grid"
+                                        : "on, side-step instead of the grid, waypoint may be off the navmesh";
+  _MESSAGE("Walker path check %s (rays cast as %s).", form, WorldUtils::LayerName(g_rayLayer));
+  Console_Print("Walker path check %s; rays cast as layer %d (%s).", form, static_cast<int>(g_rayLayer),
+                WorldUtils::LayerName(g_rayLayer));
   if (g_detourEnabled)
     Console_Print(g_rerouteOnly   ? "A blocked spot is given to the pathfinder to route around at once (no side-step)."
                   : g_gridEnabled ? "A blocked spot is walked around on the ray grid; failing that the pathfinder "

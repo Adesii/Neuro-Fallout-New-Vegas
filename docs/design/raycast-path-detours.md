@@ -1,9 +1,13 @@
 # Raycast path check and detours (todo 48)
 
-Evaluation and design as built, 2026-11-10. The rays were measured in game the same day (`NWalkerProbe` at four
-spots outside Primm, see "Measured in game"); the detour itself has not run yet. The feature is behind a console
-switch that is **off by default**. The designer decides after the remaining checks whether it stays, and whether it
-is on by default.
+Evaluation and design as built, 2026-11-10 to 12. **On by default since 2026-11-12**: the designer wants features to
+work without being switched on, and a switch to turn them off when something goes wrong. `NWalkerDetour 0` is that
+switch. The rays were measured in game (see "Measured in game"); the grid and the widened rerouting have not run yet.
+
+The normal form is: sweep the route ahead; when it is blocked, look for a way round on the navigation grid
+(`custom-navigation-grid.md`); when there is none, or she gets stuck anyway, give the obstacle to the pathfinder to
+route around. The side-step to a single waypoint described under "What was built" came first and is now a debugging
+form (`NWalkerDetour 2`): at the Primm car it put her against the car.
 
 ## Problem
 
@@ -39,8 +43,10 @@ exists; the Walker does not look for it before walking into the car.
 
 Console (both new, registered after `NWalkerDebug`, so they take the next two opcodes):
 
-- `NWalkerDetour` toggles, `NWalkerDetour 1` / `0` set it, `NWalkerDetour 2` switches it on without the navmesh
-  requirement. Optional second number: the collision layer the rays are cast as (default 37, line of sight).
+- `NWalkerDetour 0` switches the path check off, `NWalkerDetour 1` back on in its normal form, `NWalkerDetour` alone
+  toggles. For debugging: `2` side-steps to one waypoint instead of using the grid, `3` hands every blocked spot to
+  the pathfinder at once, `4` is `2` without the navmesh requirement. Optional second number: the collision layer the
+  rays are cast as (default 37, line of sight). The setting lasts until the game is closed.
 - `NWalkerProbe [rays] [layer]` measures from where the player stands, looking where the player looks, and writes to
   `neuro-fnv.log`: the character controller's shape, what a knee, chest and floor ray hit when cast as six different
   layers, what a burst of rays costs (60, 400 and 3500 units long, floor rays, and with the reference lookup), and what
@@ -91,8 +97,8 @@ What was built on it:
 - Once any spot is avoided, the progress stall measures the length of the pathfinder's route instead of the straight
   distance, and starts over when the route changes: the way over the bridge leads away from the target for a while.
 - `NWalkerDetour 3` skips the side-step and gives every blocked spot to the pathfinder at once, to test this alone.
-- `NWalkerDetour 4` looks for the way round on the navigation grid (todo 45, `custom-navigation-grid.md`) instead of
-  side-stepping, and falls back to the pathfinder the same way.
+- The normal form (`NWalkerDetour 1`, the default) looks for the way round on the navigation grid (todo 45,
+  `custom-navigation-grid.md`) and falls back to the pathfinder the same way; `NWalkerDetour 2` side-steps instead.
 - Log: `Walker reroute: the pathfinder is to avoid (x, y, z) ...` with the reason, then `the route to X is now N m
   long (was M m)`, or `is still N m long` when nothing changed. Overlay: a red cross and tall pole on each avoided
   centre.
@@ -185,7 +191,8 @@ Still not known:
   player collides with, but the two have not been compared at anything where they could differ.
 - What PATHPICK misses besides actors. It is the engine's own layer for path picks and it sees through actors, which
   would end the "actor hides the wall behind" gap below; it may also see through doors or clutter. Compare
-  `NWalkerProbe 2000 38` with the default at a closed door before trying `NWalkerDetour 1 38`.
+  `NWalkerProbe 2000 38` with the default at a closed door before trying `NWalkerDetour 1 38`
+  (the normal form with rays cast as PATHPICK).
 - Whether a ray that starts inside a mesh hits its far side. The overlap of the spans exists because of this.
 
 Not handled: an actor in front of a wall hides the wall for that ray (the ray stops at the first hit). The sweep
@@ -295,7 +302,7 @@ Measurements (first run done 2026-11-10; what is left):
 
 The rerouting (the Primm car), with `NWalkerDebug 1 1` so the route lines are in the log:
 
-- `NWalkerDetour 1`, then the walk to the waypoint behind the car. Expected: one side-step, then `Walker reroute: the
+- No command needed. The walk to the waypoint behind the car. Expected: a grid search, then `Walker reroute: the
   pathfinder is to avoid ...` (a red cross on the ground at the car), `the route to ... is now N m long (was M m)`,
   and she turns and goes by the bridge or under it. The walk must not end with "never got meaningfully closer" on
   the way.
@@ -309,7 +316,7 @@ The rerouting (the Primm car), with `NWalkerDebug 1 1` so the route lines are in
 
 Then the detour:
 
-5. `NWalkerDetour 1` and the Primm walk through the car. Expected: red rays and pole at the car before she reaches
+5. `NWalkerDetour 2` (the side-step form) and the Primm walk through the car. Expected: red rays and pole at the car before she reaches
    it, a violet pole to one side, she walks to it and on past the car without touching it; the log has `Walker detour
    1 on the way to ...` and `Walker detour ended: the path is clear again` or `reached the waypoint`.
 6. The same walk with `NWalkerDetour 0`: the old behaviour, for comparison.
@@ -323,7 +330,9 @@ Then the detour:
 11. A closed door on the route: no detour; the door recovery opens it as before.
 12. An obstacle beside a ledge or on a bridge: no detour off the edge.
 13. After a few walks, the `Walker path check on the walk to ...` lines: rays, total time and worst frame.
-14. If rays cast as LINEOFSIGHT miss things the player bumps into, try `NWalkerDetour 1 30` and repeat 5 and 8.
+14. If rays cast as LINEOFSIGHT miss things the player bumps into, try `NWalkerDetour 1 30` and repeat 8.
+15. Anything that goes wrong on a normal walk: `NWalkerDetour 0` and try the same walk again. If it works then, the
+    path check is the cause; send the `Walker detour` / `Walker reroute` lines.
 
 ## Unverified
 

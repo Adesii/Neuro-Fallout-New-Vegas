@@ -125,9 +125,9 @@ constexpr float kAvoidSameCentre = 30.0f;
 constexpr size_t kAvoidPerSpot = 16;
 constexpr size_t kAvoidMaxSpheres = 64;
 
-// The navigation grid (todo 45, src/Movement/NavGrid.*), used when `NWalkerDetour 4` is on. A blocked route is
-// searched for a way round on the grid, to the point of the route this far beyond the blocked spot; at most this
-// many rays a frame (5 ms at the measured 5 microseconds a ray). A search that does not reach that point is still
+// The navigation grid (todo 45, src/Movement/NavGrid.*), the normal way round a blocked route. It is searched for a
+// way from where she stands to the point of the route this far beyond the blocked spot; at most this many rays a
+// frame (5 ms at the measured 5 microseconds a ray). A search that does not reach that point is still
 // walked when it ends this much nearer to it than the blocked spot is.
 constexpr float kGridRejoin = 450.0f;
 constexpr int kGridRayBudget = 1000;
@@ -773,10 +773,11 @@ void UpdateMovement(PlayerCharacter *player, const PathPoint3 &navigationPoint, 
 // --- Raycast path check and detours (todo 48) -----------------------------------------------------------------
 //
 // The navmesh does not know every object (the car in Primm): the pathfinder's route can run straight through one.
-// On every route search the way ahead is swept with rays (PathProbe::SweepPath). When something blocks it, points to
-// either side are tested until one has a free line from the player and a free line back onto the path, and the
-// Walker steers at that point until it is there or the path is free again. With no such point the walk goes on as
-// before and the stuck recovery deals with it. Off unless switched on with NWalkerDetour.
+// On every route search the way ahead is swept with rays (PathProbe::SweepPath). When something blocks it, the
+// navigation grid is searched for a walkable way round and the Walker follows its waypoints until it is past or the
+// path is free again. When the grid finds none, or she gets stuck anyway, the obstacle is given to the pathfinder to
+// route around. On from the start; `NWalkerDetour 0` switches it off, and its other numbers select older forms for
+// debugging (a side-step to one point, or rerouting alone).
 
 // The way ahead as the check sweeps it: from the player along the route's nodes from the one steered at (or straight
 // at the destination when the pathfinder found nothing), without the last stretch within reach of the destination,
