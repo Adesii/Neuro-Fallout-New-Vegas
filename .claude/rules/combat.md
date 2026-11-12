@@ -26,7 +26,12 @@ paths:
 - Every exit path must release held inputs (`ReleaseInputs`, `PulseQueue::ReleaseAll`): pause, reset, disconnect,
   death, load, retarget. The attack control is usually a mouse button; resolve it with `InputUtils::ResolveControl`.
 - Combat owns aim while engaged (`Walker::SetLookSuppressed`); Walker keeps moving. Do not let Walker and combat both
-  write yaw/pitch. Melee approach uses `Walker::Owner::Combat` and must never replace another owner's command.
+  write yaw/pitch. Combat's own walk toward its target (melee reach, or a view of it when `attack` was given
+  `approach`) uses `Walker::Owner::Combat` and must never replace another owner's command: `attack` stops whatever
+  walk was running when it starts and ends the quest route (todo 50), and a walk Neuro starts afterwards wins over the
+  approach. A failed approach walk ends the engagement (`StopReason::Unreachable`); do not restart it.
+- Shots at an actor aim at its torso node from the game's body part data (`AimUtils::ActorTorsoPoint`, todo 56), then
+  its mesh bound centre. There is no guessed height for actors; do not add one back as a fallback.
 - VATS blocking must be corroborated by the menu being on top; the mode global alone must not lock the game (see the
   playback watchdog). VATS input mappings are unverified: keep each step state-verified with a bounded timeout.
 - Read `docs/combat.md` for evidence, unverified assumptions and the manual in-game checklist before changing any of it.

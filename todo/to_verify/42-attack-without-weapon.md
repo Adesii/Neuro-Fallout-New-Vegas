@@ -1,6 +1,6 @@
 # 42 - attack with no weapon equipped only looks at the target
 
-Status: open
+Status: to verify
 Area: Combat (`CombatHandler.cpp`, `src/Combat/CombatLogic.*`, `AttackAction`)
 Source: designer's play-testing, 2026-10-25
 
@@ -29,3 +29,26 @@ and fists are never in reach, so the engagement just aims.
 
 ## Done when
 `attack` unarmed during a quest walk does one of the agreed things and tells Neuro what happened.
+
+## Result (2026-11-12, through todo 50)
+The designer's decision for todo 50 answers the second question: "anything and everything should interrupt
+do_current_quest ... attacking etc." So `attack` now ends the quest route and stops whatever walk was running when it
+is called (`CombatHandler::StartAttack`). The Walker is then free, the melee approach (`Walker::Owner::Combat`) starts
+on the next frame, and fists walk up to the target and swing. Nothing here is specific to fists; it holds for every
+melee weapon.
+
+- Fists are still accepted (first question): nothing rejects an unarmed `attack` up front. Say so if it should.
+- The third point of "Work" (never sit silently aiming): when combat's walk to the target fails, the engagement now
+  ends at once as "could not get to it", with Walker's reason in the same message (todo 55), instead of starting the
+  walk over until the 20 s stall. When Neuro starts her own walk during the fight, the engagement still only aims
+  while she is out of reach: her walk wins, as before.
+- Step 1 (reproduce with the log) was not done: the cause was read from the code, not from a run.
+
+Compiled and host-tested (`tests/CombatTests.cpp`: the melee approach, a failed approach); not run in the game.
+
+## Manual in-game checks
+1. Nothing equipped, `do_current_quest` running, `attack` an enemy: she leaves the route, walks up to it and punches.
+   The route does not resume afterwards.
+2. The same during `move_to_object`: she stops walking there and goes for the enemy.
+3. An enemy she cannot get to (on a ledge, behind a locked gate), with fists: the fight ends with "could not get to
+   it" and a reason, not after 20 s of standing.

@@ -11,12 +11,24 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
   `stop_attack` stays registered while a menu is open, because an engagement pauses across menus instead of ending.
 - An engagement also ends with a "not hurting it" message after 15 s of attacking a reachable actor whose health never
   drops (essential, invulnerable or over-armoured targets), and when a thrown weapon is used up and the hand empties.
-- `attack` takes exactly one of `enemy_id` (from `query_enemies`) or `object_id` (from `query_nearby`). It engages
-  until the target dies, ammo runs out, line of sight is lost for 8 s, or `stop_attack`. Calling it again retargets.
-  Neuro may walk, switch weapons or open the Pip-Boy meanwhile; combat keeps aim ownership (Walker look is suppressed)
-  while Walker keeps moving the player, so walking while shooting strafes.
+- `attack` takes exactly one of `enemy_id` (from `query_enemies`) or `object_id` (from `query_nearby`), and optionally
+  `approach` (boolean, todo 55). It engages until the target dies, ammo runs out, line of sight is lost for 8 s, or
+  `stop_attack`. Calling it again retargets.
+- `attack` is the newest command, so it stops whatever walk was running when it is called and ends the
+  `do_current_quest` route (designer, 2026-11-12, todo 50; the route stays off until `do_current_quest` is called
+  again). After that Neuro may walk, switch weapons or open the Pip-Boy; combat keeps aim ownership (Walker look is
+  suppressed) while Walker keeps moving the player, so walking while shooting strafes, and a walk she starts during
+  the fight does not end it.
 - Melee weapons close in through Walker (`Owner::Combat`, only when no other Walker command is running); ranged weapons
-  ignore distance. Line of sight is required to accept `attack`, not only during it.
+  ignore distance. Line of sight is required to accept `attack`, not only during it, unless `approach` is true.
+- `approach: true`: whenever the target is not in view (at the start, or when it goes behind cover later) she walks
+  toward it through the same `Owner::Combat` walk until she can see it, fires at once and walks 0.3 s more to get clear
+  of the corner. The 8 s line-of-sight limit only counts time spent without a view while standing still. Off unless
+  asked for; the refusal and the line-of-sight stop message both name the parameter.
+- A walk combat started that the Walker gives up on (no path, blocked, stuck) ends the engagement at once as "could
+  not get to it", with Walker's reason in the same message. It is not started again.
+- Shots at an actor aim at its chest: the skeleton node its body part data names as the torso's VATS target (todo 56),
+  then its mesh bound centre. There is no guessed height for actors any more. Objects aim at their mesh bound centre.
 - Only explicitly friendly actors (faction relation Ally or Friend, or a teammate, and not fighting the player) are
   excluded from `query_enemies`, `attack` and VATS. Neutrals are listed and attackable: that is Neuro's choice. A
   neutral whose Aggression is Very Aggressive or Frenzied (GECK order 0-3, read from `GECK.exe`) is only *labelled*
@@ -51,6 +63,15 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
   (`src/hooks`); `src/utils/InputUtils` resolves the Attack control that way, keyboard otherwise.
 - Line of sight: a Havok ray on layer 37 (`LAYER_LINEOFSIGHT`) via `TES::PickObject`, copied from
   `src/itr/NavmeshCommands.cpp`, plus the crosshair actor (`PlayerCharacter::reticleActor`, 0xD44) resting on the target.
+- Torso aim point (todo 56): `BGSBodyPartData::bodyParts[0]` (torso) `->VATSTarget` / `->partNode` (JG
+  `nvse/GameForms.h`; JIP-LN-NVSE `GetBodyPartVATSTarget` reads the same chain through `GetActorBase()`).
+  `TESActorBase::GetBodyPartData` is vtable slot 0x60: in `FalloutNV.exe`, `TESCreature`'s (0x5FA2E0) returns its data
+  at +0x144 or the default record, `TESNPC`'s (0x5F0F80) the player's record for the player's base and the default
+  record otherwise. In `FalloutNV.esm` the torso's VATS target is `Bip01 Spine2` for `DefaultBodyPartData` (humans,
+  ghouls), geckos, dogs and mole rats, `Bip01 Spine1` or `Bip01 Spine` for most other creatures and robots (the full
+  list is in `todo/to_verify/56-aim-at-the-chest.md`). The node is found with `BSUtilities::GetObjectByName` (0x4AAE30,
+  JG; itr-nvse uses the same address for head positions), which forwards to 0xC4B310 and returns null for a null
+  scene or name.
 - VATS globals and layouts: see the header of `src/defs/VatsMenu.hpp` (menu 0x11DB0D4, target 0x11F21CC, mode
   0x11F2258, target list 0x11DB150), cross-checked between FalloutNVAccess and itr-nvse. `vats_menu.xml` (private
   extracts) gives `GlowBranch/accept_button` (id 4), `return_button` (5) and the PC-visible `left_arrow` / `right_arrow`
@@ -93,6 +114,17 @@ rules, covered by `tests/CombatTests.cpp`), `src/Actions/Combat/`. Cloud cannot 
     0.05 rad/s for 0.15 s), or the engine's crosshair on the target actor. Before, shots went out while the view was
     still turning.
 
+11. Torso aim point (todo 56): that the node's world position is current for an actor far away or off screen (a node
+    further than 300 units times the scale from the actor is refused), and what the odd body part records give (a
+    cazador's torso target is its root node, a turret's its pitch node). The `Aim <name>:` log line is written for
+    actors too and names the source of the point.
+12. `approach` (todo 55): that the Walker's route toward the target opens a view soon enough; the 0.3 s hold after the
+    target comes into view, the 20 units per second that count as a walk getting somewhere, and the twice-a-second
+    restart of a walk that ended next to a target still out of view are guesses. She walks toward the target itself,
+    not to a flanking spot or to cover.
+13. `attack` stopping the walk that was running (todo 50): that no key stays held when a quest or object walk is
+    stopped mid-stride.
+
 ## Manual in-game checklist
 
 Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a hostile (geckos/ants).
@@ -101,11 +133,15 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
    hostile first, line-of-sight flag true; behind a wall: "no line of sight".
 2. `attack` a hostile with a pistol: weapon is drawn if holstered, aim turns, shooting, stops when dead with a
    "dead" message. Repeat with an automatic weapon (trigger held) and a revolver (pulsed).
-3. `attack` with no line of sight is rejected with the correct message; step behind cover mid-fight: shooting holds,
-   resumes when visible, and ends with a line-of-sight message after about 8 s.
+3. `attack` with no line of sight is rejected, and the message names `approach`; step behind cover mid-fight: shooting
+   holds, resumes when visible, and ends with a line-of-sight message after about 8 s. With `approach: true` it is
+   accepted and she walks toward the target until she sees it; an enemy that runs behind cover is followed (full list
+   in `todo/to_verify/55-attack-approach-for-line-of-sight.md`).
 4. Empty the magazine: reload happens by itself; run out of reserve: out-of-ammo stop message.
 5. Melee weapon: `attack` walks up to the target and swings only when close; `move_to_object` elsewhere mid-fight
-   moves her without cancelling the engagement; `stop_attack` ends it and Walker stops.
+   moves her without cancelling the engagement; `stop_attack` ends it and Walker stops. `attack` during
+   `do_current_quest` or a `move_to_object` walk stops that walk first, and the quest route does not resume by itself
+   afterwards (todo 50).
 6. `attack` a second enemy while engaged: retargets. Open the Pip-Boy mid-fight and equip another weapon: the engagement
    resumes after closing; no mouse button stays stuck in any case (also test disconnect and loading a save mid-fight).
 7. `attack` a bottle by `object_id`: short burst, then a stop message; the log gets `Aim <name>:` lines (todo 03 / 27 measurements). Aim and line of sight start at the rendered world camera (`TESMain::GetWorldRootCamera()`; no modelled eye); a refused attack or lost line of sight logs a `Line of sight BLOCKED` warning with the ray and objects are aimed at their mesh bound centre (`bound used`); `UNUSABLE` or `bound none` is worth reporting. An explicit ally/companion is rejected from both
@@ -120,7 +156,10 @@ Setup: Goodsprings, a ranged weapon with ammo, a melee weapon, a neutral NPC, a 
     the view is still turning (bottles: the first shot of the burst hits).
 11. Long melee approach: `attack` an enemy 100+ m away with a melee weapon: she runs up without the engagement ending
     as "could not make progress" after 20 s; block the way (stand behind a closed gate): it ends as stalled after ~20 s.
-12. Failure symptoms to report: stuck mouse button, permanent Walker lockout after VATS (check the 90 s watchdog log
+12. Where the shots land (todo 56): geckos and humans are hit in the chest at 3, 10 and 25 m. The `Aim <name>:` lines
+    say `from the torso target node`; a line that says `torso part node`, `mesh bound centre` or `ORIGIN` is worth
+    reporting with the enemy's name.
+13. Failure symptoms to report: stuck mouse button, permanent Walker lockout after VATS (check the 90 s watchdog log
     line), `Combat engagement ended` log lines with unexpected reasons, VATS refusing to open.
 
 ## Damage and death: unverified and checklist (todo 29)

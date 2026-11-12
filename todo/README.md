@@ -37,12 +37,10 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 22 | [Audit of the remaining menus (Pip-Boy tabs, options, map, credits, loading)](22-remaining-menus-audit.md) | Menus |
 | 37 | [Menu executor refactors (large merges, low priority)](37-menu-executor-refactors.md) (3, 4, 6 done; 1, 2, 5 left on purpose) | Cleanup |
 | 40 | [Opening a container leaves Neuro idle](40-container-open-poke.md) (container done, to verify; 2026-11-09 follow-up: slim opening text, no container-specific poke; Pip-Boy open) | Context / Menus |
-| 42 | [attack with no weapon equipped only looks at the target](42-attack-without-weapon.md) | Combat |
 | 44 | [Debug camera: free or top-down view while the Walker runs](44-debug-camera.md) | Tooling |
 | 45 | [Custom navigation grid from raycasts, with A*](45-custom-navigation-grid.md) (first stage built and on by default; first run found no way through the Primm wrecks, correctly: on-demand ray grid with A*, `NWalkerGrid` to try it; saving, sampling ahead and long routes not built) | Walker / pathing |
 | 47 | [Aim down sights automatically past 10 meters](47-auto-aim-down-sights.md) | Combat |
 | 49 | [Fix JSON string escaping upstream in libneurosdk](49-libneurosdk-json-escaping.md) (later; worked around in the plugin) | SDK / transport |
-| 50 | [move_to / interact_with interrupt the do_current_quest route](50-quest-route-interrupt-by-move-interact.md) | Walker / Gameplay actions |
 | 51 | [Ask for confirmation before changing the followed quest](51-confirm-quest-course-change.md) (idea from Skyrim) | Gameplay actions |
 | 52 | [Send a quest's description the first time she follows it](52-quest-description-on-first-follow.md) (idea from Skyrim) | Context |
 | 53 | [Custom (plugin-defined) quests](53-custom-quests.md) | Quests |
@@ -58,8 +56,12 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 32 | [Input injection safety (held keys, pulses, hook)](to_verify/32-input-injection-safety.md) | Input (bugs) |
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
 | 41 | [query_quests says which quest is selected](to_verify/41-query-quests-selected-line.md) (top line, "(selected)" tag, route state) | Gameplay actions |
+| 42 | [attack with no weapon equipped only looks at the target](to_verify/42-attack-without-weapon.md) (through todo 50: attack stops the walk that was running, so the melee approach is free) | Combat |
 | 43 | [In-game Walker debug mode: show the computed path](to_verify/43-walker-debug-path-overlay.md) (`NWalkerDebug` console command, D3D9 overlay) | Walker / tooling |
 | 48 | [Check the path ahead with raycasts and detour around blockers](to_verify/48-raycast-path-detours.md) (on by default since 2026-11-12, `NWalkerDetour 0` switches it off; side-step did not help at the Primm car; rerouting reacts but twice left a way through the wrecks; now a loop that asks the pathfinder until its route is ray-clear, then hops to another loaded cell for quest walks, 2026-11-12; hops not yet run) | Walker / pathing |
+| 50 | [Anything Neuro starts herself interrupts the do_current_quest route](to_verify/50-quest-route-interrupt-by-move-interact.md) (move, interact, explore, attack, VATS; menus and queries do not) | Walker / Gameplay actions |
+| 55 | [attack can walk toward a target that is not in view](to_verify/55-attack-approach-for-line-of-sight.md) (`approach` parameter, off unless asked for) | Combat |
+| 56 | [Shoot actors in the chest, not at a guessed height](to_verify/56-aim-at-the-chest.md) (the torso node from the game's body part data; the 70 / 35 heights are gone) | Aim / Combat |
 
 ## Archive
 
