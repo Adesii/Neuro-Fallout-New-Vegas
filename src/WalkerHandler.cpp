@@ -129,6 +129,15 @@ constexpr int kRerouteTriesPerFrame = 2;
 constexpr float kRerouteSamePlace = 100.0f; // reroutes started this close together count as the same attempt,
 constexpr int kRerouteMaxRepeats = 3;       // and after this many of them the walk fails as blocked
 
+// Hops (PathProbe::HopBudget): when the pathfinder has no other way in the loaded cells, the navmesh point nearest
+// the target is taken from every loaded cell, and she heads for the first one, nearest the target first, that the
+// pathfinder can reach by a route free of obstacles for kRerouteProveDistance. Only for quest walks: an ordinary
+// move command fails at once. The place counts as reached within kHopArriveDistance; places nearer to her than
+// kHopMinDistance are not worth a hop. A few places are tried a frame (each is a path search and a sweep).
+constexpr float kHopArriveDistance = 150.0f;
+constexpr float kHopMinDistance = 300.0f;
+constexpr int kHopPlacesPerFrame = 3;
+
 // The navigation grid (todo 45, src/Movement/NavGrid.*), the normal way round a blocked route. It is searched for a
 // way from where she stands to the point of the route this far beyond the blocked spot; at most this many rays a
 // frame (5 ms at the measured 5 microseconds a ray). A search that does not reach that point is still
@@ -192,6 +201,19 @@ struct Reroute {
   int repeats = 0; // how many reroutes were started at about this place just before this one
   std::string why;
   std::string blocker; // the name of what blocks, for Neuro; empty when it has none
+};
+
+// The search for a place to hop to (see kHopArriveDistance above).
+struct HopSearch {
+  struct Place {
+    NiPoint3 point = {0.0f, 0.0f, 0.0f};
+    TESObjectCELL *cell = nullptr;
+    float toTarget = 0.0f;
+  };
+  bool active = false;
+  std::vector<Place> places;
+  size_t index = 0;
+  std::string blocker; // what blocked the way here, for Neuro if no place is found
 };
 
 // What the raycast path check cost over one command, for the log.
@@ -259,6 +281,14 @@ struct WalkerState {
   Reroute reroute;
   NiPoint3 rerouteAt = {0.0f, 0.0f, 0.0f}; // where the last reroute was started, and how many in a row there
   int rerouteCount = 0;
+  // Hops: the place being headed for instead of the target, the search for one, and whether one was just reached.
+  PathProbe::HopBudget hops;
+  HopSearch hopSearch;
+  bool hopActive = false;
+  NiPoint3 hopPoint = {0.0f, 0.0f, 0.0f};
+  bool hopJustArrived = false;
+  bool routeSnapped = false;       // the last route search found no path to the destination itself, only to the navmesh
+                                   // point of the player's cell nearest to it
   bool progressAlongRoute = false; // what the progress stall last measured: the route's length or the straight line
   // A search on the navigation grid for a way round `searchBlock`, its goal, and whether the detour being walked
   // came from the grid.
@@ -379,6 +409,11 @@ void ResetRouteState() {
   g_state.routeLength = -1.0f;
   g_state.reroute = {};
   g_state.rerouteCount = 0;
+  g_state.hops.Reset();
+  g_state.hopSearch = {};
+  g_state.hopActive = false;
+  g_state.hopJustArrived = false;
+  g_state.routeSnapped = false;
   g_state.progressAlongRoute = false;
   g_state.gridSearch.Reset();
   g_state.detourFromGrid = false;
@@ -471,6 +506,11 @@ TESObjectCELL *GetNavigationCell(PlayerCharacter *player) {
 bool BuildPathPoint(PlayerCharacter *player, const NiPoint3 &destination, PathPoint3 &pathPoint,
                     RouteDebug::Route *debug = nullptr, bool keepRoute = false) {
   g_state.waypointMarker->pos = destination;
+  // A hop leads into another cell, and the path request is given the destination's cell. (For every other
+  // destination the marker keeps the player's cell, as it always has.)
+  if (g_state.hopActive)
+    if (auto *cell = WorldUtils::CellAt(player, destination.x, destination.y))
+      g_state.waypointMarker->parentCell = cell;
   Pathing::PathResult path;
   if (!Pathing::BuildPath(player, g_state.waypointMarker, path, g_avoid.empty() ? nullptr : &g_avoid) ||
       path.nodes.empty())
@@ -505,6 +545,7 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &desti
   g_state.routeNodes.clear(); // stays empty unless a path is found: the check then sweeps the straight line
   g_state.routeChosen = 0;
   g_state.routeLength = -1.0f;
+  g_state.routeSnapped = false;
   if (Distance3D(player->GetPos(), destination) < kInteractionDistance) {
     if (debug)
       debug->mode = Mode::Close;
@@ -532,6 +573,7 @@ PathPoint3 ResolveNavigationPoint(PlayerCharacter *player, const NiPoint3 &desti
         debug->snapped = ToDebugPoint(onNavmesh);
       }
       if (BuildPathPoint(player, onNavmesh, pathPoint, debug, true)) {
+        g_state.routeSnapped = true;
         if (debug)
           debug->mode = Mode::Snapped;
         if (!g_state.loggedSnapped) {
@@ -599,9 +641,12 @@ void RecordRoute(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 
   g_debug.view.hasRoute = true;
 }
 
-// Steers at the target, or at the Wander spot while a Wander recovery step is running.
+// Where the walk is heading: the target, or the place of a hop on the way to it.
+NiPoint3 WalkDestination(TESObjectREFR *target) { return g_state.hopActive ? g_state.hopPoint : target->GetPos(); }
+
+// Steers at the target (or the place of a hop), or at the Wander spot while a Wander recovery step is running.
 PathPoint3 GetNavigationPoint(PlayerCharacter *player, TESObjectREFR *target, float deltaTime) {
-  const NiPoint3 destination = g_state.recovery.hasDetour ? g_state.recovery.detour : target->GetPos();
+  const NiPoint3 destination = g_state.recovery.hasDetour ? g_state.recovery.detour : WalkDestination(target);
   const NiPoint3 playerPosition = player->GetPos();
   if (Distance3D(playerPosition, destination) < kInteractionDistance) {
     g_state.navigationValid = false;
@@ -834,6 +879,87 @@ int AvoidRouteTriangles(PlayerCharacter *player, const std::vector<PathProbe::Po
 
 void EndDetour(PathProbe::DetourTracker::End why);
 
+// Starts looking for a place to hop to. False when there is none to try (not a quest walk, no hops left, nothing
+// loaded with navmesh but here): the caller then fails the walk.
+bool StartHopSearch(PlayerCharacter *player, const std::string &blocker, const char *why) {
+  auto *target = LookupReference(g_state.command.targetFormId);
+  if (!target || g_state.command.owner != Owner::Quest || !g_state.hops.MayHop())
+    return false;
+  const NiPoint3 goal = target->GetPos();
+  const NiPoint3 here = player->GetPos();
+  HopSearch search;
+  search.blocker = blocker;
+  WorldUtils::ForEachLoadedCell([&](TESObjectCELL *cell) {
+    NiPoint4 closest = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
+    Pathing::GetClosestNavMeshTriangle(cell, goal, false, 0.0f, closest);
+    if (closest.x == FLT_MAX)
+      return;
+    const NiPoint3 point = {closest.x, closest.y, closest.z};
+    if (Math::GetDistance2D(point, here) < kHopMinDistance || g_state.hops.Visited(ToDebugPoint(point)))
+      return;
+    search.places.push_back({point, cell, Distance3D(point, goal)});
+  });
+  if (search.places.empty())
+    return false;
+  std::sort(search.places.begin(), search.places.end(),
+            [](const HopSearch::Place &a, const HopSearch::Place &b) { return a.toTarget < b.toTarget; });
+  EndDetour(PathProbe::DetourTracker::End::Abandoned);
+  g_state.reroute.active = false;
+  _MESSAGE("Walker hop: %s; looking among %zu loaded cells with navmesh for a place nearer to %s that can be reached "
+           "(hop %d of %d)",
+           why, search.places.size(), g_state.command.description.c_str(), g_state.hops.Used() + 1,
+           PathProbe::HopBudget::kMaxHops);
+  search.active = true;
+  g_state.hopSearch = std::move(search);
+  return true;
+}
+
+bool RouteBlocked(const PathProbe::SweepResult &ahead, const std::vector<PathProbe::Point3> &path);
+
+// Tries a few of the places. False when none was left and the walk was failed (the command is gone then).
+bool StepHopSearch(PlayerCharacter *player, const NiPoint3 &playerPosition, float targetDistance,
+                   WalkerProbe::EngineWorld &world, const PathProbe::Settings &settings) {
+  HopSearch &search = g_state.hopSearch;
+  for (int tried = 0; tried < kHopPlacesPerFrame && search.index < search.places.size(); ++tried) {
+    const HopSearch::Place place = search.places[search.index++];
+    g_state.waypointMarker->pos = place.point;
+    g_state.waypointMarker->parentCell = place.cell;
+    Pathing::PathResult path;
+    const bool found = Pathing::BuildPath(player, g_state.waypointMarker, path, g_avoid.empty() ? nullptr : &g_avoid) &&
+                       path.nodes.size() >= 2;
+    g_state.waypointMarker->parentCell = player->GetParentCell();
+    if (!found)
+      continue;
+    std::vector<PathProbe::Point3> line;
+    line.push_back(ToDebugPoint(playerPosition));
+    for (size_t index = 1; index < path.nodes.size(); ++index)
+      line.push_back(ToDebugPoint(path.nodes[index]));
+    const PathProbe::SweepResult ahead = PathProbe::SweepPath(world, line, kRerouteProveDistance, settings, 0.0f);
+    if (RouteBlocked(ahead, line))
+      continue;
+    g_state.hopActive = true;
+    g_state.hopPoint = place.point;
+    g_state.hops.Begin(ToDebugPoint(place.point), targetDistance);
+    _MESSAGE("Walker hop %d: heading for the navmesh at (%.0f, %.0f, %.0f), %.0f m by a route that is free for the "
+             "next %.0f m; it is %.0f m from %s and the nearest place to it that can be reached (%zu of %zu tried)",
+             g_state.hops.Used(), place.point.x, place.point.y, place.point.z, Units::ToMeters(path.distance),
+             Units::ToMeters(ahead.clearDistance), Units::ToMeters(place.toTarget), g_state.command.description.c_str(),
+             search.index, search.places.size());
+    search = {};
+    g_state.navigationValid = false;
+    g_state.progress.Reset(); // the hop may lead away from the target
+    return true;
+  }
+  if (search.index < search.places.size())
+    return true;
+  _MESSAGE("Walker hop: none of the %zu places can be reached by a route free of obstacles; giving up on %s",
+           search.places.size(), g_state.command.description.c_str());
+  const std::string blocker = search.blocker;
+  search = {};
+  FinishFailed(player, WalkerLogic::FailureReason::Blocked, blocker);
+  return false;
+}
+
 // Starts asking the pathfinder for a route that is free of obstacles. She stands while it runs (see Process).
 void StartReroute(const char *why) {
   if (g_state.reroute.active)
@@ -883,6 +1009,9 @@ bool StepReroute(PlayerCharacter *player, const NiPoint3 &playerPosition, const 
                g_state.routeNodes.empty() ? "the pathfinder has no route and the straight line is blocked"
                                           : "asked here repeatedly without getting past");
       const std::string blocker = reroute.blocker;
+      reroute.active = false;
+      if (StartHopSearch(player, blocker, "the pathfinder has no way from here in what is loaded"))
+        return true;
       FinishFailed(player, WalkerLogic::FailureReason::Blocked, blocker);
       return false;
     }
@@ -919,6 +1048,9 @@ bool StepReroute(PlayerCharacter *player, const NiPoint3 &playerPosition, const 
                g_state.command.description.c_str(), reroute.tries, reroute.marked,
                WalkerProbe::DescribeHit(ahead.hit).c_str());
       const std::string blocker = reroute.blocker;
+      reroute.active = false;
+      if (StartHopSearch(player, blocker, "the pathfinder has no other way in what is loaded"))
+        return true;
       FinishFailed(player, WalkerLogic::FailureReason::Blocked, blocker);
       return false;
     }
@@ -1051,6 +1183,12 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
   const double started = WalkerProbe::NowMicroseconds();
   auto account = [&] { g_state.probeCost.Add(world.Rays(), WalkerProbe::NowMicroseconds() - started); };
 
+  if (g_state.hopSearch.active) {
+    const bool alive = StepHopSearch(player, playerPosition, remaining, world, settings);
+    if (alive)
+      account();
+    return;
+  }
   if (g_state.reroute.active) {
     const bool alive = StepReroute(player, playerPosition, destination, world, settings);
     if (alive)
@@ -1509,6 +1647,10 @@ void Process() {
     const WalkerLogic::RecoveryPlanner planner = g_state.planner;
     const WalkerLogic::ProgressTracker progress = g_state.progress;
     const PathProbe::DetourTracker detour = g_state.detour;
+    const PathProbe::HopBudget hops = g_state.hops;
+    const bool hopActive = g_state.hopActive;
+    const NiPoint3 hopPoint = g_state.hopPoint;
+    const bool hopJustArrived = g_state.hopJustArrived;
     ReleaseMovementKeys();
     ResetRouteState();
     g_state.trackedTarget = target;
@@ -1517,6 +1659,10 @@ void Process() {
       g_state.planner = planner;
       g_state.progress = progress;
       g_state.detour = detour; // the waypoint is in world coordinates and the detour budget belongs to the walk
+      g_state.hops = hops;     // a hop crosses cells by design
+      g_state.hopActive = hopActive;
+      g_state.hopPoint = hopPoint;
+      g_state.hopJustArrived = hopJustArrived;
     } else if (changedCell) {
       g_state.stuck.StartGrace(kCellChangeGrace); // positions jump and the world is still streaming in
       ResetDebugCapture();                        // the old route and trail are in another place
@@ -1556,10 +1702,30 @@ void Process() {
   const float distance = Distance3D(playerPosition, target->GetPos());
   const float reach = InteractionReach(target);
   const bool shouldMove = distance >= reach;
+  if (g_state.hopActive && Math::GetDistance2D(playerPosition, g_state.hopPoint) <= kHopArriveDistance) {
+    // The place of a hop is reached: carry on to the target from here.
+    g_state.hopActive = false;
+    g_state.hopJustArrived = true;
+    g_state.hops.Arrived(distance);
+    g_state.navigationValid = false;
+    g_state.progress.Reset();
+    _MESSAGE("Walker hop: reached (%.0f, %.0f, %.0f), %.0f m from %s; carrying on from here", g_state.hopPoint.x,
+             g_state.hopPoint.y, g_state.hopPoint.z, Units::ToMeters(distance), g_state.command.description.c_str());
+  }
   PathPoint3 navigationPoint = GetNavigationPoint(player, target, deltaTime);
+  if (g_state.hopJustArrived && g_state.routeRefreshed) {
+    g_state.hopJustArrived = false;
+    // Still no path to the target itself, and the navmesh point of this cell nearest to it is where she stands: the
+    // ordinary walk has nowhere to go from here, so the next hop is looked for at once.
+    if (g_state.routeSnapped && g_state.routeLength >= 0.0f && g_state.routeLength <= 2.0f * kHopArriveDistance &&
+        shouldMove && !StartHopSearch(player, std::string(), "she is at the end of this cell's navmesh")) {
+      FinishFailed(player, WalkerLogic::FailureReason::Blocked);
+      return;
+    }
+  }
   // The raycast path check runs while she walks her route; standing within reach or a recovery step ends a detour.
   if (shouldMove && !g_state.recovery.active) {
-    UpdateDetour(player, target, playerPosition, target->GetPos(), distance, deltaTime);
+    UpdateDetour(player, target, playerPosition, WalkDestination(target), distance, deltaTime);
     if (!g_state.hasCommand)
       return; // the rerouting found no other way and failed the walk
     target = LookupReference(g_state.command.targetFormId);
@@ -1576,7 +1742,7 @@ void Process() {
 
   // Progress is the straight distance to the target, except once the pathfinder has been sent round a blocked spot:
   // that way can lead away from the target for a long time, so the length of its route counts instead.
-  const bool alongRoute = !g_avoid.empty() && g_state.routeLength >= 0.0f;
+  const bool alongRoute = (!g_avoid.empty() || g_state.hopActive) && g_state.routeLength >= 0.0f;
   const float progressDistance = alongRoute ? g_state.routeLength : distance;
   if (alongRoute != g_state.progressAlongRoute) {
     g_state.progressAlongRoute = alongRoute; // the two measures cannot be compared: start over
@@ -1597,7 +1763,8 @@ void Process() {
     return;
   } else if (g_state.recovery.active) {
     plan = StepRecovery(player, deltaTime);
-  } else if (g_state.gridSearch.GetState() == NavGrid::Search::State::Working || g_state.reroute.active) {
+  } else if (g_state.gridSearch.GetState() == NavGrid::Search::State::Working || g_state.reroute.active ||
+             g_state.hopSearch.active) {
     // She stands while the grid looks for a way round or the pathfinder is asked for another route (a few frames to
     // a few seconds): walking on would be into the obstacle, and both start from where she stands. Standing is not
     // being stuck.

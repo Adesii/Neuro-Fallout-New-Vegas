@@ -341,6 +341,27 @@ void LogLineOfSight(PlayerCharacter *player, TESObjectREFR *target, const NiPoin
       trace.hitFraction, Distance(trace.camera, hit), Distance(hit, targetPoint), hit.z);
 }
 
+void ForEachLoadedCell(const std::function<void(TESObjectCELL *)> &visit) {
+  auto *player = PlayerCharacter::GetSingleton();
+  auto *tes = TES::GetSingleton();
+  if (!player || !tes)
+    return;
+  if (tes->currentInterior) {
+    visit(tes->currentInterior);
+  } else if (tes->gridCellArray && tes->gridCellArray->pGridCells) {
+    const int dimension = tes->gridCellArray->iDimension;
+    for (int y = 0; y < dimension; ++y) {
+      for (int x = 0; x < dimension; ++x) {
+        auto *gridCell = tes->gridCellArray->GetCell(x, y);
+        if (gridCell && gridCell->pCell)
+          visit(gridCell->pCell);
+      }
+    }
+  } else if (auto *cell = player->GetParentCell()) {
+    visit(cell);
+  }
+}
+
 void ForEachLoadedReference(const std::function<void(TESObjectREFR *, TESObjectCELL *)> &visit) {
   auto *player = PlayerCharacter::GetSingleton();
   auto *tes = TES::GetSingleton();

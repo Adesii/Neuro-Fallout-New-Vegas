@@ -490,3 +490,28 @@ TEST("block memory: the same object seen from another side is the same obstacle"
   CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0xBEE) == BlockMemory::Action::Search);
   CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0) == BlockMemory::Action::Search);
 }
+
+TEST("hop budget: a few hops a walk, no place twice, and a hop that got her nearer gives the budget back") {
+  HopBudget hops;
+  CHECK(hops.MayHop());
+  // From 6000 units away, a hop that leads away from the target (the way round starts in the wrong direction).
+  hops.Begin({-2000.0f, 0.0f, 0.0f}, 6000.0f);
+  CHECK(hops.Visited({-1800.0f, 100.0f, 0.0f}));
+  CHECK(!hops.Visited({-1000.0f, 0.0f, 0.0f}));
+  hops.Arrived(7600.0f);
+  CHECK_EQ(hops.Used(), 1);
+  // The second one ends well nearer than she has been: it was worth it.
+  hops.Begin({3000.0f, 0.0f, 0.0f}, 7600.0f);
+  hops.Arrived(3500.0f);
+  CHECK_EQ(hops.Used(), 0);
+  // Three in a row that get her nowhere nearer, and that is all.
+  for (int hop = 0; hop < HopBudget::kMaxHops; ++hop) {
+    REQUIRE(hops.MayHop());
+    hops.Begin({10000.0f + 1000.0f * static_cast<float>(hop), 0.0f, 0.0f}, 3500.0f);
+    hops.Arrived(3400.0f); // nearer, but not by enough
+  }
+  CHECK(!hops.MayHop());
+  hops.Reset();
+  CHECK(hops.MayHop());
+  CHECK(!hops.Visited({-2000.0f, 0.0f, 0.0f}));
+}

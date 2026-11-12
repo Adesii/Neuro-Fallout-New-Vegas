@@ -474,4 +474,29 @@ bool BlockMemory::Avoided(const Point3 &point, uint32_t formId) const {
   return false;
 }
 
+bool HopBudget::Visited(const Point3 &place) const {
+  for (const Point3 &earlier : m_places)
+    if (Distance2D(earlier, place) <= kSamePlace)
+      return true;
+  return false;
+}
+
+void HopBudget::Begin(const Point3 &place, float targetDistance) {
+  m_places.push_back(place);
+  ++m_used;
+  if (!m_hasBest || targetDistance < m_best) {
+    m_best = targetDistance;
+    m_hasBest = true;
+  }
+}
+
+void HopBudget::Arrived(float targetDistance) {
+  if (m_hasBest && targetDistance <= m_best - kBetterBy)
+    m_used = 0;
+  if (!m_hasBest || targetDistance < m_best) {
+    m_best = targetDistance;
+    m_hasBest = true;
+  }
+}
+
 } // namespace PathProbe

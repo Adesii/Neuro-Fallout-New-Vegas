@@ -298,4 +298,34 @@ private:
   std::vector<Spot> m_avoided;
 };
 
+// --- Hops ---------------------------------------------------------------------------------------------------------
+
+// When the pathfinder has no way to the target in the cells that are loaded (the underpass round the wrecks north of
+// Primm lies one row of cells outside them), the walker heads for the reachable navmesh point nearest the target in
+// another loaded cell and looks again from there. That is a guess, and when the target really is cut off it would
+// walk her about for ever, so a walk gets only a few such hops. A hop that ends nearer the target than she has been
+// on this walk was worth it and gives the budget back.
+class HopBudget {
+public:
+  static constexpr int kMaxHops = 3;
+  static constexpr float kBetterBy = 500.0f;  // nearer the target than ever by this much: the budget comes back
+  static constexpr float kSamePlace = 300.0f; // a place this close to an earlier hop is not tried again
+
+  void Reset() { *this = {}; }
+  bool MayHop() const { return m_used < kMaxHops; }
+  int Used() const { return m_used; }
+  // Whether a hop on this walk already went to about this place.
+  bool Visited(const Point3 &place) const;
+  // A hop starts, with the straight distance to the target from where she stands.
+  void Begin(const Point3 &place, float targetDistance);
+  // The hop's place was reached, with the straight distance to the target from there.
+  void Arrived(float targetDistance);
+
+private:
+  std::vector<Point3> m_places;
+  int m_used = 0;
+  float m_best = 0.0f; // the nearest she has been to the target at the start or end of a hop
+  bool m_hasBest = false;
+};
+
 } // namespace PathProbe

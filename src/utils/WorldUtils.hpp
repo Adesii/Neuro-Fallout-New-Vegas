@@ -57,6 +57,9 @@ uint16_t PlayerCollisionGroup(PlayerCharacter *player);
 // coordinates; the player's own cell when that one is not loaded.
 TESObjectCELL *CellAt(PlayerCharacter *player, float x, float y);
 
+// Visits the interior the player is in, or every loaded cell of the exterior grid around the player.
+void ForEachLoadedCell(const std::function<void(TESObjectCELL *)> &visit);
+
 // The player's collision capsule in game units: its radius and its full height. False when the character controller
 // is missing or holds values that cannot be a body (then nothing may be assumed in their place).
 bool PlayerCollisionShape(PlayerCharacter *player, float &radius, float &height);
