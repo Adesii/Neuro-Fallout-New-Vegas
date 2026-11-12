@@ -46,6 +46,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 51 | [Ask for confirmation before changing the followed quest](51-confirm-quest-course-change.md) (idea from Skyrim) | Gameplay actions |
 | 52 | [Send a quest's description the first time she follows it](52-quest-description-on-first-follow.md) (idea from Skyrim) | Context |
 | 53 | [Custom (plugin-defined) quests](53-custom-quests.md) | Quests |
+| 54 | [Plan long routes over the game's map of navmeshes](54-long-range-navmesh-map.md) (research first) | Walker / pathing |
 
 ## To verify (implemented, waiting for an in-game test)
 
