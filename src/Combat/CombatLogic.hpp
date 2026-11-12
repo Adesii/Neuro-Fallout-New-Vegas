@@ -67,13 +67,16 @@ enum class StopReason {
   NoEffect,
   LineOfSightLost,
   Stalled,
+  Unreachable, // the walk toward the target (melee reach, or a clear view of it) failed
   ControlsDisabled,
   NoWeapon,
   PlayerDied,
   AreaChanged,
 };
-// A sentence for Neuro explaining why the engagement ended. `target` is the name of what was being attacked.
-std::string DescribeStop(StopReason reason, const std::string &target);
+// A sentence for Neuro explaining why the engagement ended. `target` is the name of what was being attacked;
+// `soughtSight` is whether the engagement walked toward a target it could not see (attack's `approach`), which changes
+// what a lost line of sight means and what to suggest.
+std::string DescribeStop(StopReason reason, const std::string &target, bool soughtSight = false);
 
 struct EngagementInput {
   float dt = 0.0f;
@@ -93,6 +96,8 @@ struct EngagementInput {
   int reserve = -1; // rounds in the inventory, -1 unknown
   bool aimed = false;
   bool externalMovement = false; // Neuro's own walk command is moving the player
+  float travelled = 0.0f;        // ground the player has covered since the engagement began (any direction)
+  bool approachFailed = false;   // the walk `approach` asked for gave up (Walker reported a failure)
 };
 
 struct EngagementOutput {
@@ -100,7 +105,9 @@ struct EngagementOutput {
   bool fire = false;
   bool tapReadyWeapon = false; // draw the weapon
   bool tapReload = false;
-  bool approach = false; // melee target out of reach and nothing else is moving the player
+  // Walk toward the target: a melee target out of reach, or (an engagement begun with `seekSight`) a target that is
+  // not in view. Never while something else is moving the player.
+  bool approach = false;
   std::optional<StopReason> stop;
 };
 
@@ -110,8 +117,14 @@ public:
   // Longer than any pulse "off" time, so `m_pulseTimer >= off` holds.
   static constexpr float kPulseReady = 10.0f;
 
-  // Free-aim targets (non-actors) finish after a bounded burst because they have no health to observe.
-  void Begin(bool targetIsActor);
+  // After the target comes into view, the walk toward it goes on this long: she ends up clear of the corner, not on
+  // the edge where the view flickers between blocked and clear.
+  static constexpr float kSightHold = 0.3f;
+
+  // Free-aim targets (non-actors) finish after a bounded burst because they have no health to observe. `seekSight`
+  // (attack's `approach`, todo 55): without a line of sight she walks toward the target until she has one, instead of
+  // waiting out the line-of-sight limit where she stands.
+  void Begin(bool targetIsActor, bool seekSight = false);
   EngagementOutput Update(const EngagementInput &input);
   bool IsActive() const { return m_active; }
   void End() { m_active = false; }
@@ -121,6 +134,9 @@ public:
 private:
   bool m_active = false;
   bool m_targetIsActor = true;
+  bool m_seekSight = false;
+  bool m_seekingSight = false; // walking toward the target for a view of it (kept through kSightHold)
+  float m_sightTime = 0.0f;    // how long the target has been in view
   bool m_triggerDown = false;
   // Time since the trigger last went up. Starts "ready" so the first shot is not delayed by the off time, and is reset
   // to ready whenever the weapon cannot fire (the next frame it can, the trigger goes down at once).
@@ -128,7 +144,9 @@ private:
   float m_losLostTime = 0.0f;
   float m_stallTime = 0.0f;
   float m_approachTime = 0.0f;
-  float m_approachDistance = -1.0f;
+  float m_approachMark = 0.0f; // the progress measure at the start of the current window
+  bool m_approachMeasured = false;
+  bool m_approachBySight = false;
   bool m_approachProgressing = true;
   float m_emptyClipTime = 0.0f;
   float m_disabledTime = 0.0f;
@@ -203,11 +221,14 @@ inline constexpr int kBandCritical = 4;
 int HealthBand(float health, float maxHealth);
 int RadiationStage(float radiation);
 
+inline constexpr char kApproachProperty[] = "approach";
+
 struct AttackRequest {
   std::optional<int> enemyId;
   std::optional<int> objectId;
+  bool approach = false; // walk toward a target that is not in view until it is
 };
-// Exactly one of enemy_id / object_id, both positive integers.
+// Exactly one of enemy_id / object_id, both positive integers, and optionally the boolean `approach`.
 bool ParseAttackRequest(std::string_view json, AttackRequest &request, std::string &error);
 // An optional enemy_id, used by open_vats.
 bool ParseOptionalEnemyId(std::string_view json, std::optional<int> &enemyId, std::string &error);

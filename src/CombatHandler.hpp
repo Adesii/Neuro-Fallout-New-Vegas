@@ -32,9 +32,15 @@ void QueryEnemies();
 // Resolves an id from the last query_enemies. Fails for stale ids, dead and explicitly friendly actors.
 bool ResolveEnemy(int id, TargetSelection &selection, std::string &error);
 
+// Without a line of sight the attack is refused, unless the request asks to approach (todo 55).
 bool ValidateAttack(const Combat::AttackRequest &request, TargetSelection &selection, std::string &error);
 bool RevalidateAttack(const TargetSelection &selection, std::string &error);
-void StartAttack(const TargetSelection &selection);
+// Ends the quest route and whatever walk was running (attack is the newest command, todo 50). `approach`: walk toward
+// the target whenever it is not in view, until it is.
+void StartAttack(const TargetSelection &selection, bool approach);
+// The walk combat started toward its target failed; `failure` is Walker's sentence about it. True when an engagement
+// took it (it then ends with that sentence in its stop message), false when there is none and the caller reports it.
+bool ReportApproachFailure(const std::string &failure);
 
 bool ValidateStopAttack(std::string &error);
 void StopAttack();

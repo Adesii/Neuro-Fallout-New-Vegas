@@ -28,6 +28,9 @@ public:
   // An integer of at least 1, or false with an error naming `key`.
   bool GetPositiveInteger(std::string_view key, int &value, std::string &error) const;
   bool GetString(std::string_view key, std::string &value) const;
+  // A JSON true or false. Anything else under `key` (a string, a number) is NotABoolean, never coerced.
+  enum class BooleanResult { Ok, Missing, NotABoolean };
+  BooleanResult ReadBoolean(std::string_view key, bool &value) const;
 
 private:
   explicit ActionData(void *root);

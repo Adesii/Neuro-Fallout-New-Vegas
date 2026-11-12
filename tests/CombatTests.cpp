@@ -88,6 +88,24 @@ TEST("combat: attack arguments need exactly one positive id") {
   CHECK(!ParseAttackRequest("[1]", request, error));
 }
 
+TEST("combat: attack takes an optional boolean approach next to its one id") {
+  AttackRequest request;
+  std::string error;
+  CHECK(ParseAttackRequest(R"({"enemy_id":3})", request, error) && !request.approach);
+  CHECK(ParseAttackRequest(R"({"enemy_id":3,"approach":true})", request, error));
+  CHECK(request.enemyId == std::optional<int>(3) && request.approach);
+  CHECK(ParseAttackRequest(R"({"approach":true,"object_id":7})", request, error));
+  CHECK(request.objectId == std::optional<int>(7) && !request.enemyId && request.approach);
+  CHECK(ParseAttackRequest(R"({"enemy_id":3,"approach":false})", request, error) && !request.approach);
+
+  CHECK(!ParseAttackRequest(R"({"approach":true})", request, error)); // no target
+  CHECK(!ParseAttackRequest(R"({"enemy_id":1,"object_id":2,"approach":true})", request, error));
+  CHECK(!ParseAttackRequest(R"({"enemy_id":1,"other":true})", request, error));
+  CHECK(!ParseAttackRequest(R"({"enemy_id":1,"approach":"yes"})", request, error));
+  CHECK(error.find("approach") != std::string::npos);
+  CHECK(!ParseAttackRequest(R"({"enemy_id":1,"approach":1})", request, error));
+}
+
 TEST("combat: open_vats accepts an optional enemy id only") {
   std::optional<int> enemy;
   std::string error;
@@ -456,12 +474,21 @@ TEST("combat reporter: a weapon change and ammo exhaustion are each reported onc
 }
 
 TEST("combat: stop messages always name what was being attacked") {
-  for (auto reason :
-       {StopReason::Requested, StopReason::TargetDead, StopReason::TargetGone, StopReason::ObjectFinished,
-        StopReason::OutOfAmmo, StopReason::NoEffect, StopReason::LineOfSightLost, StopReason::Stalled,
-        StopReason::ControlsDisabled, StopReason::NoWeapon, StopReason::PlayerDied, StopReason::AreaChanged}) {
+  for (auto reason : {StopReason::Requested, StopReason::TargetDead, StopReason::TargetGone, StopReason::ObjectFinished,
+                      StopReason::OutOfAmmo, StopReason::NoEffect, StopReason::LineOfSightLost, StopReason::Stalled,
+                      StopReason::Unreachable, StopReason::ControlsDisabled, StopReason::NoWeapon,
+                      StopReason::PlayerDied, StopReason::AreaChanged}) {
     CHECK(DescribeStop(reason, "Powder Ganger").find("Powder Ganger") != std::string::npos);
+    CHECK(DescribeStop(reason, "Powder Ganger", true).find("Powder Ganger") != std::string::npos);
   }
+}
+
+TEST("combat: a lost line of sight suggests approach, unless the engagement already walked toward the target") {
+  const std::string waited = DescribeStop(StopReason::LineOfSightLost, "Gecko");
+  CHECK(waited.find("approach set to true") != std::string::npos);
+  const std::string walked = DescribeStop(StopReason::LineOfSightLost, "Gecko", true);
+  CHECK(walked.find("approach set to true") == std::string::npos);
+  CHECK(walked.find("walking toward it") != std::string::npos);
 }
 
 TEST("combat: health bands and fractions format as expected") {
@@ -685,4 +712,154 @@ TEST("combat aim gate: a target's angular radius comes from its bound, capped by
   CHECK_EQ(Combat::AngularRadius(0.0f, 700.0f, 0.05f), 0.05f);
   CHECK_EQ(Combat::AngularRadius(12.0f, 0.0f, 0.05f), 0.05f);
   CHECK_EQ(Combat::AngularRadius(std::numeric_limits<float>::quiet_NaN(), 700.0f, 0.07f), 0.07f);
+}
+
+// --- attack's approach: walking toward a target that is not in view (todo 55) ------------------------------------
+
+namespace {
+// A ranged attacker whose target is behind cover; `speed` is how fast the walk covers ground, in units per second.
+struct SightWalk {
+  Engagement engagement;
+  EngagementInput input = ReadyRanged();
+  float elapsed = 0.0f;
+
+  explicit SightWalk(bool approach) {
+    engagement.Begin(true, approach);
+    input.lineOfSight = false;
+  }
+  EngagementOutput Step(float speed) {
+    input.travelled += speed * input.dt;
+    elapsed += input.dt;
+    return engagement.Update(input);
+  }
+};
+} // namespace
+
+TEST("combat approach: without it an unseen target is only waited for, with it she walks toward the target") {
+  SightWalk waiting(false);
+  CHECK(!waiting.Step(0.0f).approach);
+  SightWalk walking(true);
+  const auto output = walking.Step(150.0f);
+  CHECK(output.approach && !output.fire);
+}
+
+TEST("combat approach: a walk that keeps covering ground outlasts the line-of-sight limit") {
+  SightWalk walk(true);
+  for (int frame = 0; frame < 1200; ++frame) { // 60 s around a building
+    const auto output = walk.Step(150.0f);
+    CHECK(output.approach && !output.stop);
+    if (output.stop)
+      break;
+  }
+  CHECK(walk.engagement.IsActive());
+}
+
+TEST("combat approach: the walk stops shortly after the target comes into view, and she fires meanwhile") {
+  SightWalk walk(true);
+  for (int frame = 0; frame < 40; ++frame)
+    walk.Step(150.0f);
+  walk.input.lineOfSight = true;
+  bool fired = false;
+  float walkedOn = 0.0f;
+  for (int frame = 0; frame < 40; ++frame) {
+    const auto output = walk.Step(150.0f);
+    fired = fired || output.fire;
+    if (output.approach)
+      walkedOn += walk.input.dt;
+  }
+  CHECK(fired);
+  CHECK(walkedOn > 0.0f); // clear of the corner, not on its edge
+  CHECK(walkedOn <= Engagement::kSightHold + walk.input.dt);
+  CHECK(!walk.Step(0.0f).approach);
+}
+
+TEST("combat approach: a view that flickers at the edge of cover does not stop and restart the walk") {
+  SightWalk walk(true);
+  walk.Step(150.0f);
+  for (int frame = 0; frame < 100; ++frame) {
+    walk.input.lineOfSight = frame % 3 == 0; // clear for one frame in three, well under the hold
+    CHECK(walk.Step(150.0f).approach);
+  }
+}
+
+TEST("combat approach: losing the target behind cover again starts the walk again") {
+  SightWalk walk(true);
+  walk.input.lineOfSight = true;
+  for (int frame = 0; frame < 40; ++frame)
+    CHECK(!walk.Step(0.0f).approach); // in view from the start: nothing to walk for
+  walk.input.lineOfSight = false;
+  CHECK(walk.Step(150.0f).approach);
+}
+
+TEST("combat approach: Neuro's own walk command wins over the approach, and the limit runs again") {
+  SightWalk walk(true);
+  walk.input.externalMovement = true;
+  EngagementOutput last;
+  while (walk.engagement.IsActive() && walk.elapsed < 20.0f) {
+    last = walk.Step(150.0f);
+    CHECK(!last.approach);
+  }
+  CHECK(last.stop == std::optional<StopReason>(StopReason::LineOfSightLost));
+  CHECK(walk.elapsed > 7.5f && walk.elapsed < 9.0f);
+}
+
+TEST("combat approach: a walk that covers no ground (arrived, or pushing into something) ends as line of sight lost") {
+  SightWalk walk(true);
+  for (int frame = 0; frame < 100; ++frame) // 5 s of real walking first
+    CHECK(!walk.Step(150.0f).stop);
+  const float arrived = walk.elapsed;
+  EngagementOutput last;
+  while (walk.engagement.IsActive() && walk.elapsed < arrived + 30.0f)
+    last = walk.Step(0.0f);
+  CHECK(last.stop == std::optional<StopReason>(StopReason::LineOfSightLost));
+  // One progress window to notice the standstill, then the usual limit.
+  CHECK(walk.elapsed - arrived > 8.0f && walk.elapsed - arrived < 10.5f);
+}
+
+TEST("combat approach: a failed walk ends the engagement as unreachable at once, for melee too") {
+  SightWalk walk(true);
+  walk.Step(150.0f);
+  walk.input.approachFailed = true;
+  CHECK(walk.Step(0.0f).stop == std::optional<StopReason>(StopReason::Unreachable));
+  CHECK(!walk.engagement.IsActive());
+
+  Engagement melee;
+  melee.Begin(true);
+  auto input = MeleeInput(900.0f);
+  CHECK(melee.Update(input).approach);
+  input.approachFailed = true;
+  CHECK(melee.Update(input).stop == std::optional<StopReason>(StopReason::Unreachable));
+}
+
+TEST("combat approach: melee out of reach and out of view walks either way, but only approach outlasts the limit") {
+  for (bool approach : {false, true}) {
+    Engagement engagement;
+    engagement.Begin(true, approach);
+    auto input = MeleeInput(900.0f);
+    input.lineOfSight = false;
+    EngagementOutput last;
+    float elapsed = 0.0f;
+    while (engagement.IsActive() && elapsed < 15.0f) {
+      input.travelled += 150.0f * input.dt; // walking around the cover: the straight distance does not shrink
+      last = engagement.Update(input);
+      CHECK(last.approach || last.stop);
+      elapsed += input.dt;
+    }
+    if (approach)
+      CHECK(engagement.IsActive());
+    else
+      CHECK(last.stop == std::optional<StopReason>(StopReason::LineOfSightLost));
+  }
+}
+
+TEST("combat approach: a menu pauses the walk with everything else") {
+  SightWalk walk(true);
+  walk.Step(150.0f);
+  walk.input.paused = true;
+  for (int frame = 0; frame < 400; ++frame) {
+    const auto output = walk.Step(0.0f);
+    CHECK(!output.approach && !output.stop);
+  }
+  walk.input.paused = false;
+  CHECK(walk.Step(150.0f).approach);
 }

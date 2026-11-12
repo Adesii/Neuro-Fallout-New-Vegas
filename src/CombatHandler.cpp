@@ -63,7 +63,13 @@ constexpr size_t kEnemyLimit = 20;
 constexpr size_t kCombatStartListLimit = 5;
 
 constexpr float kLineOfSightInterval = 0.1f;
-constexpr float kAimLogInterval = 0.5f; // measurement log for todos 03 / 27 while a free-aim target is engaged
+constexpr float kAimLogInterval = 0.5f;      // measurement log for todos 03 / 27 while a free-aim target is engaged
+constexpr float kActorAimLogInterval = 1.0f; // the same line for an actor target (todo 56)
+// A change of position this large in one frame is a door, a load or a teleport, not ground covered on foot.
+constexpr float kTeleportStep = 500.0f;
+// An approach walk that ended by itself (it arrived) is started again at most this often while the engagement still
+// wants one: arriving next to a target that is still out of view would otherwise restart the walk every frame.
+constexpr float kApproachRestartInterval = 0.5f;
 
 constexpr float kMeleeBaseRange = 100.0f; // matches Walker's interaction distance; scaled by weapon reach
 constexpr float kRangedHeadingTolerance = 0.05f;
@@ -115,6 +121,14 @@ float g_lineOfSightTimer = 0.0f;
 float g_aimLogTimer = 0.0f;
 bool g_lineOfSight = false;
 Combat::WeaponKind g_engagedWeaponKind = Combat::WeaponKind::Unarmed;
+// attack's `approach` (todo 55): the engagement walks toward a target it cannot see. The ground covered is its
+// progress measure; a failed walk ends it with Walker's own sentence.
+bool g_seekSight = false;
+float g_travelled = 0.0f;
+NiPoint3 g_lastPosition = {0.0f, 0.0f, 0.0f};
+bool g_approachFailed = false;
+std::string g_approachFailure;
+float g_approachRestartTimer = 0.0f;
 
 uint32_t g_attackMacro = InputUtils::kNoControl;
 InputUtils::PulseQueue g_pulses{InputCore::Owner::CombatPulse};
@@ -180,7 +194,9 @@ std::string NameOf(TESObjectREFR *ref) {
   return name && name[0] ? name : "Unnamed";
 }
 
-NiPoint3 AimPoint(TESObjectREFR *ref) { return AimUtils::TargetPoint(ref, AimUtils::Purpose::Shoot); }
+NiPoint3 AimPoint(TESObjectREFR *ref, AimUtils::PointSource *source = nullptr) {
+  return AimUtils::TargetPoint(ref, AimUtils::Purpose::Shoot, source);
+}
 
 uint32_t SpaceOf(TESObjectREFR *ref) {
   auto *cell = ref ? ref->GetParentCell() : nullptr;
@@ -373,9 +389,13 @@ void FinishEngagement(Combat::StopReason reason) {
   // A shot-up bottle or crate may simply be removed from the world; that is the burst working, not a failure.
   if (reason == Combat::StopReason::TargetGone && !g_target.isActor)
     reason = Combat::StopReason::ObjectFinished;
-  std::string message = Combat::DescribeStop(reason, g_target.name);
+  std::string message = Combat::DescribeStop(reason, g_target.name, g_seekSight);
   if (reason == Combat::StopReason::Stalled && g_engagement.Blocker()[0])
     message += std::string(" (") + g_engagement.Blocker() + ".)";
+  if (reason == Combat::StopReason::Unreachable && !g_approachFailure.empty())
+    message += " " + g_approachFailure;
+  g_approachFailed = false;
+  g_approachFailure.clear();
   g_engagement.End();
   Walker::SetLookSuppressed(false);
   if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Combat)
@@ -385,16 +405,14 @@ void FinishEngagement(Combat::StopReason reason) {
   NeuroSDK::SendContext(message.c_str(), reason == Combat::StopReason::Requested);
 }
 
-// Measurements todo 03 / 27 ask for: where the eye, the target and the aim point are, and how far the view still is
-// from the point. Only for non-actor targets (bottles, props), a couple of lines per second.
-void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &point, const AimUtils::Error &error,
-                float deltaTime) {
-  if (target->IsActor())
-    return;
+// Measurements todos 03 / 27 / 56 ask for: where the eye, the target and the aim point are, where the aim point came
+// from, and how far the view still is from it. Twice a second for a free-aim target, once a second for an actor.
+void LogAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &point, AimUtils::PointSource source,
+            const AimUtils::Error &error, float deltaTime) {
   g_aimLogTimer -= deltaTime;
   if (g_aimLogTimer > 0.0f)
     return;
-  g_aimLogTimer = kAimLogInterval;
+  g_aimLogTimer = target->IsActor() ? kActorAimLogInterval : kAimLogInterval;
   NiPoint3 camera;
   const bool hasCamera = AimUtils::CameraPosition(player, camera);
   NiPoint3 field;
@@ -409,14 +427,15 @@ void LogFreeAim(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3 &
   TESObjectREFR *crosshair = manager ? manager->crosshairRef : nullptr;
   _MESSAGE("Aim %s: camera (%.1f %.1f %.1f)%s, %.1f above the feet (z %.1f), player cameraPos field (%.1f %.1f "
            "%.1f)%s; crouching %d scale %.2f; target origin (%.1f %.1f %.1f) scale %.2f; bound %s centre z+%.1f radius "
-           "%.1f; aim point z+%.1f; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch error %.4f; "
-           "crosshair %08X (target %08X), reticle actor on target %d",
+           "%.1f; aim point z+%.1f from the %s; distance %.1f; yaw %.3f rad, heading error %.4f, pitch %.3f rad, pitch "
+           "error %.4f; crosshair %08X (target %08X), reticle actor on target %d",
            g_target.name.c_str(), camera.x, camera.y, camera.z, hasCamera ? "" : " UNUSABLE", camera.z - feet.z, feet.z,
            field.x, field.y, field.z, hasField ? "" : " unusable", AimUtils::IsCrouching(player) ? 1 : 0,
            player->GetScale(), origin.x, origin.y, origin.z, target->GetScale(), hasBound ? "used" : "none",
            hasBound ? boundCentre.z - origin.z : 0.0f, boundRadius, point.z - origin.z,
-           hasCamera ? Distance3D(camera, point) : 0.0f, AimUtils::EffectiveYaw(player), error.heading,
-           AimUtils::CameraPitch(), error.pitch, crosshair ? crosshair->GetFormID() : 0, target->GetFormID(),
+           AimLogic::PointSourceName(source), hasCamera ? Distance3D(camera, point) : 0.0f,
+           AimUtils::EffectiveYaw(player), error.heading, AimUtils::CameraPitch(), error.pitch,
+           crosshair ? crosshair->GetFormID() : 0, target->GetFormID(),
            player->reticleActor && player->reticleActor == target ? 1 : 0);
 }
 
@@ -486,6 +505,14 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
   Combat::EngagementInput input;
   input.dt = deltaTime;
   input.paused = paused;
+  input.approachFailed = g_approachFailed;
+  g_approachFailed = false;
+  const NiPoint3 position = player->GetPos();
+  const float step = Distance3D(position, g_lastPosition);
+  if (std::isfinite(step) && step < kTeleportStep)
+    g_travelled += step;
+  g_lastPosition = position;
+  input.travelled = g_travelled;
   input.targetPresent = target && SpaceOf(target) == g_startSpace;
   input.targetAlive = !(input.targetPresent && target->IsActor() && static_cast<Actor *>(target)->GetDead());
   if (!input.targetPresent || !input.targetAlive || paused) {
@@ -504,7 +531,8 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
     return;
   }
   g_engagedWeaponKind = weapon.kind;
-  const NiPoint3 point = AimPoint(target);
+  AimUtils::PointSource pointSource = AimUtils::PointSource::Origin;
+  const NiPoint3 point = AimPoint(target, &pointSource);
   g_lineOfSightTimer -= deltaTime;
   if (g_lineOfSightTimer <= 0.0f) {
     const auto trace = WorldUtils::TraceLineOfSight(player, target, point);
@@ -518,7 +546,7 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
     g_lineOfSightTimer = kLineOfSightInterval;
   }
   const AimUtils::Error error = AimUtils::AimAt(player, point, deltaTime);
-  LogFreeAim(player, target, point, error, deltaTime);
+  LogAim(player, target, point, pointSource, error, deltaTime);
 
   input.fightDisabled = (player->pcControlFlags & PlayerCharacter::kControlFlag_Fight) != 0;
   input.lineOfSight = g_lineOfSight;
@@ -541,10 +569,17 @@ void ProcessEngagement(PlayerCharacter *player, float deltaTime, bool gameplayBl
   SetAttackHeld(output.fire);
   if (output.tapReadyWeapon || output.tapReload)
     PulseControl(ControlCode::ReadyItem); // ready-weapon draws a holstered weapon and reloads a drawn one
+  const bool approachRunning = Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Combat;
   if (output.approach) {
-    Walker::Start(g_target.referenceFormId, Walker::Intent::Move, Walker::Owner::Combat, g_target.name);
-  } else if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Combat) {
-    Walker::Stop();
+    g_approachRestartTimer -= deltaTime; // also while it runs: a walk that lasted is restarted at once
+    if (!approachRunning && g_approachRestartTimer <= 0.0f) {
+      Walker::Start(g_target.referenceFormId, Walker::Intent::Move, Walker::Owner::Combat, g_target.name);
+      g_approachRestartTimer = kApproachRestartInterval;
+    }
+  } else {
+    g_approachRestartTimer = 0.0f;
+    if (approachRunning)
+      Walker::Stop();
   }
   if (output.stop)
     FinishEngagement(*output.stop);
@@ -853,6 +888,10 @@ void Reset() {
   g_target = {};
   g_lineOfSightTimer = 0.0f;
   g_lineOfSight = false;
+  g_seekSight = false;
+  g_travelled = 0.0f;
+  g_approachFailed = false;
+  g_approachFailure.clear();
   g_inCombat = false;
   g_combatTimer = 0.0f;
   g_noteCooldown = 0.0f;
@@ -1005,12 +1044,17 @@ bool ValidateAttack(const Combat::AttackRequest &request, TargetSelection &selec
     error = selection.name + " is no longer there.";
     return false;
   }
+  // With `approach` the engagement walks toward a target it cannot see, so no view is needed to accept it.
+  if (request.approach)
+    return true;
   const NiPoint3 point = AimPoint(ref);
   const auto trace = WorldUtils::TraceLineOfSight(player, ref, point);
   if (!trace.clear) {
     WorldUtils::LogLineOfSight(player, ref, point, trace, "attack refused");
-    error = selection.name +
-            " is not in your line of sight (behind a wall or cover). Move to get a clear view, then try again.";
+    error = selection.name + " is not in your line of sight (behind a wall or cover). Call attack again with " +
+            Combat::kApproachProperty +
+            " set to true to walk toward it until you have a clear shot, or move to a "
+            "clear view yourself first.";
     return false;
   }
   return true;
@@ -1023,30 +1067,61 @@ bool RevalidateAttack(const TargetSelection &selection, std::string &error) {
   return player && CheckAttackTarget(player, LookupReference(selection.referenceFormId), error);
 }
 
-void StartAttack(const TargetSelection &selection) {
+void StartAttack(const TargetSelection &selection, bool approach) {
   auto *player = PlayerCharacter::GetSingleton();
   if (!player)
     return;
   const bool retarget = g_engagement.IsActive();
-  if (Walker::IsActive() && Walker::GetOwner() == Walker::Owner::Combat)
+  // attack is the newest command, so it wins over whatever walk was running (designer, 2026-11-12, todo 50): the quest
+  // route ends, and any other walk stops. That also frees the Walker for combat's own approach (melee reach, or a
+  // view of the target). A walk she starts after this still moves her without ending the engagement.
+  GameplayHandler::InterruptQuestRoute(WalkerLogic::Command::Attack);
+  std::string abandonedWalk;
+  if (Walker::IsActive()) {
+    if (Walker::GetOwner() != Walker::Owner::Combat)
+      abandonedWalk = Walker::GetDescription();
     Walker::Stop();
+  }
   g_target = selection;
   g_startSpace = SpaceOf(player);
+  g_seekSight = approach;
+  g_travelled = 0.0f;
+  g_lastPosition = player->GetPos();
+  g_approachFailed = false;
+  g_approachFailure.clear();
+  g_approachRestartTimer = 0.0f;
+  auto *target = LookupReference(selection.referenceFormId);
+  const bool inView = target && WorldUtils::HasLineOfSight(player, target, AimPoint(target));
   g_lineOfSightTimer = 0.0f;
-  g_lineOfSight = true;
+  g_lineOfSight = inView;
+  g_aimLogTimer = 0.0f;
   g_engagedWeaponKind = ReadWeapon(player).kind;
-  g_engagement.Begin(selection.isActor);
+  g_engagement.Begin(selection.isActor, approach);
   g_aimGate.Reset();
-  _MESSAGE("Combat engagement started against %s (%08X)%s", selection.name.c_str(), selection.referenceFormId,
-           retarget ? " [retarget]" : "");
+  _MESSAGE("Combat engagement started against %s (%08X)%s%s%s", selection.name.c_str(), selection.referenceFormId,
+           retarget ? " [retarget]" : "", approach ? " [approach]" : "", inView ? "" : " [not in view]");
 
   std::ostringstream text;
   text << "## Attacking\nYou are " << (retarget ? "now " : "") << "attacking " << selection.name << ".";
+  if (!abandonedWalk.empty())
+    text << " You stopped walking to " << abandonedWalk << " for it.";
+  if (approach && !inView)
+    text << " It is not in view, so you are walking toward it until you have a clear shot.";
   if (selection.isActor)
     text << " You will keep attacking until it dies, you run out of ammo, or you lose sight of it for too long.";
   else
     text << " You will fire a short burst at it.";
+  if (approach && inView)
+    text << " If it goes behind cover you will walk toward it until you can see it again.";
   NeuroSDK::SendContext(text.str().c_str(), true);
+}
+
+bool ReportApproachFailure(const std::string &failure) {
+  if (!g_engagement.IsActive())
+    return false;
+  g_approachFailed = true;
+  g_approachFailure = failure;
+  return true;
 }
 
 bool ValidateStopAttack(std::string &error) {

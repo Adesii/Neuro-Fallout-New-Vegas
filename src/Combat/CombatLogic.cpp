@@ -113,7 +113,7 @@ const char *WeaponKindName(WeaponKind kind) {
   }
 }
 
-std::string DescribeStop(StopReason reason, const std::string &target) {
+std::string DescribeStop(StopReason reason, const std::string &target, bool soughtSight) {
   const std::string name = target.empty() ? "the target" : target;
   switch (reason) {
   case StopReason::Requested:
@@ -133,11 +133,17 @@ std::string DescribeStop(StopReason reason, const std::string &target) {
            " because your attacks are not hurting it. It may be invulnerable or essential, or too heavily armored for "
            "this weapon.";
   case StopReason::LineOfSightLost:
+    if (soughtSight)
+      return "You stopped attacking " + name +
+             " because you still have no clear view of it, and walking toward it did not open one. Try from another "
+             "position, or pick another target.";
     return "You stopped attacking " + name +
-           " because it has been out of your line of sight for too long (behind cover or a wall). Move to get a clear "
-           "view, then use attack again.";
+           " because it has been out of your line of sight for too long (behind cover or a wall). Use attack with " +
+           kApproachProperty + " set to true to walk toward it until you can see it, or move to a clear view yourself.";
   case StopReason::Stalled:
     return "You stopped attacking " + name + " because you could not make progress.";
+  case StopReason::Unreachable:
+    return "You stopped attacking " + name + " because you could not get to it.";
   case StopReason::ControlsDisabled:
     return "You stopped attacking " + name + " because your combat controls are disabled right now.";
   case StopReason::NoWeapon:
@@ -150,10 +156,11 @@ std::string DescribeStop(StopReason reason, const std::string &target) {
   return "You stopped attacking " + name + ".";
 }
 
-void Engagement::Begin(bool targetIsActor) {
+void Engagement::Begin(bool targetIsActor, bool seekSight) {
   *this = Engagement();
   m_active = true;
   m_targetIsActor = targetIsActor;
+  m_seekSight = seekSight;
 }
 
 EngagementOutput Engagement::Update(const EngagementInput &input) {
@@ -175,6 +182,10 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
     return finish(StopReason::TargetDead);
   if (input.weapon == WeaponKind::Placed)
     return finish(StopReason::NoWeapon);
+  // The walk toward the target gave up (no path, blocked, stuck). Walker has been through its own recovery by then,
+  // so starting the same walk again would only fail again, with a failure message each time.
+  if (input.approachFailed)
+    return finish(StopReason::Unreachable);
 
   // A menu or VATS owns the player. The engagement survives it, but nothing is pressed and no timer runs.
   if (input.paused) {
@@ -227,37 +238,68 @@ EngagementOutput Engagement::Update(const EngagementInput &input) {
     }
   }
 
+  // Why she should be walking toward the target, if at all: for a view of it, or to get within melee reach.
+  enum class Walk { None, Sight, Reach };
+  Walk walk = Walk::None;
   if (!input.lineOfSight) {
     canFire = false;
     m_blocker = "there is no line of sight";
-    m_losLostTime += input.dt;
-    if (m_losLostTime >= kLineOfSightLostLimit)
-      return finish(StopReason::LineOfSightLost);
+    m_sightTime = 0.0f;
+    if (m_seekSight) {
+      m_seekingSight = true;
+      walk = Walk::Sight;
+    }
   } else {
     m_losLostTime = 0.0f;
+    m_sightTime += input.dt;
+    if (m_seekingSight && m_sightTime < kSightHold)
+      walk = Walk::Sight;
+    else
+      m_seekingSight = false;
   }
-
-  bool approaching = false;
   if (NeedsReach(input.weapon) && input.distance > input.meleeRange) {
     canFire = false;
     m_blocker = "the target is out of melee reach";
-    output.approach = !input.externalMovement;
-    approaching = output.approach;
+    if (walk == Walk::None)
+      walk = Walk::Reach;
   }
-  // The walk to a melee target is not a stall while it is getting closer.
+  output.approach = walk != Walk::None && !input.externalMovement;
+  const bool approaching = output.approach;
+
+  // An approach is progress, not a stall, while it gets somewhere. Toward melee reach the straight distance has to
+  // shrink. The way to a view of the target leads around whatever hides it, which often does not shorten the straight
+  // line, so there the ground covered counts: a walk that stands still (arrived, or pushing into something) does not.
   if (approaching) {
-    if (m_approachDistance < 0.0f)
-      m_approachDistance = input.distance;
+    const bool bySight = walk == Walk::Sight;
+    const float measure = bySight ? input.travelled : -input.distance;
+    if (!m_approachMeasured || bySight != m_approachBySight) {
+      m_approachMeasured = true;
+      m_approachBySight = bySight;
+      m_approachMark = measure;
+      m_approachTime = 0.0f;
+    }
     m_approachTime += input.dt;
     if (m_approachTime >= kApproachWindow) {
-      m_approachProgressing = m_approachDistance - input.distance >= kApproachMinGain;
-      m_approachDistance = input.distance;
+      m_approachProgressing = measure - m_approachMark >= kApproachMinGain;
+      m_approachMark = measure;
       m_approachTime = 0.0f;
     }
   } else {
-    m_approachDistance = -1.0f;
+    m_approachMeasured = false;
     m_approachTime = 0.0f;
     m_approachProgressing = true;
+  }
+
+  // The line-of-sight limit counts the time spent without a view and without doing anything about it. Walking toward
+  // the target for a view is doing something about it, as long as the walk is getting somewhere.
+  if (!input.lineOfSight) {
+    if (approaching && walk == Walk::Sight && m_approachProgressing) {
+      m_losLostTime = 0.0f;
+    } else {
+      m_losLostTime += input.dt;
+      if (m_losLostTime >= kLineOfSightLostLimit)
+        return finish(StopReason::LineOfSightLost);
+    }
   }
   if (!input.aimed && canFire) {
     canFire = false;
@@ -436,23 +478,25 @@ bool ParseAttackRequest(std::string_view json, AttackRequest &request, std::stri
   auto data = Actions::ActionData::Parse(json, error);
   if (!data)
     return false;
-  if (!data->IsObject() || data->Size() != 1) {
-    error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby or "
-            "search_nearby).";
-    return false;
-  }
-  const bool hasEnemy = data->HasProperty("enemy_id");
-  const bool hasObject = data->HasProperty("object_id");
-  if (hasEnemy == hasObject) {
-    error = "Provide exactly one property: enemy_id (from query_enemies) or object_id (from query_nearby or "
-            "search_nearby).";
+  const bool hasEnemy = data->IsObject() && data->HasProperty("enemy_id");
+  const bool hasObject = data->IsObject() && data->HasProperty("object_id");
+  const bool hasApproach = data->IsObject() && data->HasProperty(kApproachProperty);
+  if (!data->IsObject() || hasEnemy == hasObject || data->Size() != (hasApproach ? 2u : 1u)) {
+    error = "Provide exactly one of enemy_id (from query_enemies) or object_id (from query_nearby or search_nearby), "
+            "and optionally approach (true or false).";
     return false;
   }
   int id = 0;
   if (!data->GetPositiveInteger(hasEnemy ? "enemy_id" : "object_id", id, error))
     return false;
+  bool approach = false;
+  if (hasApproach && data->ReadBoolean(kApproachProperty, approach) != Actions::ActionData::BooleanResult::Ok) {
+    error = std::string(kApproachProperty) + " must be true or false.";
+    return false;
+  }
   request = {};
   (hasEnemy ? request.enemyId : request.objectId) = id;
+  request.approach = approach;
   return true;
 }
 

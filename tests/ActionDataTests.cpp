@@ -104,6 +104,19 @@ TEST("action data: the reason an integer failed is distinguishable") {
   CHECK(Parsed(R"({"n":99999999999})").ReadInteger("n", value) == R::OutOfRange);
 }
 
+TEST("action data: a boolean is a JSON true or false and nothing else") {
+  using R = ActionData::BooleanResult;
+  bool value = false;
+  CHECK(Parsed(R"({"b":true})").ReadBoolean("b", value) == R::Ok);
+  CHECK(value);
+  CHECK(Parsed(R"({"b":false})").ReadBoolean("b", value) == R::Ok);
+  CHECK(!value);
+  CHECK(Parsed(R"({"a":true})").ReadBoolean("b", value) == R::Missing);
+  CHECK(Parsed(R"({"b":"true"})").ReadBoolean("b", value) == R::NotABoolean);
+  CHECK(Parsed(R"({"b":1})").ReadBoolean("b", value) == R::NotABoolean);
+  CHECK(Parsed(R"({"b":null})").ReadBoolean("b", value) == R::NotABoolean);
+}
+
 TEST("action data: a single positive id") {
   int id = 0;
   std::string error;

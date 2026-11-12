@@ -572,9 +572,15 @@ void ClearCurrentQuestRoute() {
 
 void ProcessWalkerEvents() {
   for (auto &event : Walker::TakeEvents()) {
-    // CombatHandler closes in on melee targets constantly; only a failed approach is worth telling Neuro about.
-    if (event.owner == Walker::Owner::Combat && event.type != Walker::EventType::Failed)
-      continue;
+    // CombatHandler closes in on its target constantly; only a failed approach is worth telling Neuro about. The
+    // engagement that asked for the walk ends on it and puts the reason into its own stop message.
+    if (event.owner == Walker::Owner::Combat) {
+      if (event.type != Walker::EventType::Failed)
+        continue;
+      if (CombatHandler::ReportApproachFailure(
+              WalkerLogic::DescribeFailure(event.reason, event.description, event.detail)))
+        continue;
+    }
     if (event.owner == Walker::Owner::Quest) {
       if (event.type == Walker::EventType::Completed)
         g_completedQuestStep = event.targetFormId;

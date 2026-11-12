@@ -80,6 +80,21 @@ bool ActionData::GetString(std::string_view key, std::string &value) const {
   return true;
 }
 
+ActionData::BooleanResult ActionData::ReadBoolean(std::string_view key, bool &value) const {
+  auto *element = static_cast<const json_object_element_s *>(FindElement(key));
+  if (!element)
+    return BooleanResult::Missing;
+  if (json_value_is_true(element->value)) {
+    value = true;
+    return BooleanResult::Ok;
+  }
+  if (json_value_is_false(element->value)) {
+    value = false;
+    return BooleanResult::Ok;
+  }
+  return BooleanResult::NotABoolean;
+}
+
 ActionData::IntegerResult ActionData::ReadInteger(std::string_view key, int &value) const {
   auto *element = static_cast<const json_object_element_s *>(FindElement(key));
   if (!element)
