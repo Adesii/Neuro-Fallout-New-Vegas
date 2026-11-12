@@ -59,7 +59,7 @@ Tasks 24-38 come from `docs/code-review.md` (2026-10-21). Their "Decisions" sect
 | 34 | [Combat engagement timing and small fixes](to_verify/34-combat-engagement-fixes.md) | Combat (bugs) |
 | 41 | [query_quests says which quest is selected](to_verify/41-query-quests-selected-line.md) (top line, "(selected)" tag, route state) | Gameplay actions |
 | 43 | [In-game Walker debug mode: show the computed path](to_verify/43-walker-debug-path-overlay.md) (`NWalkerDebug` console command, D3D9 overlay) | Walker / tooling |
-| 48 | [Check the path ahead with raycasts and detour around blockers](to_verify/48-raycast-path-detours.md) (on by default since 2026-11-12, `NWalkerDetour 0` switches it off; side-step did not help at the Primm car; rerouting reacts but twice left a way through the wrecks; now a loop that asks the pathfinder until its route is ray-clear or fails the walk as blocked, 2026-11-12, not yet run) | Walker / pathing |
+| 48 | [Check the path ahead with raycasts and detour around blockers](to_verify/48-raycast-path-detours.md) (on by default since 2026-11-12, `NWalkerDetour 0` switches it off; side-step did not help at the Primm car; rerouting reacts but twice left a way through the wrecks; now a loop that asks the pathfinder until its route is ray-clear, then hops to another loaded cell for quest walks, 2026-11-12; hops not yet run) | Walker / pathing |
 
 ## Archive
 

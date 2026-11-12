@@ -181,6 +181,33 @@ quick "blocked" failure, which is correct but does not get her into Primm.
   she now gets it within about five seconds instead of looping or walking into the wrecks. Getting to Primm from
   there needs a decision about what she should do when the loaded area has no way: see the todo file.
 
+### Hops (2026-11-12, designer's choice of the three options)
+
+When the reroute loop finds no other way in the loaded cells, a quest walk no longer fails at once:
+
+- The navmesh point nearest the target is taken from every loaded cell (the same function the Walker already uses
+  for its own cell when there is no path to the target itself). Places nearer than 300 units to her, or within 300
+  units of an earlier hop of this walk, are left out.
+- Nearest the target first, the pathfinder is asked for a route to each (with the avoided triangles), and the route
+  is swept with rays for 1500 units. Three places a frame while she stands. The first place with a free route is the
+  hop.
+- She walks there like to any target (path check, grid and rerouting included). Within 150 units of it the hop is
+  over and the walk carries on to the target. If she then stands at the end of her cell's navmesh with still no path
+  to the target, the next hop is looked for at once.
+- A walk gets three hops. A hop that ends more than 500 units nearer the target than she has been at any hop gives
+  the three back (`PathProbe::HopBudget`, host-tested). With none left, or no place with a free route, the walk fails
+  as blocked.
+- Only quest walks hop. An ordinary move or interact command fails as blocked at once, as before.
+- The progress stall measures the route's length during a hop, like after a reroute.
+- Log: `Walker hop: ...; looking among N loaded cells`, `Walker hop K: heading for the navmesh at ...`, `Walker hop:
+  reached ...`, or `Walker hop: none of the N places can be reached`.
+
+At the Primm wrecks the expectation is: hop one west down the slope, from there the underpass is loaded and the
+pathfinder (still avoiding the wrecks) routes through it. That is a guess from the routes in the log.
+
+Known weakness: a hop is a guess. When a target really is cut off she walks up to three legs that lead nowhere before
+failing. Neuro is not told that a hop started; she only gets the usual progress reminders. The proper fix is todo 54.
+
 ## Measured in game (2026-11-10)
 
 The designer ran `NWalkerProbe` four times outside Primm (cells 000E1A0D, 000E1A14, 000E1A15), rays cast as

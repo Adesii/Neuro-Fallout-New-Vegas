@@ -269,3 +269,26 @@ Open question for the designer (not built): what she should do when everything i
 Checks: `bash tools/test.sh` (382 pass), the Debug DLL builds. Not run in the game.
 To run: the same walk from the wrecks. Expected: about five seconds of standing (the grid), then a few `Walker
 reroute` lines ending in `no other way to ...`, and the "blocked" message to Neuro. No loop.
+
+## Hops (2026-11-12)
+
+The designer chose option 2 of the open question above, and asked for option 3 to be written down as a research task
+(now `todo/54-long-range-navmesh-map.md`).
+
+Built: when the reroute loop finds no other way in the loaded cells, a quest walk heads for the reachable navmesh
+point nearest the target in another loaded cell, and looks again from there (design note, "Hops"). Three hops a walk,
+given back by a hop that ends clearly nearer the target; ordinary move commands still fail at once. `PathProbe::
+HopBudget` with a host test; `WorldUtils::ForEachLoadedCell`.
+
+Choices made (say if wrong): only quest walks hop; Neuro is not told when a hop starts.
+
+Checks: `bash tools/test.sh` (383 pass), the Debug DLL builds. Not run in the game.
+
+Unverified: that a path request to a point in another loaded cell works when given that cell; that the place chosen
+at the wrecks is the west slope; that the underpass is found from where the hop ends; what happens when she arrives
+at a hop inside a cell whose nearest navmesh point is the hop itself (the next hop is then looked for at once).
+
+To run: the quest walk from the wrecks, `NWalkerDebug 1 1`. Expected: the grid (about five seconds), `no other way`,
+then `Walker hop: ... looking among N loaded cells`, `Walker hop 1: heading for the navmesh at ...`, she walks off
+(probably west and down), `Walker hop: reached ...`, and from there a route through the underpass. If she fails
+instead, the `Walker hop` lines say how many places were tried.
