@@ -42,12 +42,36 @@ float TargetHeight(TargetKind kind, Purpose purpose) {
   }
   switch (kind) {
   case TargetKind::Character:
-    return 70.0f;
   case TargetKind::Creature:
-    return 35.0f;
+    return 0.0f; // an actor is shot at its torso node, never at a guessed height (see the header)
   default:
-    return 20.0f; // Combat's free-aim height for everything that is not an actor
+    return 20.0f; // Combat's free-aim height for a non-actor whose mesh bound is unusable
   }
+}
+
+const char *PointSourceName(PointSource source) {
+  switch (source) {
+  case PointSource::TorsoTarget:
+    return "torso target node";
+  case PointSource::TorsoNode:
+    return "torso part node";
+  case PointSource::MeshBound:
+    return "mesh bound centre";
+  case PointSource::ObjectBound:
+    return "object bound centre";
+  case PointSource::HeightTable:
+    return "height table";
+  case PointSource::Origin:
+    return "ORIGIN (no usable point)";
+  }
+  return "unknown";
+}
+
+bool UsableBodyPoint(float dx, float dy, float dz, float scale) {
+  if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz))
+    return false;
+  const float limit = kMaxBodyPointOffset * ClampScale(scale);
+  return dx * dx + dy * dy + dz * dz <= limit * limit;
 }
 
 float ScaledTargetHeight(TargetKind kind, Purpose purpose, float scale) {

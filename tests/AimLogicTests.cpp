@@ -1,7 +1,9 @@
 #include "Movement/AimLogic.hpp"
 #include "TestFramework.hpp"
 #include <cmath>
+#include <iterator>
 #include <limits>
+#include <string>
 
 using namespace AimLogic;
 
@@ -37,9 +39,10 @@ TEST("aim: WrapDegrees keeps degrees inside [-180, 180]") {
   CHECK(std::abs(WrapDegrees(720.0f + 30.0f) - 30.0f) < 1e-3f);
 }
 
-TEST("aim: the unified height table keeps the numbers Walker and Combat used") {
-  CHECK_EQ(TargetHeight(TargetKind::Character, Purpose::Shoot), 70.0f);
-  CHECK_EQ(TargetHeight(TargetKind::Creature, Purpose::Shoot), 35.0f);
+TEST("aim: the height table keeps Walker's look heights and has no guessed shoot height for an actor") {
+  // An actor is shot at its torso node (todo 56); the old 70 / 35 landed low and are gone, with no fallback.
+  CHECK_EQ(TargetHeight(TargetKind::Character, Purpose::Shoot), 0.0f);
+  CHECK_EQ(TargetHeight(TargetKind::Creature, Purpose::Shoot), 0.0f);
   CHECK_EQ(TargetHeight(TargetKind::Object, Purpose::Shoot), 20.0f);
   CHECK_EQ(TargetHeight(TargetKind::Character, Purpose::Look), 100.0f);
   CHECK_EQ(TargetHeight(TargetKind::Creature, Purpose::Look), 100.0f);
@@ -49,11 +52,12 @@ TEST("aim: the unified height table keeps the numbers Walker and Combat used") {
 }
 
 TEST("aim: target height scales with the reference and a corrupt scale is clamped") {
-  CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Shoot, 1.0f), 70.0f);
-  CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Shoot, 2.0f), 140.0f);
-  CHECK(ScaledTargetHeight(TargetKind::Character, Purpose::Shoot, 1000.0f) <= 70.0f * 4.0f + 1e-3f);
-  CHECK(ScaledTargetHeight(TargetKind::Character, Purpose::Shoot, 0.0f) > 0.0f);
-  CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Shoot, std::numeric_limits<float>::quiet_NaN()), 70.0f);
+  CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Look, 1.0f), 100.0f);
+  CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Look, 2.0f), 200.0f);
+  CHECK(ScaledTargetHeight(TargetKind::Character, Purpose::Look, 1000.0f) <= 100.0f * 4.0f + 1e-3f);
+  CHECK(ScaledTargetHeight(TargetKind::Character, Purpose::Look, 0.0f) > 0.0f);
+  CHECK_EQ(ScaledTargetHeight(TargetKind::Character, Purpose::Look, std::numeric_limits<float>::quiet_NaN()), 100.0f);
+  CHECK_EQ(ScaledTargetHeight(TargetKind::Object, Purpose::Shoot, 2.0f), 40.0f);
 }
 
 TEST("aim: PitchTo is negative for a target above the eye and positive below") {
@@ -80,4 +84,29 @@ TEST("aim: an object's bound is used only when it belongs to the object") {
   CHECK(!AimLogic::UsableObjectBound(-3.0f, 0.0f));
   CHECK(!AimLogic::UsableObjectBound(5000.0f, 0.0f)); // a whole-cell or parent bound
   CHECK(!AimLogic::UsableObjectBound(std::numeric_limits<float>::quiet_NaN(), 0.0f));
+}
+
+TEST("aim: a skeleton node is an aim point only while it is on the actor") {
+  CHECK(AimLogic::UsableBodyPoint(2.0f, -3.0f, 95.0f, 1.0f));    // a human chest
+  CHECK(AimLogic::UsableBodyPoint(10.0f, 0.0f, 30.0f, 0.6f));    // a small gecko
+  CHECK(AimLogic::UsableBodyPoint(0.0f, 0.0f, 0.0f, 1.0f));      // a root node at the origin is still the actor
+  CHECK(!AimLogic::UsableBodyPoint(4000.0f, 0.0f, 90.0f, 1.0f)); // a skeleton left behind where the actor was
+  CHECK(AimLogic::UsableBodyPoint(0.0f, 0.0f, 500.0f, 2.0f));    // a large, scaled-up creature
+  CHECK(!AimLogic::UsableBodyPoint(0.0f, 0.0f, 500.0f, 1.0f));
+  CHECK(!AimLogic::UsableBodyPoint(std::numeric_limits<float>::quiet_NaN(), 0.0f, 90.0f, 1.0f));
+  CHECK(!AimLogic::UsableBodyPoint(0.0f, std::numeric_limits<float>::infinity(), 90.0f, 1.0f));
+  // A corrupt scale falls back to 1 instead of accepting or refusing everything.
+  CHECK(AimLogic::UsableBodyPoint(0.0f, 0.0f, 95.0f, std::numeric_limits<float>::quiet_NaN()));
+  CHECK(!AimLogic::UsableBodyPoint(0.0f, 0.0f, 500.0f, std::numeric_limits<float>::quiet_NaN()));
+}
+
+TEST("aim: every aim point source has its own name for the log, and the origin stands out") {
+  const PointSource sources[] = {PointSource::TorsoTarget, PointSource::TorsoNode,   PointSource::MeshBound,
+                                 PointSource::ObjectBound, PointSource::HeightTable, PointSource::Origin};
+  for (size_t left = 0; left < std::size(sources); ++left) {
+    CHECK(std::string(PointSourceName(sources[left])) != "unknown");
+    for (size_t right = left + 1; right < std::size(sources); ++right)
+      CHECK(std::string(PointSourceName(sources[left])) != PointSourceName(sources[right]));
+  }
+  CHECK(std::string(PointSourceName(PointSource::Origin)).find("ORIGIN") != std::string::npos);
 }

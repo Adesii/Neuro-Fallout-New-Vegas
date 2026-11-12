@@ -28,14 +28,20 @@ Error AimAt(PlayerCharacter *player, const NiPoint3 &point, float deltaTime);
 // camera it returns the current pitch, so the view holds still.
 float DesiredPitch(PlayerCharacter *player, const NiPoint3 &point);
 
+using AimLogic::PointSource;
 using AimLogic::Purpose;
 
-// The single answer to "where on this reference do I look or shoot", used by Walker and Combat. Shooting a non-actor
-// object aims at the centre of its mesh bound when that is usable (ObjectBoundCentre); everything else uses the height
-// tables in AimLogic.
-NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose);
+// The single answer to "where on this reference do I look or shoot", used by Walker and Combat. Shooting an actor aims
+// at its torso node (ActorTorsoPoint), then at its mesh bound centre; shooting a non-actor object aims at the centre
+// of its mesh bound when that is usable (ObjectBoundCentre); everything else uses the height table in AimLogic.
+// `source` (optional) receives where the point came from, for the Aim log line.
+NiPoint3 TargetPoint(TESObjectREFR *ref, Purpose purpose, PointSource *source = nullptr);
 // The world-space centre and radius of a reference's loaded 3D, when AimLogic::UsableObjectBound accepts it.
 bool ObjectBoundCentre(TESObjectREFR *ref, NiPoint3 &centre, float &radius);
+// The world position of an actor's chest (todo 56): the node its body part data names as the torso's VATS target, or
+// the torso part's own node. False when the actor has no loaded 3D, no torso part, or neither node is in the skeleton
+// within AimLogic::UsableBodyPoint of the actor.
+bool ActorTorsoPoint(TESObjectREFR *ref, NiPoint3 &point, PointSource &source);
 
 // The rendered world camera's position, where every aim and line-of-sight ray starts. False when it is not usable
 // (no camera yet, or AimLogic::UsableCamera refuses it); there is no modelled fallback.
