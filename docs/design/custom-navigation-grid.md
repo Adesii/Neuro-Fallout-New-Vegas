@@ -43,6 +43,11 @@ line is walked around on the grid.
 logs the outcome, cells, rays and time, and draws the route in the overlay. It is the way to look at the grid without
 a walk.
 
+First numbers from the game (2026-11-12, at the wrecks north of Primm): `NWalkerGrid` with 2000 cells took 132,000
+rays and 541 ms in one go (4.1 microseconds a ray) and found the way part of the distance, to the same dead end from
+two sides. On the walk, the 4000-cell search took 266,000 rays over 4.4 s of standing and correctly found no way
+through. Worst frame of the path check on that walk: 5.4 ms.
+
 Not built: saving and loading (below, section 3), sampling ahead of the player, and long routes on the grid alone.
 A search covers about 29 m; across an area with no navmesh she advances in hops of that size toward the target and
 can walk into a dead end the navmesh would have known about.

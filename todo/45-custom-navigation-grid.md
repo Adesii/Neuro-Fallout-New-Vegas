@@ -108,3 +108,8 @@ the task is only partly built.
 The grid is now the normal way round a blocked route and needs no command (the designer wants features on, with a
 switch to turn them off). `NWalkerDetour 0` switches the whole path check off; `NWalkerDetour 2` uses the older
 side-step instead of the grid. "`NWalkerDetour 4`" in the section above is the old number for the grid.
+
+## First run (2026-11-12)
+
+`NWalkerGrid` and one walk at the wrecks north of Primm: the grid searched its 4000 cells in 4.4 s (266,000 rays) and
+correctly found no way through on foot; numbers are in the design note. Nothing changed in the grid.

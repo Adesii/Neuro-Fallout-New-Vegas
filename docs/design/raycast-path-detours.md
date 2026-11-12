@@ -128,6 +128,39 @@ Changed in answer:
 
 Still open: whether the car's bounds cover the gap it fills, and whether the pathfinder then takes the bridge.
 
+### Second run (2026-11-12, on by default, grid first)
+
+From `neuro-fnv.log` in the game folder. The walk started on the west side of the wrecks.
+
+- The grid did its part: 4000 cells, 266,000 rays, 4.4 s, "no way round". Two `NWalkerGrid` runs before it ended at
+  the same dead end (-59440, -49136). On foot there is no way through within its 29 m.
+- The reroute marked 16 triangles under the bounds of the object that blocked (00172DA2, a bound of radius 384 for
+  something much narrower). The route went from 112 m to 117 m and still ran through the same gap: there were more
+  triangles in it than the 16, and some of the 16 were open ground beside it.
+- Every later block was on the same object, so "the same obstacle" stopped all further marking. She walked into it,
+  eight recovery attempts, "got stuck".
+
+Changed in answer: the Walker no longer guesses which triangles an obstacle covers. It asks the pathfinder.
+
+- **Reroute loop.** When the grid finds no way round (or she gets stuck at something the check saw, or a way round
+  was already tried at this obstacle), she stands and the pathfinder is asked for a route. The route is swept with
+  rays for the next 1500 units. If something stands in it, the navmesh triangles the route runs through for the 220
+  units past the blocked spot are marked, and the pathfinder is asked again. Two tries a frame, forty at most.
+- **It ends** when a route is free for those 1500 units (she walks it), or when the pathfinder's route goes through
+  ground that is already marked, which means it has no other way.
+- **No other way fails the walk at once** with a new reason: "the way there is blocked (by NAME) and no way around it
+  was found". Before, she would walk into the obstacle and fail as stuck half a minute later.
+- Only an obstacle counts in the loop, not a rise: the limit for a rise is a guess, and marking a route off because
+  of a kerb would lose it.
+- The bounds-based marking and its helpers are gone. Marked triangles are still kept for later walks in the same
+  worldspace, so a second attempt fails or reroutes immediately.
+- Log, always: `Walker reroute: asking the pathfinder for another way ...`, then either `after N tries and M navmesh
+  triangles avoided the route ... is free for the next X m; it is A m long (was B m)` or `no other way to ...`. With
+  log level 1 a line per try with where the route was blocked.
+
+Unverified: that the pathfinder has the way over the bridge within reach at all. If it has not, the result is the
+quick "blocked" failure, which is correct but does not get her into Primm.
+
 ## Measured in game (2026-11-10)
 
 The designer ran `NWalkerProbe` four times outside Primm (cells 000E1A0D, 000E1A14, 000E1A15), rays cast as

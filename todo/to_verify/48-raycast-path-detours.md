@@ -226,3 +226,20 @@ grid and `2` the side-step off the navmesh; earlier sections of this file use th
 
 Checks from here on need no command. When a walk goes wrong, try it again after `NWalkerDetour 0`: if it works then,
 the path check is the cause.
+
+## Playtest 2026-11-12: still through the car
+
+Designer: she still cannot reach the door and the route still goes through the car; the red marks appear but the
+route does not change. From the log: the grid found no way round (correct), the reroute marked 16 triangles under
+the object's bounds, the pathfinder used other triangles through the same gap (112 m -> 117 m), and the "same
+obstacle" rule stopped any further marking.
+
+Changed: a reroute loop (design note, "Second run"). The pathfinder is asked repeatedly; each time the triangles its
+route uses at the blockage are marked, until a route is free of obstacles for 1500 units or the pathfinder routes
+through marked ground. In the second case the walk fails at once with the new reason `Blocked` ("the way there is
+blocked ... and no way around it was found"). One new host test for the text; the bounds-based marking was removed.
+
+To run: nothing to switch on. `NWalkerDebug 1 1`, then the same walk. Expected in the log: `the grid found no way
+round`, `Walker reroute: asking the pathfinder ...`, a `try N` line per attempt, then either `the route ... is free
+for the next ... m` with a clearly longer route and she goes another way, or `no other way to ...` and the walk
+fails within a second or two with the "blocked" message. Send the `Walker reroute` lines either way.
