@@ -3,6 +3,7 @@
 
 #include "itr/PathingCommands.h"
 #include "JG/internal/decoding.h"
+#include "Movement/PathProbe.hpp"
 #include "PathingShared.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameAPI.h"
@@ -312,6 +313,43 @@ void __fastcall GetClosestNavMeshTriangle(const TESObjectCELL *apCell, const NiP
         arOut.y = kTriCenter.y;
         arOut.z = kTriCenter.z;
       }
+    }
+  }
+}
+
+// Added for neuro-FNV: walks the cell's navmeshes like the two functions around it.
+void TriangleCentresTouching(const TESObjectCELL *cell, float centreX, float centreY, float radius, float z,
+                             float zLimit, std::vector<PathPoint3> &out) {
+  NavMeshArray *navMeshes = cell ? cell->pNavMeshes : nullptr;
+  if (!navMeshes)
+    return;
+  for (uint32_t i = 0; i < navMeshes->GetSize(); i++) {
+    NavMeshPtr navMesh = navMeshes->GetAt(i);
+    if (!navMesh)
+      continue;
+    for (uint32_t j = 0; j < navMesh->GetTriangleCount(); j++) {
+      NavMeshTriangle *triangle = navMesh->GetTriangle(j);
+      if (!triangle)
+        continue;
+      PathProbe::Point3 corners[3];
+      bool complete = true;
+      for (uint32_t k = 0; k < 3; k++) {
+        NiPoint3 *vertex = navMesh->GetVertex(triangle->sVertices[k]);
+        if (!vertex) {
+          complete = false;
+          break;
+        }
+        corners[k] = {vertex->x, vertex->y, vertex->z};
+      }
+      if (!complete)
+        continue;
+      const PathPoint3 centre = {(corners[0].x + corners[1].x + corners[2].x) / 3.0f,
+                                 (corners[0].y + corners[1].y + corners[2].y) / 3.0f,
+                                 (corners[0].z + corners[1].z + corners[2].z) / 3.0f};
+      if (std::abs(centre.z - z) > zLimit)
+        continue;
+      if (PathProbe::TriangleTouchesCircle(corners[0], corners[1], corners[2], centreX, centreY, radius))
+        out.push_back(centre);
     }
   }
 }

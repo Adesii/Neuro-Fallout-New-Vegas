@@ -202,6 +202,12 @@ void BuildOverlay(const View &view, const Overlay::Camera &camera, float scale, 
     batch.WorldLine(camera, {c.x, c.y - r, c.z}, {c.x, c.y + r, c.z}, line, colour(kColourRayBlocked));
     batch.WorldLine(camera, c, Raised(c, 2.0f * kMarkerPole), line, colour(kColourRayBlocked));
   }
+  for (size_t index = 0; index < probe.route.size(); ++index) {
+    const Point3 &from = index == 0 ? view.player : probe.route[index - 1];
+    batch.WorldLine(camera, from, probe.route[index], line, colour(kColourWaypoint));
+    batch.WorldLine(camera, probe.route[index], Raised(probe.route[index], kNodePole), thin, colour(kColourWaypoint));
+    batch.WorldBox(camera, probe.route[index], 4.0f * scale, colour(kColourWaypoint));
+  }
   if (probe.hasWaypoint) {
     batch.WorldLine(camera, view.player, probe.waypoint, line, colour(kColourWaypoint));
     batch.WorldLine(camera, probe.waypoint, probe.rejoin, thin, colour(kColourWaypoint));

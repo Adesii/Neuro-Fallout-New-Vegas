@@ -7,6 +7,7 @@
 #include "GameObjects.h"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Movement/AimLogic.hpp"
+#include "Movement/NavGrid.hpp"
 #include "Movement/PathProbe.hpp"
 #include "Movement/RouteDebug.hpp"
 #include "Movement/WalkerLogic.hpp"
@@ -106,18 +107,31 @@ constexpr float kProbeClearWidthFactor = 1.6f;
 constexpr float kProbeMinOnward = 60.0f;
 constexpr float kProbeNoLimit = 1.0e9f;
 
-// Rerouting (the pathfinder's avoid nodes, see Pathing::BuildPath). A blocked spot the Walker cannot side-step is
-// given to the pathfinder as a sphere on the centre of the navmesh triangle under the obstacle, sampled this far past
-// the blocked spot along the route. The cost multiplies that triangle's length in the search by about a thousand: the
-// way through stays possible when it is the only one, and loses to any other way within a few kilometres. Without a
-// triangle under the sample the sphere sits on the sample itself and is wider, to catch the centres around it. All
-// four numbers are estimates.
-constexpr float kAvoidSamples[] = {40.0f, 120.0f};
-constexpr float kAvoidRadius = 150.0f;
-constexpr float kAvoidLooseRadius = 350.0f;
+// Rerouting (the pathfinder's avoid nodes, see Pathing::BuildPath). A blocked spot the Walker cannot get past is given
+// to the pathfinder as the navmesh triangles the obstacle stands on: every triangle that overlaps the bounds of the
+// object that blocks, or a circle around the blocked spot when it has no usable bounds (terrain, a building). One
+// triangle is not enough: in Primm the pathfinder threaded through the next triangle of the same car (2026-11-10).
+// Each triangle gets a sphere on its centre, which is the one point the search tests. The cost multiplies the
+// triangle's length in the search by about a thousand: the way through stays possible when it is the only one, and
+// loses to any other way within a few kilometres. All the numbers are estimates.
+constexpr float kAvoidCircleRadius = 150.0f; // around a blocked spot without usable bounds,
+constexpr float kAvoidCircleAhead = 60.0f;   // centred this far past it along the route
+constexpr float kAvoidMaxBound = 800.0f;     // larger bounds are a building or a piece of land, not an obstacle
+constexpr float kAvoidRadius = 100.0f;       // of the sphere on each triangle centre
+constexpr float kAvoidLooseRadius = 350.0f;  // of the one sphere used when no triangle is found
 constexpr float kAvoidCost = 1000.0f;
 constexpr float kAvoidHeightTolerance = 150.0f;
 constexpr float kAvoidSameCentre = 30.0f;
+constexpr size_t kAvoidPerSpot = 16;
+constexpr size_t kAvoidMaxSpheres = 64;
+
+// The navigation grid (todo 45, src/Movement/NavGrid.*), used when `NWalkerDetour 4` is on. A blocked route is
+// searched for a way round on the grid, to the point of the route this far beyond the blocked spot; at most this
+// many rays a frame (5 ms at the measured 5 microseconds a ray). A search that does not reach that point is still
+// walked when it ends this much nearer to it than the blocked spot is.
+constexpr float kGridRejoin = 450.0f;
+constexpr int kGridRayBudget = 1000;
+constexpr float kGridPartialGain = 100.0f;
 // Getting stuck this close to a spot the path check saw blocked means that spot is the reason. Stuck anywhere else
 // for the third time in a row, the place right ahead of her is given to the pathfinder instead.
 constexpr float kStuckAtBlockDistance = 250.0f;
@@ -230,7 +244,12 @@ struct WalkerState {
   bool reportReroute = false;
   float lengthBeforeReroute = -1.0f;
   bool progressAlongRoute = false; // what the progress stall last measured: the route's length or the straight line
-  std::string lockedDoor;          // a locked closed door seen in front of the player while stuck
+  // A search on the navigation grid for a way round `searchBlock`, its goal, and whether the detour being walked
+  // came from the grid.
+  NavGrid::Search gridSearch;
+  PathProbe::Point3 gridGoal;
+  bool detourFromGrid = false;
+  std::string lockedDoor; // a locked closed door seen in front of the player while stuck
   // Per command, not per route: they carry on across a cell change.
   WalkerLogic::ProgressReminder reminder;
   WalkerLogic::PauseNotice pauseNotice;
@@ -246,6 +265,15 @@ WalkerState g_state;
 PathProbe::BlockMemory g_blocks;
 std::vector<Pathing::AvoidSphere> g_avoid;
 uint32_t g_avoidSpace = 0;
+// What the navigation grid has sampled there. It is forgotten with the blocked spots.
+NavGrid::Grid g_grid;
+
+void ForgetSpace() {
+  g_state.gridSearch.Reset(); // it points into the grid
+  g_grid.Clear();
+  g_blocks.Reset();
+  g_avoid.clear();
+}
 
 // Debug mode (todo 43): what the last route search steered by and where the player went. Kept apart from WalkerState
 // so it outlives the command: a failed walk is exactly when the route needs looking at. Filled only while
@@ -335,6 +363,8 @@ void ResetRouteState() {
   g_state.routeLength = -1.0f;
   g_state.reportReroute = false;
   g_state.progressAlongRoute = false;
+  g_state.gridSearch.Reset();
+  g_state.detourFromGrid = false;
 }
 
 // RouteDebug::Point3 and PathProbe::Point3 are the same type (Overlay::Point3).
@@ -352,6 +382,7 @@ void PublishDebug(bool active) {
     return;
   g_debug.view.active = active;
   g_debug.view.trail = g_debug.trail.Points();
+  g_debug.view.probe.route = g_state.detourFromGrid ? g_state.detour.Remaining() : std::vector<PathProbe::Point3>{};
   g_debug.view.probe.avoided.clear();
   for (const Pathing::AvoidSphere &sphere : g_avoid)
     g_debug.view.probe.avoided.push_back({ToDebugPoint(sphere.centre), sphere.radius});
@@ -765,32 +796,59 @@ std::vector<PathProbe::Point3> ProbePath(const NiPoint3 &playerPosition, const N
 // Gives a blocked spot to the pathfinder as a place to route around, for this walk and the following ones here.
 // False when it already had it.
 bool AvoidBlockedSpot(PlayerCharacter *player, const PathProbe::BlockMemory::Spot &spot, const char *why) {
-  if (!g_blocks.Avoid(spot.point, spot.dirX, spot.dirY))
+  if (!g_blocks.Avoid(spot.point, spot.dirX, spot.dirY, spot.formId))
     return false;
-  if (g_avoid.size() >= PathProbe::BlockMemory::kMaxAvoided * std::size(kAvoidSamples))
-    g_avoid.erase(g_avoid.begin(), g_avoid.begin() + static_cast<std::ptrdiff_t>(std::size(kAvoidSamples)));
-  for (float ahead : kAvoidSamples) {
-    const NiPoint3 sample = {spot.point.x + spot.dirX * ahead, spot.point.y + spot.dirY * ahead, spot.point.z};
-    PathPoint3 centre = {sample.x, sample.y, sample.z};
-    float radius = kAvoidLooseRadius;
-    NiPoint4 triangle = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
-    auto *cell = WorldUtils::CellAt(player, sample.x, sample.y);
-    const bool onNavmesh = cell && Pathing::GetPointNavMesh(cell, sample, false, kAvoidHeightTolerance, triangle);
-    if (onNavmesh) {
-      centre = {triangle.x, triangle.y, triangle.z};
-      radius = kAvoidRadius;
+
+  // The ground the obstacle stands on: the bounds of the object, or a circle just past the blocked spot.
+  NiPoint3 centre = {spot.point.x + spot.dirX * kAvoidCircleAhead, spot.point.y + spot.dirY * kAvoidCircleAhead,
+                     spot.point.z};
+  float radius = kAvoidCircleRadius;
+  const char *what = "a circle around the blocked spot";
+  if (auto *ref = spot.formId ? LookupReference(spot.formId) : nullptr) {
+    NiPoint3 boundCentre;
+    float boundRadius = 0.0f;
+    if (WorldUtils::ReferenceBound(ref, boundCentre, boundRadius) && boundRadius <= kAvoidMaxBound) {
+      centre = {boundCentre.x, boundCentre.y, spot.point.z};
+      radius = boundRadius;
+      what = "the bounds of the object that blocks";
     }
-    bool known = false;
-    for (const Pathing::AvoidSphere &sphere : g_avoid)
-      known = known || Math::GetDistance2D(sphere.centre, centre) <= kAvoidSameCentre;
-    if (known)
-      continue;
-    g_avoid.push_back({centre, radius, kAvoidCost});
-    _MESSAGE("Walker reroute: the pathfinder is to avoid (%.0f, %.0f, %.0f), radius %.0f (%s): %s", centre.x, centre.y,
-             centre.z, radius,
-             onNavmesh ? "the centre of the navmesh triangle under the obstacle" : "no navmesh triangle found there",
-             why);
   }
+
+  // Every navmesh triangle that overlaps it, in the cells it reaches into.
+  std::vector<PathPoint3> triangles;
+  TESObjectCELL *searched[4] = {};
+  for (int corner = 0; corner < 4; ++corner) {
+    TESObjectCELL *cell = WorldUtils::CellAt(player, centre.x + ((corner & 1) ? radius : -radius),
+                                             centre.y + ((corner & 2) ? radius : -radius));
+    if (!cell || std::find(std::begin(searched), std::end(searched), cell) != std::end(searched))
+      continue;
+    searched[corner] = cell;
+    Pathing::TriangleCentresTouching(cell, centre.x, centre.y, radius, centre.z, kAvoidHeightTolerance, triangles);
+  }
+  std::sort(triangles.begin(), triangles.end(), [&](const PathPoint3 &a, const PathPoint3 &b) {
+    return Math::GetDistance2D(a, centre) < Math::GetDistance2D(b, centre);
+  });
+  if (triangles.size() > kAvoidPerSpot)
+    triangles.resize(kAvoidPerSpot);
+
+  size_t added = 0;
+  auto add = [&](const PathPoint3 &at, float sphereRadius) {
+    for (const Pathing::AvoidSphere &sphere : g_avoid)
+      if (Math::GetDistance2D(sphere.centre, at) <= kAvoidSameCentre)
+        return;
+    g_avoid.push_back({at, sphereRadius, kAvoidCost});
+    ++added;
+  };
+  if (triangles.empty())
+    add({centre.x, centre.y, centre.z}, std::max(radius, kAvoidLooseRadius)); // no triangle found: catch what is near
+  for (const PathPoint3 &triangle : triangles)
+    add(triangle, kAvoidRadius);
+  if (g_avoid.size() > kAvoidMaxSpheres)
+    g_avoid.erase(g_avoid.begin(), g_avoid.begin() + static_cast<std::ptrdiff_t>(g_avoid.size() - kAvoidMaxSpheres));
+  _MESSAGE("Walker reroute: the pathfinder is to avoid %zu navmesh triangle(s) (%zu new) under %s, centre (%.0f, "
+           "%.0f, %.0f), radius %.0f: %s",
+           triangles.size(), added, what, centre.x, centre.y, centre.z, radius, why);
+
   g_state.lengthBeforeReroute = g_state.routeLength;
   g_state.reportReroute = true;
   g_state.navigationValid = false; // search again now, with the spot avoided
@@ -799,12 +857,48 @@ bool AvoidBlockedSpot(PlayerCharacter *player, const PathProbe::BlockMemory::Spo
 
 void EndDetour(PathProbe::DetourTracker::End why) {
   g_state.detourPlanner.Reset();
+  g_state.gridSearch.Reset();
   if (!g_state.detour.Active())
     return;
   _MESSAGE("Walker detour ended: %s", PathProbe::DetourTracker::EndName(why));
   g_state.detour.Finish();
+  g_state.detourFromGrid = false;
   g_state.navigationValid = false; // path again from where the detour left the player
   g_debug.view.probe.hasWaypoint = false;
+}
+
+// A search on the navigation grid has ended: walk its route, or give the spot to the pathfinder.
+void FinishGridSearch(PlayerCharacter *player, float remaining) {
+  using State = NavGrid::Search::State;
+  NavGrid::Search &search = g_state.gridSearch;
+  const State state = search.GetState();
+  if (state == State::Working || state == State::Idle)
+    return;
+  bool usable = state == State::Found;
+  if (state == State::Partial) {
+    // Not all the way, but well past the near side of what blocks: worth walking, the next check carries on.
+    const float fromBlock = Math::GetDistance2D(g_state.searchBlock.point, g_state.gridGoal);
+    usable = Math::GetDistance2D(search.Path().back(), g_state.gridGoal) <= fromBlock - kGridPartialGain;
+  }
+  if (usable) {
+    std::vector<PathProbe::Point3> route = NavGrid::MergeStraight(search.Path());
+    _MESSAGE("Walker detour %d on the way to %s: the path is blocked by %s; the grid found a way %s, %zu waypoints "
+             "over %zu cells (%d cells searched, %d rays, %zu cells known)",
+             g_state.detour.Used() + 1, g_state.command.description.c_str(), g_state.detourBlocker.c_str(),
+             state == State::Found ? "round" : "part of the way round", route.size(), search.Path().size(),
+             search.Expansions(), search.Rays(), g_grid.NodeCount());
+    g_state.detour.Begin(std::move(route), 0, remaining);
+    g_state.detourFromGrid = true;
+    g_blocks.NoteDetour(g_state.searchBlock.point);
+    g_state.loggedNoDetour = false;
+  } else {
+    g_state.detour.PlanFailed();
+    _MESSAGE("Walker detour: the path to %s is blocked by %s and the grid found no way round (%d cells searched, %d "
+             "rays)",
+             g_state.command.description.c_str(), g_state.detourBlocker.c_str(), search.Expansions(), search.Rays());
+    AvoidBlockedSpot(player, g_state.searchBlock, "the grid found no way round it");
+  }
+  search.Reset();
 }
 
 // A search for a way round has ended: start walking the detour, or note that there is none.
@@ -902,6 +996,12 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
       EndDetour(DetourTracker::End::LegBlocked);
       return;
     }
+    // A grid route has a waypoint at every turn of its cells; when the one after next can be walked to directly,
+    // the next one is not needed.
+    const std::vector<PathProbe::Point3> ahead2 = tracker.Remaining();
+    if (ahead2.size() >= 2 &&
+        PathProbe::Sweep(world, here, ahead2[1], kProbeNoLimit, settings, settings.halfWidth).Clear())
+      tracker.SkipAhead(1);
     PathProbe::Trace trace;
     const PathProbe::SweepResult ahead =
         PathProbe::SweepPath(world, ProbePath(playerPosition, destination), kProbeLookAhead, settings,
@@ -912,10 +1012,16 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
     if (ahead.blocker != Blocker::Obstacle && ahead.blocker != Blocker::Rise)
       EndDetour(DetourTracker::End::PathClear);
     else
-      g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY};
+      g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY, ahead.hit.formId};
     return;
   }
 
+  if (g_state.gridSearch.GetState() == NavGrid::Search::State::Working) {
+    g_state.gridSearch.Step(world, settings, kGridRayBudget);
+    account();
+    FinishGridSearch(player, remaining);
+    return;
+  }
   if (planner.GetState() == PathProbe::DetourPlanner::State::Working) {
     planner.Step(world, here, settings, kProbeRayBudget);
     account();
@@ -941,14 +1047,14 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
   }
   g_state.hasLastBlock = blocked;
   if (blocked)
-    g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY};
+    g_state.lastBlock = {ahead.blockPoint, ahead.dirX, ahead.dirY, ahead.hit.formId};
   if (!blocked || PathProbe::PathLength(path) - ahead.clearDistance < kProbeMinOnward) {
     account();
     return;
   }
   // A side-step first; when one was already taken for this spot it did not get her past, and the pathfinder has to
   // find another way. When the pathfinder already knows and still routes through, there is no other way.
-  const auto action = g_blocks.Decide(ahead.blockPoint, WalkerProbe::RerouteOnly());
+  const auto action = g_blocks.Decide(ahead.blockPoint, WalkerProbe::RerouteOnly(), ahead.hit.formId);
   if (action == PathProbe::BlockMemory::Action::Reroute) {
     account();
     AvoidBlockedSpot(player, g_state.lastBlock,
@@ -968,6 +1074,16 @@ void UpdateDetour(PlayerCharacter *player, TESObjectREFR *target, const NiPoint3
     std::snprintf(buffer, sizeof(buffer), "%s %.1f m ahead: ", PathProbe::BlockerName(ahead.blocker),
                   Units::ToMeters(ahead.clearDistance));
   g_state.detourBlocker = buffer + WalkerProbe::DescribeHit(ahead.hit);
+  if (WalkerProbe::GridEnabled()) {
+    // The grid looks for a walkable way from here to the route beyond the obstacle, on or off the navmesh.
+    g_state.gridGoal =
+        PathProbe::PointAlong(path, std::min(ahead.clearDistance + kGridRejoin, PathProbe::PathLength(path)));
+    g_state.gridSearch.Start(g_grid, here, g_state.gridGoal);
+    g_state.gridSearch.Step(world, settings, kGridRayBudget);
+    account();
+    FinishGridSearch(player, remaining);
+    return;
+  }
   planner.Start(std::move(path), ahead, tracker.PreferredSide());
   planner.Step(world, here, settings, kProbeRayBudget);
   account();
@@ -1033,6 +1149,12 @@ bool PickDetour(PlayerCharacter *player, int tier, NiPoint3 &out) {
 
 // Chooses and starts a recovery step. False when the walk was failed instead (the command is gone then).
 bool BeginRecovery(PlayerCharacter *player, float remaining, const char *why) {
+  if (g_state.detour.Active() && g_state.detourFromGrid) {
+    // Stuck on a route the grid called walkable: whatever the rays missed, that step is blocked from now on.
+    const NiPoint3 here = player->GetPos();
+    const PathProbe::Point3 &waypoint = g_state.detour.Waypoint();
+    g_grid.Block({here.x, here.y, here.z}, waypoint.x - here.x, waypoint.y - here.y);
+  }
   if (WalkerProbe::DetourEnabled()) {
     // Stuck at something: the pathfinder should stop sending her there. At a spot the path check saw blocked (or was
     // side-stepping) at once; anywhere else from the third time in a row, with the place right ahead of her.
@@ -1330,8 +1452,7 @@ void Process() {
                                                      : 0;
   if (space != g_avoidSpace) {
     g_avoidSpace = space;
-    g_blocks.Reset();
-    g_avoid.clear();
+    ForgetSpace();
   }
 
   const NiPoint3 playerPosition = player->GetPos();
@@ -1392,6 +1513,13 @@ void Process() {
     return;
   } else if (g_state.recovery.active) {
     plan = StepRecovery(player, deltaTime);
+  } else if (g_state.gridSearch.GetState() == NavGrid::Search::State::Working) {
+    // She stands while the grid looks for a way round (a few frames to a few seconds): walking on would be into the
+    // obstacle, and the search starts from where she stood. Standing is not being stuck.
+    plan.move = false;
+    g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, false);
+    g_state.oscillation.Reset();
+    g_state.slide.Reset();
   } else {
     g_state.planner.Update(distance);
     const bool stuck = g_state.stuck.Update(deltaTime, playerPosition.x, playerPosition.y, true);
@@ -1463,9 +1591,8 @@ void Stop() {
 void ResetDebug() {
   ResetDebugCapture();
   WalkerOverlay::Clear();
-  // Called on a load, a new game and the main menu: what was blocked may not be in this game's world.
-  g_blocks.Reset();
-  g_avoid.clear();
+  // Called on a load, a new game and the main menu: what was blocked or sampled may not be in this game's world.
+  ForgetSpace();
   g_avoidSpace = 0;
 }
 

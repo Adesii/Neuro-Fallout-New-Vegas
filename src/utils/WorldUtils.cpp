@@ -182,6 +182,18 @@ TESObjectCELL *CellAt(PlayerCharacter *player, float x, float y) {
   return cell ? cell : own;
 }
 
+// Read like AimUtils reads a target's bound (TESObjectREFR::Get3DSimple, NiAVObject::GetWorldBound; sources there).
+bool ReferenceBound(TESObjectREFR *ref, NiPoint3 &centre, float &radius) {
+  auto *node = ref ? ref->Get3DSimple() : nullptr;
+  if (!node || !node->m_pWorldBound)
+    return false;
+  const NiBound &bound = node->GetWorldBound();
+  centre = {bound.kCenter.x, bound.kCenter.y, bound.kCenter.z};
+  radius = bound.fRadius;
+  return std::isfinite(centre.x) && std::isfinite(centre.y) && std::isfinite(centre.z) && std::isfinite(radius) &&
+         radius > 0.0f;
+}
+
 // bhkCharacterController::shapeHeight (0x5F4) and shapeRadius (0x5F8), in Havok units. JIP-LN-NVSE names them
 // (`internal/havok.h`); the vendored JG definition has unnamed words there, so they are read by offset. Read in game
 // on 2026-11-10 (NWalkerProbe, Primm): radius 2.8932 and height 18.2880, which is 20.3 and exactly 128.0 game units,

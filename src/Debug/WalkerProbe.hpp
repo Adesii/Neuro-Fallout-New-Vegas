@@ -19,6 +19,9 @@ namespace WalkerProbe {
 bool DetourEnabled();
 // `NWalkerDetour 3`: no side-step; a blocked spot goes straight to the pathfinder as a place to route around.
 bool RerouteOnly();
+// `NWalkerDetour 4`: a blocked route is searched for a way round on the navigation grid (src/Movement/NavGrid.*)
+// instead of with the side-step.
+bool GridEnabled();
 // The collision layer the probe rays are cast as (WorldUtils::Layer); line of sight unless the console changed it.
 uint8_t RayLayer();
 
@@ -45,8 +48,8 @@ std::string DescribeHit(const PathProbe::RayHit &hit);
 // Microseconds since an arbitrary start, for timing a burst of rays.
 double NowMicroseconds();
 
-// Registers NWalkerDetour and NWalkerProbe. Call after WalkerOverlay::RegisterCommands: opcodes follow registration
-// order.
+// Registers NWalkerDetour, NWalkerProbe and NWalkerGrid. Call after WalkerOverlay::RegisterCommands: opcodes follow
+// registration order.
 void RegisterCommands(NVSEInterface *nvse);
 
 } // namespace WalkerProbe

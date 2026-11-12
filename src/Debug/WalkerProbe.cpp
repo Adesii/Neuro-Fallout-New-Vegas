@@ -6,6 +6,7 @@
 #include "GameObjects.h"
 #include "GameProcess.h"
 #include "Gamebryo/NiPoint3.hpp"
+#include "Movement/NavGrid.hpp"
 #include "Utils/DebugLog.hpp"
 #include "common.hpp"
 #include "decoding.h"
@@ -18,6 +19,7 @@
 #include "utils/WorldUtils.hpp"
 #include <algorithm>
 #include <cfloat>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -31,6 +33,7 @@ using PathProbe::Point3;
 bool g_detourEnabled = false;
 bool g_requireNavmesh = true;
 bool g_rerouteOnly = false;
+bool g_gridEnabled = false;
 uint8_t g_rayLayer = WorldUtils::Layer::kLineOfSight;
 
 // A point counts as on the navmesh when a triangle lies under it within this height (GetPointNavMesh's zLimit).
@@ -130,6 +133,8 @@ bool DetourEnabled() { return g_detourEnabled; }
 
 bool RerouteOnly() { return g_rerouteOnly; }
 
+bool GridEnabled() { return g_gridEnabled; }
+
 uint8_t RayLayer() { return g_rayLayer; }
 
 double NowMicroseconds() {
@@ -188,10 +193,11 @@ std::string DescribeHit(const PathProbe::RayHit &hit) {
 
 // `NWalkerDetour` toggles the detours, `NWalkerDetour 1` / `0` set them, `NWalkerDetour 2` switches them on without
 // requiring the waypoint to be on the navmesh, `NWalkerDetour 3` skips the side-step and hands every blocked spot to
-// the pathfinder at once. An optional second number is the collision layer the rays are cast as
-// (37 line of sight, the default; 30 character controller; see WorldUtils::Layer). Returns the new state.
+// the pathfinder at once, `NWalkerDetour 4` looks for the way round on the navigation grid instead of side-stepping. An
+// optional second number is the collision layer the rays are cast as (37 line of sight, the default; 30 character
+// controller; see WorldUtils::Layer). Returns the new state.
 DEFINE_NEURO_COMMAND_PLUGIN(WalkerDetour,
-                            "Walker raycast detours: [0 off/1 on/2 on, off-navmesh allowed/3 reroute only] [ray layer]",
+                            "Walker detours: [0 off/1 side-step/2 same, off navmesh/3 reroute only/4 grid] [ray layer]",
                             false, kParams_TwoOptionalInts);
 
 bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
@@ -208,6 +214,7 @@ bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
     if (mode != 0) {
       g_requireNavmesh = mode != 2;
       g_rerouteOnly = mode == 3;
+      g_gridEnabled = mode == 4;
     }
   }
   *result = g_detourEnabled ? 1.0 : 0.0;
@@ -217,9 +224,11 @@ bool Cmd_NWalkerDetour_Execute(COMMAND_ARGS) {
                 static_cast<int>(g_rayLayer), WorldUtils::LayerName(g_rayLayer),
                 g_requireNavmesh ? "must be on the navmesh" : "may be off the navmesh");
   if (g_detourEnabled)
-    Console_Print(g_rerouteOnly
-                      ? "A blocked spot is given to the pathfinder to route around at once (no side-step)."
-                      : "A blocked spot is side-stepped once; if that fails the pathfinder routes around it.");
+    Console_Print(g_rerouteOnly   ? "A blocked spot is given to the pathfinder to route around at once (no side-step)."
+                  : g_gridEnabled ? "A blocked spot is walked around on the ray grid; failing that the pathfinder "
+                                    "routes around it."
+                                  : "A blocked spot is side-stepped once; failing that the pathfinder routes around "
+                                    "it.");
   if (g_detourEnabled && !WalkerOverlay::Enabled())
     Console_Print("NWalkerDebug 1 draws the probe rays (grey clear, red blocked) and the detour (violet).");
   return true;
@@ -378,9 +387,83 @@ bool Cmd_NWalkerProbe_Execute(COMMAND_ARGS) {
   return true;
 }
 
+// `NWalkerGrid [distance] [cells]`: one search on the navigation grid from where the player stands to the point
+// `distance` units (default 600) straight ahead, in one go, on a grid of its own that knows nothing. Logs whether a
+// way was found, how many cells and rays it took and how long, and with the overlay on (NWalkerDebug 1) draws the
+// route. `cells` is the most cells it may search (default 2000, so the game stalls for at most about a second).
+DEFINE_NEURO_COMMAND_PLUGIN(WalkerGrid, "One ray-grid search to the point ahead: [distance 100-3000] [cells 100-8000]",
+                            false, kParams_TwoOptionalInts);
+
+bool Cmd_NWalkerGrid_Execute(COMMAND_ARGS) {
+  int distance = 600;
+  int cells = 2000;
+  if (!ExtractArgsEx(EXTRACT_ARGS_EX, &distance, &cells))
+    return true;
+  *result = 0.0;
+  auto *player = PlayerCharacter::GetSingleton();
+  PathProbe::Settings settings;
+  float bodyHeight = 0.0f;
+  if (!player || !player->GetParentCell() ||
+      !WorldUtils::PlayerCollisionShape(player, settings.halfWidth, bodyHeight)) {
+    Console_Print("Walker grid: no player in a loaded cell, or its collision shape cannot be read.");
+    return true;
+  }
+  distance = std::clamp(distance, 100, 3000);
+  NavGrid::SearchSettings search;
+  search.maxExpansions = std::clamp(cells, 100, 8000);
+  const NiPoint3 feet = player->GetPos();
+  const float yaw = AimUtils::EffectiveYaw(player);
+  const Point3 start = {feet.x, feet.y, feet.z};
+  const Point3 goal = {feet.x + std::sin(yaw) * static_cast<float>(distance),
+                       feet.y + std::cos(yaw) * static_cast<float>(distance), feet.z};
+
+  EngineWorld world(player, nullptr);
+  NavGrid::Grid grid;
+  NavGrid::Search finder;
+  const double started = NowMicroseconds();
+  finder.Start(grid, start, goal, search);
+  finder.Step(world, settings, INT_MAX);
+  const double took = NowMicroseconds() - started;
+  const auto state = finder.GetState();
+  const char *outcome = state == NavGrid::Search::State::Found     ? "a way to the point"
+                        : state == NavGrid::Search::State::Partial ? "a way part of the distance"
+                                                                   : "no way";
+  const std::vector<Point3> route = NavGrid::MergeStraight(finder.Path());
+  float ends = static_cast<float>(distance);
+  if (!finder.Path().empty())
+    ends = WorldUtils::Distance3D(ToNi(finder.Path().back()), ToNi(goal));
+  _MESSAGE("Walker grid: from (%.0f, %.0f, %.0f) to the point %d units ahead (%.0f, %.0f, %.0f): %s; %d cells "
+           "searched (limit %d), %zu cells known, %d rays, %.1f ms; route of %zu cells, %zu waypoints, ending %.0f "
+           "units from the point at height %+.0f",
+           start.x, start.y, start.z, distance, goal.x, goal.y, goal.z, outcome, finder.Expansions(),
+           search.maxExpansions, grid.NodeCount(), finder.Rays(), took / 1000.0, finder.Path().size(), route.size(),
+           ends, finder.Path().empty() ? 0.0f : finder.Path().back().z - feet.z);
+  std::string points;
+  for (const Point3 &point : route) {
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), " (%.0f, %.0f, %.0f)", point.x, point.y, point.z);
+    points += buffer;
+  }
+  if (!points.empty())
+    _MESSAGE("Walker grid: waypoints:%s", points.c_str());
+  if (WalkerOverlay::Enabled()) {
+    RouteDebug::View view;
+    view.player = start;
+    view.probe.route = route;
+    view.hasTarget = true; // the white pole marks the point searched for
+    view.target = goal;
+    WalkerOverlay::Publish(view);
+  }
+  Console_Print("Walker grid: %s; %d cells, %d rays, %.1f ms. Details in neuro-fnv.log.", outcome, finder.Expansions(),
+                finder.Rays(), took / 1000.0);
+  *result = static_cast<double>(finder.Rays());
+  return true;
+}
+
 void RegisterCommands(NVSEInterface *nvse) {
   REG_CMD(nvse, WalkerDetour);
   REG_CMD(nvse, WalkerProbe);
+  REG_CMD(nvse, WalkerGrid); // after the other two: their opcodes stay as they were
 }
 
 } // namespace WalkerProbe

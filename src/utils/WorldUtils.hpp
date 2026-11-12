@@ -57,6 +57,10 @@ uint16_t PlayerCollisionGroup(PlayerCharacter *player);
 // coordinates; the player's own cell when that one is not loaded.
 TESObjectCELL *CellAt(PlayerCharacter *player, float x, float y);
 
+// The world bound of a reference's loaded 3D: the centre and radius of the sphere around it. False when it has no
+// 3D or the bound is not a usable number.
+bool ReferenceBound(TESObjectREFR *ref, NiPoint3 &centre, float &radius);
+
 // The player's collision capsule in game units: its radius and its full height. False when the character controller
 // is missing or holds values that cannot be a body (then nothing may be assumed in their place).
 bool PlayerCollisionShape(PlayerCharacter *player, float &radius, float &height);
