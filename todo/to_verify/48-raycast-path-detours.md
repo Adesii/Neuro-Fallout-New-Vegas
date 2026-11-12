@@ -198,3 +198,20 @@ With `NWalkerDebug 1 1`:
 4. A second walk to the same place without loading: avoids the car from the start.
 5. After loading: the first walk goes up to the car again.
 6. A blocked route with no other way: she still walks up to it as before.
+
+## Playtest 2026-11-10: first run of the rerouting
+
+Designer's log (`NWalkerDetour 3` at the Primm car): the pathfinder reacted (route 114 m -> 119 m, west around the
+car), but only two triangles were avoided, it threaded through the next one, and she ended on the other side of the
+car with a route back through it. Eight recovery attempts, then "got stuck". The path check cost 599 rays in 79
+frames, 4.8 ms in all, 195 microseconds in the worst frame.
+
+Changed: a spot is now every navmesh triangle under the bounds of the object that blocked (or under a 150-unit circle
+when there is none), up to 16; the same object is one obstacle from whichever side. Two new host tests.
+
+Also new: `NWalkerDetour 4` uses the navigation grid of todo 45 for the way round instead of the side-step.
+
+To run again: `NWalkerDebug 1 1`, `NWalkerDetour 3`, the same walk. Expected: one line `the pathfinder is to avoid N
+navmesh triangle(s) ... under the bounds of the object that blocks` with N above 2, red crosses all over the car's
+ground, and a route that no longer passes the car (`is now ... m long`, clearly longer). If it says `under a circle
+around the blocked spot`, the car's bounds could not be read: send the line.

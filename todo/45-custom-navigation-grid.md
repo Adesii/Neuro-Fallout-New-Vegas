@@ -1,6 +1,6 @@
 # 45 - Custom navigation grid from raycasts, with A* (evaluation)
 
-Status: open (evaluated 2026-11-10; recommendation: do not build, rerouting in todo 48 covers the Primm car; designer's decision pending)
+Status: in progress (first stage built 2026-11-10 and not yet run in game; saving, sampling ahead and long routes not built)
 Area: Walker / pathing (`src/Movement/`, `src/WalkerHandler.cpp`, `src/itr/` pathing)
 Source: designer, 2026-11-07
 Related: `to_verify/43-walker-debug-path-overlay.md` (find out first why the navmesh route fails),
@@ -80,3 +80,25 @@ The designer's test showed the car fills the only way through; the other ways in
 the obstacle would not have found them either. The answer built instead is rerouting through the engine pathfinder's
 avoid nodes (todo 48, design note "The Primm car test and rerouting"). The recommendation is now: do not build the
 grid unless a case turns up where the navmesh has no other way but a walkable gap exists off the navmesh.
+
+## First stage built (2026-11-10)
+
+The designer decided to build the grid: some areas have a very bad navmesh or none.
+
+Built (design note, "Decision and what is built"):
+- `src/Movement/NavGrid.*`, engine-free, `tests/NavGridTests.cpp` (14 cases): 32-unit cells with height levels, steps
+  checked with the ray sweep at the player's width, A* that samples only what it reaches and remembers it, a ray
+  budget per frame, a route to the nearest cell when the goal is out of reach, blocking a step where she got stuck.
+- Walker: `NWalkerDetour 4` searches the grid for a way round a blocked stretch of route (also when the pathfinder
+  has no route and she steers in a straight line), stands while it searches, walks the waypoints, and falls back to
+  the pathfinder's rerouting when the grid finds nothing.
+- `NWalkerGrid [distance] [cells]`: one search to the point ahead, logged and drawn. Opcode after `NWalkerProbe`.
+
+Not built, from this todo's list: saving and loading the grid; a sampler that fills the grid around the player while
+playing; long routes on the grid alone; path smoothing beyond merging straight runs and skipping a waypoint while
+walking.
+
+Checks run: `bash tools/test.sh` (383 pass), `clang-format`, the Debug DLL builds. Not run in the game.
+
+In-game checks: the seven in the design note under "In-game checks for the grid". This file stays in `todo/` because
+the task is only partly built.

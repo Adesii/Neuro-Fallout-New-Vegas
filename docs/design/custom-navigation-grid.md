@@ -4,28 +4,68 @@ Written 2026-11-10. The cost of a ray was measured in game the same day with `NW
 Primm); an interior has not been measured. Everything else is answered from the sources and from the ray counts of the
 sweep that todo 48 already uses.
 
-## Recommendation
+## Decision and what is built (2026-11-10)
 
-Do not build the grid. The Primm car, which started this, turned out not to be a local problem: it fills the only way
-through, and the next way in is over a bridge far off. A grid around the obstacle (stage 2 below) cannot find that;
-only a route search that knows the whole area can. The engine's pathfinder is that search, and it accepts "avoid
-nodes" that make it route around a place (see `raycast-path-detours.md`, "The Primm car test and rerouting"). That is
-now built on top of todo 48 and is the thing to test next.
+I recommended not building the grid, because rerouting through the pathfinder covers an obstacle on a route that has
+another way round. The designer decided to build it anyway: some areas have a very bad navmesh or none, and there the
+pathfinder has nothing to reroute over. The first stage is built and waits for its first run in the game.
 
-The stages, in the order they would make sense if the rerouting is not enough:
+Built (`src/Movement/NavGrid.*`, engine-free, 14 host tests in `tests/NavGridTests.cpp`):
 
-1. **Done (todo 48):** the ray sweep along the navmesh route, a one-waypoint side-step, and rerouting through the
-   pathfinder for spots the side-step cannot pass.
-2. **If obstacles remain where the navmesh has no other way but a walkable gap exists off the navmesh:** a small grid
-   built on demand around the blocked spot, searched with A*, sampling a cell only when the search reaches it.
-3. **Only if stage 2 is too slow or too forgetful in practice:** keep the sampled cells in memory while the area is
-   loaded, then save them per cell.
-4. **Not recommended at all:** the grid alone for short walks, or a grid that samples everything around the player
-   all the time. The navmesh stays the long-range route in every stage.
+- **Cells** of 32 units, aligned to the world, with a level per 64 units of height so a deck over a road is another
+  cell than the road. 32 keeps a ray within the player's radius (20.3) of everything between two neighbouring lines.
+- **A step** from one cell to a neighbour (eight directions) is one `PathProbe::Sweep` at the player's width: floor
+  rays, knee and chest rays on the centre line and to both sides, and the rays run the player's radius past the cell
+  centre so a cell is only entered when its centre keeps that distance from what lies beyond. A diagonal step needs
+  both straight steps beside it. Doors and the walk's own target block for the current search only.
+- **Nothing is sampled ahead.** The A* search asks about a step when it reaches it and the grid remembers every
+  answer, for as long as the player stays in that interior or worldspace. The same search again casts no rays.
+- **Cost** of a route: its length, plus the height climbed, plus 15 % for every blocked step of a cell it leaves, so
+  routes keep off walls a little.
+- **A search** runs a ray budget at a time (1000 rays a frame, 5 ms) and gives up after 4000 cells, about 29 m x 29 m
+  of ground. When it gives up it still returns the way to the cell nearest the goal, if that is a real step nearer.
+- **Where she got stuck** on a grid route, the step she was taking is marked blocked whatever the rays said.
 
-Cost does not argue against any stage (5 microseconds a ray, see below). What argues against the grid is that it
-solves a case that has not been seen yet, that a ray cannot tell everything the grid would need (see "What a ray can
-tell"), and that a saved grid goes stale in ways that are hard to detect.
+In the test world: 600 units of open ground 18 cells and 1,150 rays; round a car 300 units wide 140 cells and 8,900
+rays (9 frames); out of a U-shaped pocket and round it 290 cells and 18,000 rays (18 frames); a wall with no way
+round the full 4000 cells and 270,000 rays (4.5 s at 60 frames a second, 1.35 s of ray time).
+
+Walker (`NWalkerDetour 4`): when the path check finds the route blocked, the grid is searched for a way from where
+she stands to the point of the route 450 units beyond the blocked spot. She stands still while it searches. The
+route found is walked waypoint by waypoint (skipping one when the next but one can be walked to directly) with the
+same checks as a side-step, and when it is found only part of the way it is walked if it gets well past the near side
+of the obstacle. When the grid finds nothing, the spot goes to the pathfinder to route around, as before. This also
+works when the pathfinder has no route at all and the Walker steers in a straight line: each blocked stretch of that
+line is walked around on the grid.
+
+`NWalkerGrid [distance] [cells]` runs one search from the player to the point `distance` units ahead (default 600),
+logs the outcome, cells, rays and time, and draws the route in the overlay. It is the way to look at the grid without
+a walk.
+
+Not built: saving and loading (below, section 3), sampling ahead of the player, and long routes on the grid alone.
+A search covers about 29 m; across an area with no navmesh she advances in hops of that size toward the target and
+can walk into a dead end the navmesh would have known about.
+
+Unverified, all of it in game: that 32-unit steps checked with these rays are steps the player can really take; the
+slope limit (floor normal z 0.6, about 53 degrees; the engine's own limit was not read); the rise and drop limits on
+real ground; how often a search has to give up; what standing still for a search looks like on stream.
+
+### In-game checks for the grid
+
+With `NWalkerDebug 1`:
+1. Open ground, `NWalkerGrid`. Expected: `a way to the point`, about 20 cells, a straight violet line to a white pole.
+2. Facing the Primm car with the far side of it within 8 m: `NWalkerGrid 600`. Expected: a violet route round the
+   car if there is one a person could walk; `no way` or `part of the distance` if the car really fills the gap. Send
+   the `Walker grid:` lines either way.
+3. Facing stairs, a slope, a doorway, a narrow gap between two objects: does the route go where you could walk, and
+   only there?
+4. `NWalkerGrid 600 8000` at a wall with no way round: note the milliseconds (the worst case).
+5. `NWalkerDetour 4`, then a walk whose route is blocked by something she can walk around off the navmesh. Expected:
+   she stops for a moment, `Walker detour 1 ...: the grid found a way round`, a violet chain of waypoints, she walks
+   it without touching the obstacle.
+6. The same at the Primm car: expected `the grid found no way round`, then the reroute lines.
+7. A walk to something the pathfinder has no route to (the red straight line in the overlay): does she get around
+   what is in the way?
 
 ## 1. Cost
 
@@ -94,7 +134,7 @@ Limits:
 - Water, trigger volumes and scripted blockers (collision that appears with a quest stage) are invisible or change
   without notice.
 
-## 3. Storage (stage 3 only)
+## 3. Storage (not built)
 
 - **Key:** worldspace form ID plus exterior cell coordinates, or the interior cell's form ID. One file per cell under
   the plugin's own folder next to the DLL, written when the cell unloads.
@@ -115,8 +155,9 @@ Navmesh for the long route, grid only for the stretch around an obstacle:
 
 - The pathfinder stays the only source of the long route. It knows doors, load doors and other cells; a local grid
   knows none of that, and nothing is sampled far away.
-- The grid search starts where todo 48's check finds the route blocked, runs from the player's cell to any point of
-  the old route 5 to 8 m beyond the blocked spot, and returns a list of waypoints instead of todo 48's single one.
+- The grid search starts where todo 48's check finds the route blocked, runs from the player's cell to the point of
+  the old route 450 units beyond the blocked spot, and returns a list of waypoints instead of todo 48's single one
+  (built).
 - The Walker follows them with the code todo 48 added (steer at a waypoint, drop it on arrival, when the route is
   free again, or when recovery takes over). Stuck, slide, progress and the recovery ladder are unchanged.
 - A switch like `NWalkerDetour` selects plain navmesh, the one-waypoint detour or the grid, for comparison in the
@@ -145,7 +186,7 @@ gives up the navmesh's knowledge of doors.
 - **itr-nvse** (MIT, revision bb61633): the pathing calls already adapted under `src/itr/`, the ray payload layout,
   and ground rays cast as layer 6 (`commands/GroundCommands.cpp`, `handlers/OnFootContactHandler.cpp`).
 
-## What exists already
+## What the grid is built from
 
 - `PathProbe::Sweep` (`src/Movement/PathProbe.*`): "can the player walk from this ground point to that one", with
   floor following, rise, drop, doors, actors and the target told apart. A grid edge is one call of it (or a leaner
@@ -157,6 +198,8 @@ gives up the navmesh's knowledge of doors.
 
 ## Decisions for the designer
 
-1. After the test of the rerouting at the Primm car: does anything remain that needs stage 2?
-2. Is 1 ms a frame (200 rays) acceptable for sampling during a walk, and 3 ms for the few frames of a search?
-3. Should a saved grid (stage 3) exist at all, given that Neuro's playthrough visits most places once?
+1. After the first run: is 5 ms a frame acceptable while a search runs, and standing still for it?
+2. Should the grid be saved to files (section 3)? It would spare the rays the second time through a place; the
+   in-memory grid already does that within one visit.
+3. Should it sample around the player while she walks, so a search finds the ground already known?
+4. Long routes on the grid alone, for whole areas without navmesh: wanted, or are hops of 29 m enough?

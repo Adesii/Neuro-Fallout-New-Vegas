@@ -78,10 +78,9 @@ JIP-LN-NVSE's `avoidNodeArray // 94`:
 What was built on it:
 
 - `Pathing::BuildPath` takes a list of spheres and hands them to the request.
-- A blocked spot becomes two spheres, sampled 40 and 120 units past the blocked spot along the route: each on the
-  centre of the navmesh triangle under the sample (radius 150), or on the sample itself with radius 350 when no
-  triangle is found there. Cost 1000: the way through stays possible when it is the only one and loses to any other
-  way within a few kilometres.
+- A blocked spot becomes spheres on navmesh triangle centres, cost 1000: the way through stays possible when it is
+  the only one and loses to any other way within a few kilometres. (First two triangles sampled along the route;
+  since the first run every triangle under the obstacle, see below.)
 - When a spot is given to the pathfinder (`PathProbe::BlockMemory`, host-tested):
   1. the search for a side-step finds nothing;
   2. the route is blocked again within 150 units of a spot that was already side-stepped on this walk;
@@ -92,6 +91,8 @@ What was built on it:
 - Once any spot is avoided, the progress stall measures the length of the pathfinder's route instead of the straight
   distance, and starts over when the route changes: the way over the bridge leads away from the target for a while.
 - `NWalkerDetour 3` skips the side-step and gives every blocked spot to the pathfinder at once, to test this alone.
+- `NWalkerDetour 4` looks for the way round on the navigation grid (todo 45, `custom-navigation-grid.md`) instead of
+  side-stepping, and falls back to the pathfinder the same way.
 - Log: `Walker reroute: the pathfinder is to avoid (x, y, z) ...` with the reason, then `the route to X is now N m
   long (was M m)`, or `is still N m long` when nothing changed. Overlay: a red cross and tall pole on each avoided
   centre.
@@ -99,6 +100,27 @@ What was built on it:
 Not known until it runs: whether the search this project calls (`PathManager::Solve`, 0x6D0900, a standard request)
 uses the cost function that was read; whether the bridge route is found within the cells that are loaded; whether one
 triangle under the car is enough; whether cost 1000 is in a sensible range.
+
+### First run of the rerouting (2026-11-10, `NWalkerDetour 3`)
+
+- The pathfinder reacts. With two spots avoided the route went from 114 m to 119 m and led west around the car
+  instead of south through it. So the request builder's seventh argument, the node layout and the cost are right.
+- One triangle at a time is not enough. The pathfinder threaded through the next triangle of the same car, the check
+  added two more spots, and she ended up on the other side of the car with a route back through it, stuck, and the
+  walk failed after eight recovery attempts. Later blocks at the same car were also refused as "the same spot" (within
+  150 units), so nothing more was avoided.
+
+Changed in answer:
+
+- A spot is now the whole ground the obstacle stands on: every navmesh triangle that overlaps the bounds of the
+  object that blocked (`WorldUtils::ReferenceBound`, up to a radius of 800 units), or a circle of 150 units just past
+  the blocked spot when there is no usable object (terrain, a building). Up to 16 triangles a spot, a sphere of
+  radius 100 on each centre. `PathProbe::TriangleTouchesCircle` and `Pathing::TriangleCentresTouching`.
+- A block on the same object is the same obstacle wherever it is seen from, so it is not avoided twice and not
+  side-stepped again.
+- The log line is now `Walker reroute: the pathfinder is to avoid N navmesh triangle(s) (M new) under ...`.
+
+Still open: whether the car's bounds cover the gap it fills, and whether the pathfinder then takes the bridge.
 
 ## Measured in game (2026-11-10)
 
@@ -305,8 +327,8 @@ Then the detour:
 
 ## Unverified
 
-- Everything under "Not known until it runs" in the rerouting section, and its four numbers (samples 40 and 120,
-  radius 150 / 350, cost 1000).
+- That the bounds of the blocking object cover the navmesh triangles of the gap it fills, that the pathfinder then
+  takes the other way, and the numbers (bounds up to 800, circle 150, sphere 100 / 350, cost 1000, 16 triangles).
 - Everything under "Still not known" above.
 - The rise limit of 28 units per 20 (see the open point of the measured run).
 - That steering straight at the waypoint works as well as following path nodes (same movement code, different point).
