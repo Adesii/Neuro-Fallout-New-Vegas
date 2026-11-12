@@ -30,6 +30,8 @@ struct RayHit {
   HitKind kind = HitKind::World;
   uint32_t formId = 0; // the reference that was hit; 0 for terrain or unknown
   uint8_t layer = 0;   // its collision layer; 0 when unknown
+  // The z of the surface normal at the hit: 1 for level ground, 0 for a wall. 1 when the engine gave no normal.
+  float normalZ = 1.0f;
 };
 
 // The world as the probe sees it. The engine side casts Havok rays; tests use a few boxes on a floor.
@@ -62,12 +64,20 @@ struct Settings {
   // The down ray starts this far above the last floor and ends this far below it.
   float floorAbove = 60.0f;
   float floorBelow = 120.0f;
+  // A floor steeper than this is not walked on (the z of its normal; 0.6 is about 53 degrees). Stairs pass: their
+  // treads are level, and the down ray never lands on a riser. An estimate: the engine's own limit was not read.
+  float minFloorNormalZ = 0.6f;
+  // The forward rays of the last span run this far past the end of the sweep, so the end point is not closer than
+  // this to something in front of it. The navigation grid sets it to the player's radius: a cell whose centre is
+  // nearer a wall than that cannot be stood in, and a ray that ends exactly on a face, or starts inside the thing
+  // behind it, would otherwise let a route step through.
+  float endClearance = 0.0f;
 };
 
 enum class Blocker {
   None,
   Obstacle, // a forward ray hit something
-  Rise,     // the floor ahead is too high to step onto
+  Rise,     // the floor ahead is too high to step onto, or too steep to stand on
   Drop,     // no floor ahead, or too far down
   Door,     // a forward ray hit a door
 };
@@ -121,6 +131,11 @@ Point3 PointAlong(const std::vector<Point3> &points, float distance);
 // Cuts `trim` off the end of the polyline (the walk ends within reach of its target, whose own collision would
 // otherwise read as an obstacle). Never shorter than its first point.
 std::vector<Point3> TrimEnd(std::vector<Point3> points, float trim);
+
+// Whether a triangle and a circle overlap in plan (x and y only). Used to find the navmesh triangles an obstacle
+// stands on.
+bool TriangleTouchesCircle(const Point3 &a, const Point3 &b, const Point3 &c, float centreX, float centreY,
+                           float radius);
 
 // --- Detour planning --------------------------------------------------------------------------------------------
 
@@ -214,19 +229,28 @@ public:
   // Whether a new search may start: no detour running, budget left, not cooling down after a failed search.
   bool MayPlan() const { return !m_active && m_used < kBudget && m_cooldown <= 0.0f; }
   void Begin(const Point3 &waypoint, int side, float remaining);
+  // A detour of several waypoints walked in order (a route from the navigation grid). `waypoints` must not be empty.
+  void Begin(std::vector<Point3> waypoints, int side, float remaining);
   void PlanFailed() { m_cooldown = kFailCooldown; }
   void Finish();
 
   bool Active() const { return m_active; }
-  const Point3 &Waypoint() const { return m_waypoint; }
+  // The waypoint being walked to.
+  const Point3 &Waypoint() const { return m_waypoints[m_index]; }
+  // The waypoints still to come, the current one first.
+  std::vector<Point3> Remaining() const;
+  // Skips `count` waypoints (the one after them can be walked to directly). Never past the last.
+  void SkipAhead(size_t count);
   int PreferredSide() const { return m_side; }
   int Used() const { return m_used; }
-  // While a detour runs: true when the player is at the waypoint (End::Arrived) or it took too long (End::TimedOut).
-  bool Expired(float playerX, float playerY, End &why) const;
+  // While a detour runs: true when the player is at the last waypoint (End::Arrived) or the current one took too long
+  // (End::TimedOut). Reaching a waypoint that is not the last moves on to the next and is not an end.
+  bool Expired(float playerX, float playerY, End &why);
 
 private:
   bool m_active = false;
-  Point3 m_waypoint;
+  std::vector<Point3> m_waypoints = {Point3{}};
+  size_t m_index = 0;
   int m_side = 0;
   int m_used = 0;
   float m_elapsed = 0.0f;
@@ -250,6 +274,7 @@ public:
     Point3 point;
     float dirX = 0.0f; // the direction the route ran into it
     float dirY = 0.0f;
+    uint32_t formId = 0; // the reference that blocked, 0 for terrain or unknown
   };
 
   enum class Action {
@@ -263,14 +288,15 @@ public:
   // A new walk: side-steps may be tried again, the avoided spots stay. She passes the same car on the next walk too,
   // and should not have to bump into it again.
   void ResetWalk() { m_detours.clear(); }
-  // `rerouteOnly` skips the side-step (console mode for testing the rerouting alone).
-  Action Decide(const Point3 &point, bool rerouteOnly) const;
+  // `rerouteOnly` skips the side-step (console mode for testing the rerouting alone). `formId` is the reference
+  // that blocks (0 for none): the same object seen from another side is the same obstacle.
+  Action Decide(const Point3 &point, bool rerouteOnly, uint32_t formId = 0) const;
   // A side-step was started for a block at `point`.
   void NoteDetour(const Point3 &point);
   bool DetourTried(const Point3 &point) const;
   // Marks the spot as avoided, dropping the oldest one when the list is full. False when it already is.
-  bool Avoid(const Point3 &point, float dirX, float dirY);
-  bool Avoided(const Point3 &point) const;
+  bool Avoid(const Point3 &point, float dirX, float dirY, uint32_t formId = 0);
+  bool Avoided(const Point3 &point, uint32_t formId = 0) const;
   const std::vector<Spot> &AvoidedSpots() const { return m_avoided; }
 
 private:

@@ -101,7 +101,7 @@ SweepResult Sweep(World &world, const Point3 &from, const Point3 &to, float maxD
       blocker = Blocker::Drop;
     } else if (down.kind != HitKind::Actor) {
       z = above.z + (below.z - above.z) * down.fraction;
-      if (z - floor.z > settings.maxRise)
+      if (z - floor.z > settings.maxRise || down.normalZ < settings.minFloorNormalZ)
         blocker = Blocker::Rise;
       else if (floor.z - z > settings.maxDrop)
         blocker = Blocker::Drop;
@@ -131,11 +131,15 @@ SweepResult Sweep(World &world, const Point3 &from, const Point3 &to, float maxD
     RayHit blockHit;
     bool left = false;
     bool right = false;
+    const bool lastSpan = distance >= total - kEpsilon;
+    const float past = lastSpan ? std::max(settings.endClearance, 0.0f) : 0.0f;
+    const Point3 rayEnd = {floor.x + ux * past, floor.y + uy * past, floor.z};
+    const float rayEndDistance = distance + past;
     for (float height : heights) {
       for (int index = 0; index < offsetCount; ++index) {
         const float offset = offsets[index];
         const Point3 a = {rayStart.x + nx * offset, rayStart.y + ny * offset, rayStart.z + height};
-        const Point3 b = {floor.x + nx * offset, floor.y + ny * offset, floor.z + height};
+        const Point3 b = {rayEnd.x + nx * offset, rayEnd.y + ny * offset, rayEnd.z + height};
         const RayHit hit = world.Cast(a, b);
         ++result.rays;
         const bool blocks = hit.hit && hit.kind != HitKind::Actor && hit.kind != HitKind::Target;
@@ -158,8 +162,8 @@ SweepResult Sweep(World &world, const Point3 &from, const Point3 &to, float maxD
     const float nearest = std::min(nearestBlock, nearestTarget);
     if (nearest <= 1.0f) {
       // Whichever comes first along the rays: the target (the walk ends there) or something in the way.
-      result.blockPoint = Lerp(rayStart, floor, nearest);
-      result.clearDistance = rayStartDistance + (distance - rayStartDistance) * nearest;
+      result.blockPoint = Lerp(rayStart, rayEnd, nearest);
+      result.clearDistance = std::min(rayStartDistance + (rayEndDistance - rayStartDistance) * nearest, distance);
       result.end = result.clearDistance >= spanStartDistance ? spanStart : rayStart;
       if (nearestTarget <= nearestBlock) {
         result.reachedTarget = true;
@@ -249,6 +253,31 @@ std::vector<Point3> TrimEnd(std::vector<Point3> points, float trim) {
     points.pop_back();
   }
   return points;
+}
+
+bool TriangleTouchesCircle(const Point3 &a, const Point3 &b, const Point3 &c, float centreX, float centreY,
+                           float radius) {
+  // The centre inside the triangle: the same side of all three edges.
+  auto side = [&](const Point3 &p, const Point3 &q) {
+    return (q.x - p.x) * (centreY - p.y) - (q.y - p.y) * (centreX - p.x);
+  };
+  const float s1 = side(a, b);
+  const float s2 = side(b, c);
+  const float s3 = side(c, a);
+  if ((s1 >= 0.0f && s2 >= 0.0f && s3 >= 0.0f) || (s1 <= 0.0f && s2 <= 0.0f && s3 <= 0.0f))
+    return true;
+  // Or an edge within the radius of the centre.
+  auto edgeWithin = [&](const Point3 &p, const Point3 &q) {
+    const float ex = q.x - p.x;
+    const float ey = q.y - p.y;
+    const float lengthSquared = ex * ex + ey * ey;
+    float t = lengthSquared > 0.0f ? ((centreX - p.x) * ex + (centreY - p.y) * ey) / lengthSquared : 0.0f;
+    t = std::clamp(t, 0.0f, 1.0f);
+    const float dx = p.x + ex * t - centreX;
+    const float dy = p.y + ey * t - centreY;
+    return dx * dx + dy * dy <= radius * radius;
+  };
+  return edgeWithin(a, b) || edgeWithin(b, c) || edgeWithin(c, a);
 }
 
 std::vector<Candidate> MakeCandidates(const Point3 &blockPoint, float dirX, float dirY, int preferredSide,
@@ -377,8 +406,15 @@ void DetourTracker::Update(float dt, float remaining) {
 }
 
 void DetourTracker::Begin(const Point3 &waypoint, int side, float remaining) {
+  Begin(std::vector<Point3>{waypoint}, side, remaining);
+}
+
+void DetourTracker::Begin(std::vector<Point3> waypoints, int side, float remaining) {
+  if (waypoints.empty())
+    return;
   m_active = true;
-  m_waypoint = waypoint;
+  m_waypoints = std::move(waypoints);
+  m_index = 0;
   m_side = side;
   m_elapsed = 0.0f;
   ++m_used;
@@ -393,14 +429,34 @@ void DetourTracker::Finish() {
   m_elapsed = 0.0f;
 }
 
-bool DetourTracker::Expired(float playerX, float playerY, End &why) const {
+std::vector<Point3> DetourTracker::Remaining() const {
+  if (!m_active)
+    return {};
+  return {m_waypoints.begin() + static_cast<std::ptrdiff_t>(m_index), m_waypoints.end()};
+}
+
+void DetourTracker::SkipAhead(size_t count) {
+  if (!m_active || count == 0)
+    return;
+  m_index = std::min(m_index + count, m_waypoints.size() - 1);
+  m_elapsed = 0.0f;
+}
+
+bool DetourTracker::Expired(float playerX, float playerY, End &why) {
   if (!m_active)
     return false;
-  const float dx = playerX - m_waypoint.x;
-  const float dy = playerY - m_waypoint.y;
-  if (std::sqrt(dx * dx + dy * dy) <= kArriveDistance) {
-    why = End::Arrived;
-    return true;
+  // Several waypoints can be within reach at once where the route turns tightly.
+  while (true) {
+    const float dx = playerX - m_waypoints[m_index].x;
+    const float dy = playerY - m_waypoints[m_index].y;
+    if (std::sqrt(dx * dx + dy * dy) > kArriveDistance)
+      break;
+    if (m_index + 1 >= m_waypoints.size()) {
+      why = End::Arrived;
+      return true;
+    }
+    ++m_index;
+    m_elapsed = 0.0f; // every waypoint gets its own time
   }
   if (m_elapsed >= kMaxSeconds) {
     why = End::TimedOut;
@@ -411,8 +467,8 @@ bool DetourTracker::Expired(float playerX, float playerY, End &why) const {
 
 void BlockMemory::Reset() { *this = {}; }
 
-BlockMemory::Action BlockMemory::Decide(const Point3 &point, bool rerouteOnly) const {
-  if (Avoided(point))
+BlockMemory::Action BlockMemory::Decide(const Point3 &point, bool rerouteOnly, uint32_t formId) const {
+  if (Avoided(point, formId))
     return Action::Nothing;
   return rerouteOnly || DetourTried(point) ? Action::Reroute : Action::Search;
 }
@@ -429,18 +485,18 @@ bool BlockMemory::DetourTried(const Point3 &point) const {
   return false;
 }
 
-bool BlockMemory::Avoid(const Point3 &point, float dirX, float dirY) {
-  if (Avoided(point))
+bool BlockMemory::Avoid(const Point3 &point, float dirX, float dirY, uint32_t formId) {
+  if (Avoided(point, formId))
     return false;
   if (m_avoided.size() >= kMaxAvoided)
     m_avoided.erase(m_avoided.begin());
-  m_avoided.push_back({point, dirX, dirY});
+  m_avoided.push_back({point, dirX, dirY, formId});
   return true;
 }
 
-bool BlockMemory::Avoided(const Point3 &point) const {
+bool BlockMemory::Avoided(const Point3 &point, uint32_t formId) const {
   for (const Spot &spot : m_avoided)
-    if (Distance2D(spot.point, point) <= kSameSpot)
+    if (Distance2D(spot.point, point) <= kSameSpot || (formId != 0 && spot.formId == formId))
       return true;
   return false;
 }

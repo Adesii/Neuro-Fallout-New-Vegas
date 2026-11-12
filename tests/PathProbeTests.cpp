@@ -1,3 +1,4 @@
+#include "BoxWorld.hpp"
 #include "Movement/PathProbe.hpp"
 #include "TestFramework.hpp"
 #include <cmath>
@@ -6,71 +7,9 @@
 #include <vector>
 
 using namespace PathProbe;
+using TestWorld::BoxWorld;
 
 namespace {
-
-// A world of axis-aligned boxes. A ray that starts inside a box does not hit that box (like a convex Havok shape).
-struct Box {
-  Point3 low;
-  Point3 high;
-  HitKind kind = HitKind::World;
-  uint32_t formId = 0;
-};
-
-class BoxWorld : public World {
-public:
-  // The ground: a slab with its top at z = 0, `halfSize` to every side of the origin.
-  explicit BoxWorld(float halfSize = 100000.0f) {
-    boxes.push_back({{-halfSize, -halfSize, -1000.0f}, {halfSize, halfSize, 0.0f}});
-  }
-
-  void Add(Point3 low, Point3 high, HitKind kind = HitKind::World, uint32_t formId = 0) {
-    boxes.push_back({low, high, kind, formId});
-  }
-
-  RayHit Cast(const Point3 &from, const Point3 &to) override {
-    ++casts;
-    RayHit best;
-    for (const Box &box : boxes) {
-      float enter = 0.0f;
-      float leave = 1.0f;
-      bool inside = true;
-      bool miss = false;
-      const float origin[3] = {from.x, from.y, from.z};
-      const float delta[3] = {to.x - from.x, to.y - from.y, to.z - from.z};
-      const float low[3] = {box.low.x, box.low.y, box.low.z};
-      const float high[3] = {box.high.x, box.high.y, box.high.z};
-      for (int axis = 0; axis < 3 && !miss; ++axis) {
-        if (origin[axis] < low[axis] || origin[axis] > high[axis])
-          inside = false;
-        if (std::abs(delta[axis]) < 1e-6f) {
-          miss = origin[axis] < low[axis] || origin[axis] > high[axis];
-          continue;
-        }
-        float t0 = (low[axis] - origin[axis]) / delta[axis];
-        float t1 = (high[axis] - origin[axis]) / delta[axis];
-        if (t0 > t1)
-          std::swap(t0, t1);
-        enter = std::max(enter, t0);
-        leave = std::min(leave, t1);
-        miss = enter > leave;
-      }
-      if (miss || inside || enter >= best.fraction)
-        continue;
-      best.hit = true;
-      best.fraction = enter;
-      best.kind = box.kind;
-      best.formId = box.formId;
-    }
-    return best;
-  }
-
-  bool Walkable(const Point3 &point) override { return !walkable || walkable(point); }
-
-  std::vector<Box> boxes;
-  std::function<bool(const Point3 &)> walkable;
-  int casts = 0;
-};
 
 // A wrecked car lying across the line y = 0: its near face at x = `face`, 140 deep, between y = `right` and `left`.
 void AddCar(BoxWorld &world, float face, float right, float left) {
@@ -490,4 +429,77 @@ TEST("block memory: reroute-only mode skips the side-step, the oldest spot makes
   memory.Reset();
   CHECK(memory.AvoidedSpots().empty());
   CHECK(memory.Decide({50000.0f, 0.0f, 0.0f}, false) == BlockMemory::Action::Search);
+}
+
+TEST("path probe: a floor too steep to stand on blocks, whatever its height") {
+  // A world whose floor reports a steep normal beyond x = 200.
+  class SteepWorld : public BoxWorld {
+  public:
+    RayHit Cast(const Point3 &from, const Point3 &to) override {
+      RayHit hit = BoxWorld::Cast(from, to);
+      if (hit.hit && from.x == to.x && from.y == to.y && from.x > 200.0f)
+        hit.normalZ = 0.4f;
+      return hit;
+    }
+  };
+  SteepWorld world;
+  const SweepResult sweep = Sweep(world, kOrigin, {600.0f, 0.0f, 0.0f}, 400.0f, kSettings, 0.0f);
+  CHECK(sweep.blocker == Blocker::Rise);
+  CHECK(Near(sweep.clearDistance, 200.0f, 0.5f));
+}
+
+TEST("detour tracker: a route of several waypoints is walked in order and can be skipped ahead") {
+  DetourTracker tracker;
+  tracker.Begin(std::vector<Point3>{{100.0f, 0.0f, 0.0f}, {100.0f, 100.0f, 0.0f}, {300.0f, 100.0f, 0.0f}}, 0, 900.0f);
+  CHECK(tracker.Active());
+  CHECK_EQ(tracker.Remaining().size(), 3u);
+  DetourTracker::End why = DetourTracker::End::Abandoned;
+  CHECK(!tracker.Expired(0.0f, 0.0f, why));
+  CHECK(Near(tracker.Waypoint().x, 100.0f, 0.01f));
+  // At the first: on to the second, not the end.
+  CHECK(!tracker.Expired(90.0f, 10.0f, why));
+  CHECK(Near(tracker.Waypoint().y, 100.0f, 0.01f));
+  CHECK_EQ(tracker.Remaining().size(), 2u);
+  // Each waypoint has its own time.
+  for (int frame = 0; frame < 7 * 60; ++frame)
+    tracker.Update(1.0f / 60.0f, 900.0f);
+  CHECK(!tracker.Expired(90.0f, 95.0f, why));
+  CHECK(Near(tracker.Waypoint().x, 300.0f, 0.01f));
+  for (int frame = 0; frame < 7 * 60; ++frame)
+    tracker.Update(1.0f / 60.0f, 900.0f);
+  CHECK(!tracker.Expired(150.0f, 100.0f, why));
+  CHECK(tracker.Expired(290.0f, 100.0f, why));
+  CHECK(why == DetourTracker::End::Arrived);
+
+  DetourTracker skipping;
+  skipping.Begin(std::vector<Point3>{{1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f}, {3.0f, 0.0f, 0.0f}}, 0, 900.0f);
+  skipping.SkipAhead(1);
+  CHECK(Near(skipping.Waypoint().x, 2.0f, 0.01f));
+  skipping.SkipAhead(5);
+  CHECK(Near(skipping.Waypoint().x, 3.0f, 0.01f));
+}
+
+TEST("path probe: a triangle touches a circle when it holds its centre or an edge comes within its radius") {
+  const Point3 a = {0.0f, 0.0f, 0.0f};
+  const Point3 b = {100.0f, 0.0f, 0.0f};
+  const Point3 c = {0.0f, 100.0f, 50.0f};
+  CHECK(TriangleTouchesCircle(a, b, c, 20.0f, 20.0f, 1.0f));    // centre inside
+  CHECK(TriangleTouchesCircle(a, c, b, 20.0f, 20.0f, 1.0f));    // either winding
+  CHECK(TriangleTouchesCircle(a, b, c, 50.0f, -15.0f, 20.0f));  // outside, an edge within reach
+  CHECK(!TriangleTouchesCircle(a, b, c, 50.0f, -25.0f, 20.0f)); // outside, out of reach
+  CHECK(TriangleTouchesCircle(a, b, c, 110.0f, -5.0f, 12.0f));  // a corner within reach
+  CHECK(!TriangleTouchesCircle(a, b, c, 300.0f, 300.0f, 100.0f));
+  CHECK(TriangleTouchesCircle(a, b, c, 300.0f, 300.0f, 400.0f)); // the circle swallows it
+}
+
+TEST("block memory: the same object seen from another side is the same obstacle") {
+  BlockMemory memory;
+  CHECK(memory.Avoid({200.0f, 0.0f, 0.0f}, 1.0f, 0.0f, 0xCA5));
+  // 400 units away, on the far side of the same car.
+  CHECK(memory.Avoided({600.0f, 0.0f, 0.0f}, 0xCA5));
+  CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0xCA5) == BlockMemory::Action::Nothing);
+  CHECK(!memory.Avoid({600.0f, 0.0f, 0.0f}, -1.0f, 0.0f, 0xCA5));
+  // Another object there, or terrain, is a new obstacle.
+  CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0xBEE) == BlockMemory::Action::Search);
+  CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0) == BlockMemory::Action::Search);
 }
