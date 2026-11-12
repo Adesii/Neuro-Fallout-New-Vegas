@@ -405,8 +405,8 @@ TEST("block memory: a side-step is tried once per spot, then the pathfinder has 
   CHECK(memory.Decide(again, false) == BlockMemory::Action::Reroute);
   CHECK(memory.Avoid(again, 1.0f, 0.0f));
   CHECK_EQ(memory.AvoidedSpots().size(), 1u);
-  // The pathfinder knows and still routes through: nothing more to try, and no second entry.
-  CHECK(memory.Decide(car, false) == BlockMemory::Action::Nothing);
+  // Blocked there again: straight to the pathfinder, and no second entry.
+  CHECK(memory.Decide(car, false) == BlockMemory::Action::Reroute);
   CHECK(!memory.Avoid(car, 1.0f, 0.0f));
   // Another obstacle further on starts over with a side-step.
   CHECK(memory.Decide({900.0f, 0.0f, 0.0f}, false) == BlockMemory::Action::Search);
@@ -479,25 +479,12 @@ TEST("detour tracker: a route of several waypoints is walked in order and can be
   CHECK(Near(skipping.Waypoint().x, 3.0f, 0.01f));
 }
 
-TEST("path probe: a triangle touches a circle when it holds its centre or an edge comes within its radius") {
-  const Point3 a = {0.0f, 0.0f, 0.0f};
-  const Point3 b = {100.0f, 0.0f, 0.0f};
-  const Point3 c = {0.0f, 100.0f, 50.0f};
-  CHECK(TriangleTouchesCircle(a, b, c, 20.0f, 20.0f, 1.0f));    // centre inside
-  CHECK(TriangleTouchesCircle(a, c, b, 20.0f, 20.0f, 1.0f));    // either winding
-  CHECK(TriangleTouchesCircle(a, b, c, 50.0f, -15.0f, 20.0f));  // outside, an edge within reach
-  CHECK(!TriangleTouchesCircle(a, b, c, 50.0f, -25.0f, 20.0f)); // outside, out of reach
-  CHECK(TriangleTouchesCircle(a, b, c, 110.0f, -5.0f, 12.0f));  // a corner within reach
-  CHECK(!TriangleTouchesCircle(a, b, c, 300.0f, 300.0f, 100.0f));
-  CHECK(TriangleTouchesCircle(a, b, c, 300.0f, 300.0f, 400.0f)); // the circle swallows it
-}
-
 TEST("block memory: the same object seen from another side is the same obstacle") {
   BlockMemory memory;
   CHECK(memory.Avoid({200.0f, 0.0f, 0.0f}, 1.0f, 0.0f, 0xCA5));
   // 400 units away, on the far side of the same car.
   CHECK(memory.Avoided({600.0f, 0.0f, 0.0f}, 0xCA5));
-  CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0xCA5) == BlockMemory::Action::Nothing);
+  CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0xCA5) == BlockMemory::Action::Reroute);
   CHECK(!memory.Avoid({600.0f, 0.0f, 0.0f}, -1.0f, 0.0f, 0xCA5));
   // Another object there, or terrain, is a new obstacle.
   CHECK(memory.Decide({600.0f, 0.0f, 0.0f}, false, 0xBEE) == BlockMemory::Action::Search);

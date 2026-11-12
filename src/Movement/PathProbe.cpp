@@ -255,31 +255,6 @@ std::vector<Point3> TrimEnd(std::vector<Point3> points, float trim) {
   return points;
 }
 
-bool TriangleTouchesCircle(const Point3 &a, const Point3 &b, const Point3 &c, float centreX, float centreY,
-                           float radius) {
-  // The centre inside the triangle: the same side of all three edges.
-  auto side = [&](const Point3 &p, const Point3 &q) {
-    return (q.x - p.x) * (centreY - p.y) - (q.y - p.y) * (centreX - p.x);
-  };
-  const float s1 = side(a, b);
-  const float s2 = side(b, c);
-  const float s3 = side(c, a);
-  if ((s1 >= 0.0f && s2 >= 0.0f && s3 >= 0.0f) || (s1 <= 0.0f && s2 <= 0.0f && s3 <= 0.0f))
-    return true;
-  // Or an edge within the radius of the centre.
-  auto edgeWithin = [&](const Point3 &p, const Point3 &q) {
-    const float ex = q.x - p.x;
-    const float ey = q.y - p.y;
-    const float lengthSquared = ex * ex + ey * ey;
-    float t = lengthSquared > 0.0f ? ((centreX - p.x) * ex + (centreY - p.y) * ey) / lengthSquared : 0.0f;
-    t = std::clamp(t, 0.0f, 1.0f);
-    const float dx = p.x + ex * t - centreX;
-    const float dy = p.y + ey * t - centreY;
-    return dx * dx + dy * dy <= radius * radius;
-  };
-  return edgeWithin(a, b) || edgeWithin(b, c) || edgeWithin(c, a);
-}
-
 std::vector<Candidate> MakeCandidates(const Point3 &blockPoint, float dirX, float dirY, int preferredSide,
                                       int hintSide) {
   std::vector<Candidate> candidates;
@@ -468,9 +443,7 @@ bool DetourTracker::Expired(float playerX, float playerY, End &why) {
 void BlockMemory::Reset() { *this = {}; }
 
 BlockMemory::Action BlockMemory::Decide(const Point3 &point, bool rerouteOnly, uint32_t formId) const {
-  if (Avoided(point, formId))
-    return Action::Nothing;
-  return rerouteOnly || DetourTried(point) ? Action::Reroute : Action::Search;
+  return rerouteOnly || DetourTried(point) || Avoided(point, formId) ? Action::Reroute : Action::Search;
 }
 
 void BlockMemory::NoteDetour(const Point3 &point) {

@@ -132,11 +132,6 @@ Point3 PointAlong(const std::vector<Point3> &points, float distance);
 // otherwise read as an obstacle). Never shorter than its first point.
 std::vector<Point3> TrimEnd(std::vector<Point3> points, float trim);
 
-// Whether a triangle and a circle overlap in plan (x and y only). Used to find the navmesh triangles an obstacle
-// stands on.
-bool TriangleTouchesCircle(const Point3 &a, const Point3 &b, const Point3 &c, float centreX, float centreY,
-                           float radius);
-
 // --- Detour planning --------------------------------------------------------------------------------------------
 
 enum class CandidateStatus {
@@ -261,10 +256,10 @@ private:
 
 // --- Blocked spots ----------------------------------------------------------------------------------------------
 
-// What a walk has learnt about the places where its route was blocked. A side-step is tried once per spot. If the
-// route is blocked there again afterwards, or no side-step exists, or the player gets stuck at it, the spot is one
-// the pathfinder itself has to route around (the car in Primm fills the only way through; the next way in is over a
-// bridge far off). The engine side hands the avoided spots to the pathfinder with every route search.
+// What a walk has learnt about the places where its route was blocked. A way round on foot is tried once per
+// obstacle. If the route is blocked there again afterwards, or no way round exists, or the player gets stuck at it,
+// the pathfinder itself has to find another route (the cars in Primm fill the only way through; the next way in is
+// over a bridge far off): the engine side then asks it again and again, marking the navmesh it must avoid.
 class BlockMemory {
 public:
   static constexpr float kSameSpot = 150.0f; // two blocks this close are the same obstacle
@@ -278,9 +273,8 @@ public:
   };
 
   enum class Action {
-    Search,  // look for a side-step
-    Reroute, // tell the pathfinder to avoid the spot
-    Nothing, // the pathfinder was told already and still routes through it: there is no other way
+    Search,  // look for a way round on foot (the grid, or a side-step)
+    Reroute, // that was tried for this obstacle already: ask the pathfinder for another route
   };
 
   // Everything (another interior or worldspace, a load).

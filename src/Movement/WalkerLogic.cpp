@@ -20,6 +20,10 @@ std::string DescribeFailure(FailureReason reason, const std::string &target, con
     return "Could not reach " + target +
            ": you kept walking but never got meaningfully closer, so it may not be "
            "reachable from here.";
+  case FailureReason::Blocked:
+    return "Could not reach " + target + ": the way there is blocked" +
+           (detail.empty() ? std::string() : " by " + detail) +
+           " and no way around it was found. Try another route or a different target.";
   case FailureReason::TargetGone:
     return target + " is no longer available.";
   case FailureReason::WrongFloor:

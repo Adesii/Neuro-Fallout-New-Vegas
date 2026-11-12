@@ -371,6 +371,10 @@ TEST("walker messages: failures carry a cause and the blocking door") {
   CHECK(DescribeFailure(FailureReason::NoProgress, "the shelf", "").find("closer") != std::string::npos);
   CHECK(DescribeFailure(FailureReason::ActivationRejected, "the safe", "").find("rejected") != std::string::npos);
   CHECK(DescribeFailure(FailureReason::Generic, "the safe", "") == "Could not reach the safe.");
+  const std::string blocked = DescribeFailure(FailureReason::Blocked, "the door", "");
+  CHECK(blocked.find("blocked and no way around") != std::string::npos);
+  CHECK(DescribeFailure(FailureReason::Blocked, "the door", "Highwayman").find("blocked by Highwayman") !=
+        std::string::npos);
 }
 
 TEST("walker messages: progress and pause texts name the target") {

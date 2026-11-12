@@ -18,6 +18,7 @@ enum class FailureReason {
   Stuck,              // physically blocked and every recovery step failed
   DoorLocked,         // a locked door stood in the way (detail = the door)
   NoProgress,         // kept moving but never got meaningfully closer
+  Blocked,            // something stands in the route and neither a way round nor another route exists (detail)
   TargetGone,         // the reference vanished (picked up, killed, unloaded)
   WrongFloor,         // within reach horizontally but not reachable from here (another level, or behind geometry)
   ActivationRejected, // the game refused the activation

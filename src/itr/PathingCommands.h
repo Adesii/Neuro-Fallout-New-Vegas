@@ -17,10 +17,6 @@ struct AvoidSphere {
   float radius;
   float cost;
 };
-// The centres of the cell's navmesh triangles that overlap the circle (in plan) and lie within `zLimit` of `z`,
-// appended to `out`. Not part of itr-nvse.
-void TriangleCentresTouching(const TESObjectCELL *cell, float centreX, float centreY, float radius, float z,
-                             float zLimit, std::vector<PathPoint3> &out);
 bool GetPath(TESObjectREFR *actorRef, TESObjectREFR *target, PathResult &out);
 bool BuildPath(Actor *actor, TESObjectREFR *target, PathResult &out, const std::vector<AvoidSphere> *avoid = nullptr);
 bool PointOnNavmesh(const PathPoint3 &point, TESObjectCELL *cell, TESWorldSpace *worldSpace);
